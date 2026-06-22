@@ -242,23 +242,27 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
     </div>
     <div class="login-sub">Dock Scheduling System</div>
     <div class="login-loc">📍 Location 6021 — Greensboro</div>
-    <div class="login-section-label">Select Access</div>
-    <div id="group-list">
-      <button class="user-btn" onclick="choosePiper()">
-        PIPER
-        <span class="role-badge" style="background:rgba(217,119,6,0.12);color:var(--warning)">FULL ACCESS</span>
-      </button>
-      <div id="piper-pw-row" style="display:none;margin-top:10px">
-        <input type="password" id="piper-pw" placeholder="Enter PIPER password"
-               onkeydown="if(event.key==='Enter')submitPiper()"
-               style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px">
-        <div id="piper-err" style="color:var(--danger,#dc2626);font-size:12px;margin-top:6px;display:none">Incorrect password</div>
-        <button class="user-btn" onclick="submitPiper()" style="margin-top:8px;justify-content:center;font-weight:700">Enter</button>
-      </div>
-      <button class="user-btn" onclick="chooseFFTI()" style="margin-top:10px">
-        FFTI / SW
-        <span class="role-badge" style="background:rgba(26,158,122,0.12);color:var(--accent2)">FIRST FLEET ONLY</span>
-      </button>
+    <div class="login-section-label">Sign In</div>
+    <div id="login-form">
+      <input type="email" id="login-email" placeholder="Email" autocomplete="username"
+             onkeydown="if(event.key==='Enter')document.getElementById('login-pw').focus()"
+             style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin-bottom:10px">
+      <input type="password" id="login-pw" placeholder="Password" autocomplete="current-password"
+             onkeydown="if(event.key==='Enter')submitLogin()"
+             style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px">
+      <div id="login-err" style="color:var(--danger,#dc2626);font-size:12px;margin-top:8px;display:none"></div>
+      <button class="user-btn" onclick="submitLogin()" style="margin-top:12px;justify-content:center;font-weight:700">Sign In</button>
+    </div>
+    <div style="margin-top:20px;text-align:center">
+      <button id="admin-link" onclick="showAdminLogin()" title="Admin access"
+        style="background:none;border:none;color:var(--text2);font-size:11px;opacity:.5;cursor:pointer;letter-spacing:.5px;padding:2px 6px">Omar Contreras</button>
+    </div>
+    <div id="admin-pw-row" style="display:none;margin-top:8px">
+      <input type="password" id="admin-pw" placeholder="Admin password"
+             onkeydown="if(event.key==='Enter')submitAdmin()"
+             style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px">
+      <div id="admin-err" style="color:var(--danger,#dc2626);font-size:12px;margin-top:6px;display:none">Incorrect password</div>
+      <button class="user-btn" onclick="submitAdmin()" style="margin-top:8px;justify-content:center;font-weight:700">Enter</button>
     </div>
   </div>
 </div>
@@ -276,6 +280,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
       <div class="header-user" id="user-display">—</div>
       <button class="sign-out-btn" id="import-btn" onclick="showImportModal()" style="display:none;margin-right:8px;background:var(--inbound);color:#fff;border-color:var(--inbound)">Import Excel</button>
       <button class="sign-out-btn" id="table-btn" onclick="showTableImportModal()" style="display:none;margin-right:8px;background:#0d9488;color:#fff;border-color:#0d9488">Update Table</button>
+      <button class="sign-out-btn" id="users-btn" onclick="showUsersModal()" style="display:none;margin-right:8px;background:#6b21a8;color:#fff;border-color:#6b21a8">Users</button>
       <button class="sign-out-btn" onclick="logout()">Sign Out</button>
     </div>
   </div>
@@ -330,6 +335,8 @@ const state = {
   outbound: {},
   yard: {},
   users: [],
+  authUsers: {},
+  sessions: {},
   rollMode: { ib:false, ob:false },
   ffCustFilter: null,
   obSearch: ''
@@ -409,52 +416,121 @@ const DEFAULT_USERS = [
   {id:'josh',    name:'Josh Piper',     role:'admin'},
 ];
 
-const PIPER_PASSWORD = 'Piper6021';
+// Group default passwords (used when a user has no individual password set).
+// Admins can override any user's password individually in the Users panel.
+const PIPER_DEFAULT_PW = 'Piper6021';
+const FFTI_DEFAULT_PW  = 'FFTI6021';
+const ADMIN_SEED_EMAIL = 'ocontreras@piperogistics.com';
+const ADMIN_BACKDOOR_PW = '2113';
 
-function buildLoginScreen() {
-  // reset the PIPER password row each time the login screen is shown
-  const row = document.getElementById('piper-pw-row');
-  const pw  = document.getElementById('piper-pw');
-  const err = document.getElementById('piper-err');
-  if (row) row.style.display = 'none';
-  if (pw)  pw.value = '';
-  if (err) err.style.display = 'none';
+function expectedPasswordFor(u) {
+  return u.password || (u.group === 'piper' ? PIPER_DEFAULT_PW : FFTI_DEFAULT_PW);
 }
 
-function chooseFFTI() {
-  loginGroup('ffti');
-}
-function choosePiper() {
-  const row = document.getElementById('piper-pw-row');
-  row.style.display = 'block';
-  const pw = document.getElementById('piper-pw');
-  pw.value = '';
-  document.getElementById('piper-err').style.display = 'none';
-  pw.focus();
-}
-function submitPiper() {
-  const pw  = document.getElementById('piper-pw');
-  const err = document.getElementById('piper-err');
-  if (pw.value === PIPER_PASSWORD) {
-    loginGroup('piper');
-  } else {
-    err.style.display = 'block';
-    pw.value = '';
-    pw.focus();
+// Make sure the admin account always exists so you can never be locked out.
+let _adminSeedChecked = false;
+function ensureAdminSeed() {
+  if (_adminSeedChecked) return;
+  _adminSeedChecked = true;
+  const has = Object.values(state.authUsers||{}).some(u => (u.email||'').toLowerCase() === ADMIN_SEED_EMAIL);
+  if (!has) {
+    db.ref(ROOT+'/authUsers').push({ email: ADMIN_SEED_EMAIL, group: 'piper', isAdmin: true, password: ADMIN_BACKDOOR_PW, addedAt: Date.now() }).catch(()=>{});
   }
 }
 
-function loginGroup(group) {
+// Repair/ensure the admin roster account (used by the hidden admin entry).
+function ensureAdminAccount() {
+  const entry = Object.entries(state.authUsers||{}).find(([id,u]) => (u.email||'').toLowerCase() === ADMIN_SEED_EMAIL);
+  if (entry) {
+    db.ref(ROOT+'/authUsers/'+entry[0]).update({ group:'piper', isAdmin:true, password:ADMIN_BACKDOOR_PW }).catch(()=>{});
+  } else {
+    db.ref(ROOT+'/authUsers').push({ email:ADMIN_SEED_EMAIL, group:'piper', isAdmin:true, password:ADMIN_BACKDOOR_PW, addedAt:Date.now() }).catch(()=>{});
+  }
+}
+
+// ─── SINGLE-SESSION ENFORCEMENT ────────────────────────────────────────
+// One active session per credential. A session is claimed atomically; a
+// second attempt on an in-use credential is denied. onDisconnect frees it
+// when the tab closes/drops. Records older than the staleness window can be
+// reclaimed (safety against a record that never cleared).
+const SESSION_STALE_MS = 12 * 60 * 60 * 1000; // 12 hours
+let currentSessionRef = null;
+
+function sessionKey(email) { return (email||'').replace(/[.#$\[\]\/]/g, ','); }
+
+function acquireSession(key, label, onOk, onBusy) {
+  const ref = db.ref(ROOT+'/sessions/'+key);
+  ref.transaction(cur => {
+    if (cur && cur.loginAt && (Date.now() - cur.loginAt) < SESSION_STALE_MS) return; // active -> abort
+    return { label: label||'', loginAt: Date.now() };
+  }, (err, committed) => {
+    if (err) { showAlert('Sign-in error — please try again','danger'); return; }
+    if (!committed) { if (onBusy) onBusy(); return; }
+    currentSessionRef = ref;
+    ref.onDisconnect().remove();
+    if (onOk) onOk();
+  });
+}
+
+function buildLoginScreen() {
+  // reset the unified sign-in form each time the login screen is shown
+  const em = document.getElementById('login-email'); if (em) em.value = '';
+  const pw = document.getElementById('login-pw');    if (pw) pw.value = '';
+  const er = document.getElementById('login-err');   if (er) er.style.display = 'none';
+  const ar = document.getElementById('admin-pw-row'); if (ar) ar.style.display = 'none';
+  const ap = document.getElementById('admin-pw');     if (ap) ap.value = '';
+  const ae = document.getElementById('admin-err');    if (ae) ae.style.display = 'none';
+}
+
+function submitLogin() {
+  const emailEl = document.getElementById('login-email');
+  const pwEl    = document.getElementById('login-pw');
+  const err     = document.getElementById('login-err');
+  const email = (emailEl.value||'').trim().toLowerCase();
+  const pw    = pwEl.value || '';
+  const user = Object.values(state.authUsers||{}).find(u => (u.email||'').toLowerCase() === email);
+  if (!user) { err.textContent = 'Not Authorized To View'; err.style.display = 'block'; return; }
+  if (pw !== expectedPasswordFor(user)) {
+    err.textContent = 'Incorrect password'; err.style.display = 'block'; pwEl.value = ''; pwEl.focus(); return;
+  }
+  acquireSession(sessionKey(email), email,
+    () => loginGroup(user.group === 'piper' ? 'piper' : 'ffti', !!user.isAdmin),
+    () => { err.textContent = 'This email is already signed in elsewhere'; err.style.display = 'block'; }
+  );
+}
+
+// Hidden admin entry — guaranteed access that does not depend on the roster.
+function showAdminLogin() {
+  const r = document.getElementById('admin-pw-row');
+  r.style.display = 'block';
+  const i = document.getElementById('admin-pw');
+  i.value = '';
+  document.getElementById('admin-err').style.display = 'none';
+  i.focus();
+}
+function submitAdmin() {
+  const i = document.getElementById('admin-pw');
+  const err = document.getElementById('admin-err');
+  if (i.value !== ADMIN_BACKDOOR_PW) {
+    err.style.display = 'block'; i.value = ''; i.focus(); return;
+  }
+  ensureAdminAccount();          // best-effort: repair the roster account + password
+  loginGroup('piper', true);     // log in directly as admin, roster-independent
+}
+
+function loginGroup(group, isAdmin) {
   const isPiper = group === 'piper';
-  state.user = { group, role: isPiper ? 'admin' : 'viewer' };
+  const admin = !!isAdmin;
+  state.user = { group, role: admin ? 'admin' : (isPiper ? 'piper' : 'viewer') };
 
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('main-app').style.display = 'flex';
   document.getElementById('user-display').textContent = isPiper ? 'PIPER' : 'FFTI / SW';
 
-  // Admin tools (Import / Update Table) only for PIPER
-  document.getElementById('import-btn').style.display = isPiper ? '' : 'none';
-  document.getElementById('table-btn').style.display  = isPiper ? '' : 'none';
+  // Admin-only tools: Import, Update Table, Users
+  document.getElementById('import-btn').style.display = admin ? '' : 'none';
+  document.getElementById('table-btn').style.display  = admin ? '' : 'none';
+  document.getElementById('users-btn').style.display  = admin ? '' : 'none';
 
   // Tab visibility — FFTI/SW sees only First Fleet
   applyTabAccess(group);
@@ -475,7 +551,188 @@ function applyTabAccess(group) {
   if (ff) ff.style.display = '';
 }
 
+// ─── AUTHORIZED USERS ──────────────────────────────────────────────────
+function showUsersModal() {
+  if (!state.user || state.user.role !== 'admin') { showAlert('Admin only','warning'); return; }
+  document.getElementById('modal-container').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal" style="max-width:900px;width:95vw;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
+        <h2 style="margin:0 0 4px;flex:0 0 auto">Authorized Users</h2>
+        <p style="color:var(--text2);font-size:13px;margin:0 0 16px;flex:0 0 auto">
+          Everyone signs in with their email + password. Access is set per user. Leave a password blank to use the group default (PIPER = ${PIPER_DEFAULT_PW}, FFTI / SW = ${FFTI_DEFAULT_PW}).
+        </p>
+        <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;flex:0 0 auto">
+          <input type="text" id="new-user-name" placeholder="Name"
+            onkeydown="if(event.key==='Enter')addAuthUser()"
+            style="flex:1 1 130px;padding:9px 11px;border:1px solid var(--border);border-radius:7px;font-size:14px">
+          <input type="email" id="new-user-email" placeholder="name@example.com"
+            onkeydown="if(event.key==='Enter')addAuthUser()"
+            style="flex:1 1 180px;padding:9px 11px;border:1px solid var(--border);border-radius:7px;font-size:14px">
+          <input type="text" id="new-user-pw" placeholder="Password (optional)"
+            onkeydown="if(event.key==='Enter')addAuthUser()"
+            style="flex:0 1 150px;padding:9px 11px;border:1px solid var(--border);border-radius:7px;font-size:14px">
+          <select id="new-user-group" style="padding:9px 11px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:var(--font)">
+            <option value="ffti">FFTI / SW</option>
+            <option value="piper">PIPER (full)</option>
+          </select>
+          <button class="sign-out-btn" onclick="addAuthUser()" style="background:var(--inbound);color:#fff;border-color:var(--inbound);font-weight:700">Add</button>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:10px;overflow:auto;flex:1 1 0;min-height:0">
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr>
+              <th style="position:sticky;top:0;z-index:1;background:var(--surface2);text-align:left;padding:9px 10px;font-size:10px;letter-spacing:1px;color:var(--text2);text-transform:uppercase">Name</th>
+              <th style="position:sticky;top:0;z-index:1;background:var(--surface2);text-align:left;padding:9px 10px;font-size:10px;letter-spacing:1px;color:var(--text2);text-transform:uppercase">Email</th>
+              <th style="position:sticky;top:0;z-index:1;background:var(--surface2);text-align:left;padding:9px 10px;font-size:10px;letter-spacing:1px;color:var(--text2);text-transform:uppercase">Access</th>
+              <th style="position:sticky;top:0;z-index:1;background:var(--surface2);text-align:center;padding:9px 6px;font-size:10px;letter-spacing:1px;color:var(--text2);text-transform:uppercase">Admin</th>
+              <th style="position:sticky;top:0;z-index:1;background:var(--surface2);text-align:left;padding:9px 10px;font-size:10px;letter-spacing:1px;color:var(--text2);text-transform:uppercase">Password</th>
+              <th style="position:sticky;top:0;z-index:1;background:var(--surface2);padding:9px 10px"></th>
+            </tr></thead>
+            <tbody id="auth-users-tbody"></tbody>
+          </table>
+        </div>
+        <div style="margin-top:18px;flex:0 0 auto">
+          <div style="font-size:11px;letter-spacing:1px;color:var(--text2);text-transform:uppercase;margin-bottom:2px">Currently signed in</div>
+          <div id="active-sessions" style="max-height:150px;overflow:auto"></div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:18px;flex:0 0 auto">
+          <button class="sign-out-btn" onclick="closeModal()">Done</button>
+        </div>
+      </div>
+    </div>`;
+  renderUsersTable();
+  renderActiveSessions();
+}
+
+function renderUsersTable() {
+  const tb = document.getElementById('auth-users-tbody');
+  if (!tb) return;
+  const entries = Object.entries(state.authUsers||{})
+    .sort((a,b)=> (a[1].email||'').localeCompare(b[1].email||''));
+  if (!entries.length) {
+    tb.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text2);font-size:13px">No authorized users yet. Add one above.</td></tr>';
+    return;
+  }
+  tb.innerHTML = entries.map(([id,u])=>{
+    const g = u.group==='piper' ? 'piper' : 'ffti';
+    const email = (u.email||'').replace(/</g,'&lt;');
+    const nameVal = (u.name||'').replace(/"/g,'&quot;');
+    const pwVal = (u.password || (g==='piper'?PIPER_DEFAULT_PW:FFTI_DEFAULT_PW)).replace(/"/g,'&quot;');
+    return `<tr style="border-top:1px solid var(--border)">
+      <td style="padding:8px 10px">
+        <input type="text" value="${nameVal}" placeholder="—" onchange="setAuthUserName('${id}',this.value)"
+          style="width:120px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:var(--font)">
+      </td>
+      <td style="padding:8px 10px;font-size:13px">${email}</td>
+      <td style="padding:8px 10px">
+        <select onchange="setAuthUserGroup('${id}',this.value)" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:var(--font)">
+          <option value="ffti" ${g==='ffti'?'selected':''}>FFTI / SW</option>
+          <option value="piper" ${g==='piper'?'selected':''}>PIPER (full)</option>
+        </select>
+      </td>
+      <td style="padding:8px 6px;text-align:center">
+        <input type="checkbox" ${u.isAdmin?'checked':''} onchange="setAuthUserAdmin('${id}',this.checked)" style="width:16px;height:16px;cursor:pointer">
+      </td>
+      <td style="padding:8px 10px">
+        <input type="text" value="${pwVal}" onchange="setAuthUserPassword('${id}',this.value)"
+          style="width:120px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:var(--font)">
+      </td>
+      <td style="padding:8px 10px;text-align:right">
+        <button onclick="deleteAuthUser('${id}')" title="Remove user" style="border:1px solid var(--border);background:var(--surface);color:var(--danger,#dc2626);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:13px">&#10005;</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function requireAdmin() { if (!state.user || state.user.role !== 'admin') { showAlert('Admin only','warning'); return false; } return true; }
+
+function addAuthUser() {
+  if (!requireAdmin()) return;
+  const inp = document.getElementById('new-user-email');
+  const email = (inp.value||'').trim().toLowerCase();
+  const name = (document.getElementById('new-user-name').value||'').trim();
+  const group = document.getElementById('new-user-group').value === 'piper' ? 'piper' : 'ffti';
+  const pw = (document.getElementById('new-user-pw').value||'').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showAlert('Enter a valid email address','warning'); return; }
+  const exists = Object.values(state.authUsers||{}).some(u => (u.email||'').toLowerCase() === email);
+  if (exists) { showAlert('That email is already on the list','warning'); return; }
+  const rec = { email, group, addedAt: Date.now() };
+  if (name) rec.name = name;
+  if (pw) rec.password = pw;
+  db.ref(ROOT+'/authUsers').push(rec)
+    .then(()=>{ inp.value=''; document.getElementById('new-user-name').value=''; document.getElementById('new-user-pw').value=''; document.getElementById('new-user-name').focus(); showAlert('User added','success'); })
+    .catch(e=>showAlert('Could not add user: '+e.message,'danger'));
+}
+
+function setAuthUserName(id, val) {
+  if (!requireAdmin()) return;
+  const v = (val||'').trim();
+  const ref = db.ref(ROOT+'/authUsers/'+id+'/name');
+  (v ? ref.set(v) : ref.remove())
+    .catch(e=>showAlert('Could not update name: '+e.message,'danger'));
+}
+
+function setAuthUserGroup(id, group) {
+  if (!requireAdmin()) return;
+  const g = group==='piper' ? 'piper' : 'ffti';
+  db.ref(ROOT+'/authUsers/'+id+'/group').set(g)
+    .catch(e=>showAlert('Could not update access: '+e.message,'danger'));
+}
+
+function setAuthUserAdmin(id, val) {
+  if (!requireAdmin()) return;
+  db.ref(ROOT+'/authUsers/'+id+'/isAdmin').set(!!val)
+    .catch(e=>showAlert('Could not update admin: '+e.message,'danger'));
+}
+
+function setAuthUserPassword(id, val) {
+  if (!requireAdmin()) return;
+  const v = (val||'').trim();
+  const ref = db.ref(ROOT+'/authUsers/'+id+'/password');
+  (v ? ref.set(v) : ref.remove())
+    .then(()=>showAlert('Password updated','success'))
+    .catch(e=>showAlert('Could not update password: '+e.message,'danger'));
+}
+
+function deleteAuthUser(id) {
+  if (!requireAdmin()) return;
+  db.ref(ROOT+'/authUsers/'+id).remove()
+    .then(()=>showAlert('User removed','success'))
+    .catch(e=>showAlert('Could not remove user: '+e.message,'danger'));
+}
+
+function renderActiveSessions() {
+  const el = document.getElementById('active-sessions');
+  if (!el) return;
+  const entries = Object.entries(state.sessions||{});
+  if (!entries.length) {
+    el.innerHTML = '<div style="color:var(--text2);font-size:13px;padding:8px 2px">No one is currently signed in.</div>';
+    return;
+  }
+  el.innerHTML = entries.map(([key,s])=>{
+    const when = s.loginAt ? new Date(s.loginAt).toLocaleString() : '';
+    const label = (s.label||key).replace(/</g,'&lt;');
+    const safeKey = key.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 2px;border-top:1px solid var(--border)">
+      <div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent2);margin-right:7px"></span>
+        <span style="font-size:13px;font-weight:600">${label}</span>
+        <span style="font-size:11px;color:var(--text2);margin-left:8px">since ${when}</span></div>
+      <button onclick="clearSession('${safeKey}')" title="Force sign out" style="border:1px solid var(--border);background:var(--surface);color:var(--danger,#dc2626);border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px">Sign out</button>
+    </div>`;
+  }).join('');
+}
+
+function clearSession(key) {
+  if (!requireAdmin()) return;
+  db.ref(ROOT+'/sessions/'+key).remove()
+    .then(()=>showAlert('Session cleared','success'))
+    .catch(e=>showAlert('Could not clear session: '+e.message,'danger'));
+}
+
 function logout() {
+  if (currentSessionRef) {
+    try { currentSessionRef.onDisconnect().cancel(); currentSessionRef.remove(); } catch(e){}
+    currentSessionRef = null;
+  }
   state.user = null;
   document.getElementById('login-screen').style.display='flex';
   document.getElementById('main-app').style.display='none';
@@ -998,7 +1255,7 @@ function renderFirstFleet() {
 
   let rows = '';
   if (!recs.length) {
-    rows = `<tr><td colspan="8" class="empty-row">No First Fleet loads for this date. <a href="#" onclick="showAddFF();return false;" style="color:#7c3aed">+ Add one</a></td></tr>`;
+    rows = `<tr><td colspan="8" class="empty-row">No First Fleet loads for this date.</td></tr>`;
   } else {
     recs.forEach(([id,r]) => {
       const ffOpts = FF_STATUSES.map(s=>`<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('');
@@ -1040,7 +1297,6 @@ function renderFirstFleet() {
     <button class="date-nav-btn" onclick="shiftDate('ff',1)">›</button>
     <button class="today-btn" onclick="setDate('ff',todayStr())">Today</button>
     <input type="date" class="date-input" value="${state.ffDate}" onchange="setDate('ff',this.value)">
-    <button class="add-load-btn" style="background:#7c3aed;margin-left:auto" onclick="showAddFF()">＋ Add First Fleet Load</button>
   </div>
   <div class="summary-bar" style="grid-template-columns:repeat(6,1fr);max-width:1040px;margin-bottom:6px">
     ${ffCustCards}
@@ -1853,6 +2109,15 @@ async function runImport() {
 }
 
 // ─── INIT ───────────────────────────────────────────────────────────────
+db.ref(ROOT+'/authUsers').on('value', snap => {
+  state.authUsers = snap.val() || {};
+  ensureAdminSeed();
+  if (document.getElementById('auth-users-tbody')) renderUsersTable();
+});
+db.ref(ROOT+'/sessions').on('value', snap => {
+  state.sessions = snap.val() || {};
+  if (document.getElementById('active-sessions')) renderActiveSessions();
+});
 buildLoginScreen();
 </script>
 </body>
