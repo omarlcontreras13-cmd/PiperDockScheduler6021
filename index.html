@@ -105,12 +105,12 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .s-unloading   { background:rgba(217,119,6,0.12);color:var(--warning); }
 .s-completed   { background:rgba(26,158,122,0.12);color:var(--accent2); }
 .s-order-recv  { background:#ffffff;color:#111;border:1px solid #ccc; }
-.s-pick-ticket { background:#ffd6e7;color:#880044;border:1px solid #ffaac8; }
-.s-being-picked{ background:#d4d4d4;color:#333;border:1px solid #bbb; }
-.s-picked-staged{background:#d4edda;color:#1a5c30;border:1px solid #a8d8b9; }
-.s-loading     { background:#ffff00;color:#333;border:1px solid #cccc00;font-weight:800; }
-.s-loaded      { background:#bde0ff;color:#1a3a6b;border:1px solid #8ec5f5; }
-.s-departed    { background:#ffaa00;color:#4a2500;border:1px solid #cc8800;font-weight:800; }
+.s-pick-ticket { background:#f2ceef;color:#111;border:1px solid #dca9d6; }
+.s-being-picked{ background:#d0d0d0;color:#111;border:1px solid #b3b3b3; }
+.s-picked-staged{background:#daf2d0;color:#111;border:1px solid #b4dfa6; }
+.s-loading     { background:#ffff00;color:#111;border:1px solid #d6d600;font-weight:800; }
+.s-loaded      { background:#caedfb;color:#111;border:1px solid #9cd3ee; }
+.s-departed    { background:#ffc000;color:#111;border:1px solid #d9a200;font-weight:800; }
 .s-ff-assigned { background:rgba(124,58,237,0.12);color:#7c3aed;border:1px solid rgba(124,58,237,0.3); }
 .s-ff-enroute  { background:rgba(217,119,6,0.12);color:var(--warning);border:1px solid rgba(217,119,6,0.3); }
 .s-ff-pickedup { background:rgba(26,158,122,0.15);color:var(--accent2);border:1px solid rgba(26,158,122,0.3);font-weight:800; }
@@ -1337,8 +1337,8 @@ function rollSelected(type) {
 
 // ─── FIRST FLEET ──────────────────────────────────────────────────────────────
 const FF_STATUSES = ['ORDER RECEIVED','ORDER BEING FULFILLED','ASSIGNED','PENDING LOADING','DRIVER IN ROUTE','LOADING','LOAD READY FOR PU','LOAD PICKED UP'];
-const FF_CLASSES  = {'ORDER RECEIVED':'s-ff-assigned','ORDER BEING FULFILLED':'s-ff-fulfilling','ASSIGNED':'s-ff-assigned','PENDING LOADING':'s-ff-pending','DRIVER IN ROUTE':'s-ff-enroute','LOADING':'s-ff-loading','LOAD READY FOR PU':'s-ff-readypu','LOAD PICKED UP':'s-ff-pickedup'};
-const FF_COLORS   = {'ORDER RECEIVED':'#7c3aed','ORDER BEING FULFILLED':'#6366f1','ASSIGNED':'#7c3aed','PENDING LOADING':'#0d9488','DRIVER IN ROUTE':'var(--warning)','LOADING':'#ea580c','LOAD READY FOR PU':'#1a3a6b','LOAD PICKED UP':'var(--accent2)'};
+const FF_CLASSES  = {'ORDER RECEIVED':'s-order-recv','ORDER BEING FULFILLED':'s-being-picked','ASSIGNED':'s-ff-assigned','PENDING LOADING':'s-picked-staged','DRIVER IN ROUTE':'s-ff-enroute','LOADING':'s-loading','LOAD READY FOR PU':'s-loaded','LOAD PICKED UP':'s-departed'};
+const FF_COLORS   = {'ORDER RECEIVED':'#111','ORDER BEING FULFILLED':'#111','ASSIGNED':'#7c3aed','PENDING LOADING':'#111','DRIVER IN ROUTE':'var(--warning)','LOADING':'#111','LOAD READY FOR PU':'#111','LOAD PICKED UP':'#111'};
 
 // Cross-reference: Outbound status → FFTI status (FFTI auto-follows Outbound)
 const OB_TO_FF = {
@@ -1381,7 +1381,7 @@ function ffStatusChange(source, id, v, el) {
   } else {
     saveField('firstfleet', id, 'status', v);
   }
-  if (el) el.className = 'status-select ' + (FF_CLASSES[v]||'s-ff-assigned');
+  if (el) { el.className = 'status-select ' + (FF_CLASSES[v]||'s-ff-assigned'); el.style.color = FF_COLORS[v]||'#111'; }
   if (v === 'DRIVER IN ROUTE') promptDriverName(source, id);
 }
 
