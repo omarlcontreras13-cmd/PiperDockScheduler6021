@@ -337,6 +337,7 @@ const state = {
   users: [],
   authUsers: {},
   sessions: {},
+  settings: {},
   rollMode: { ib:false, ob:false },
   ffCustFilter: null,
   obSearch: ''
@@ -561,6 +562,11 @@ function showUsersModal() {
         <p style="color:var(--text2);font-size:13px;margin:0 0 16px;flex:0 0 auto">
           Everyone signs in with their email + password. Access is set per user. Leave a password blank to use the group default (PIPER = ${PIPER_DEFAULT_PW}, FFTI / SW = ${FFTI_DEFAULT_PW}).
         </p>
+        <div style="display:flex;align-items:center;gap:8px;margin:0 0 14px;flex:0 0 auto">
+          <label style="font-size:12px;color:var(--text2);white-space:nowrap;font-weight:600">App link</label>
+          <input type="text" id="app-link-input" onchange="saveAppLink(this.value)" placeholder="https://your-app-url"
+            style="flex:1 1 auto;padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px">
+        </div>
         <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;flex:0 0 auto">
           <input type="text" id="new-user-name" placeholder="Name"
             onkeydown="if(event.key==='Enter')addAuthUser()"
@@ -580,6 +586,7 @@ function showUsersModal() {
         <div style="border:1px solid var(--border);border-radius:10px;overflow:auto;flex:1 1 auto;min-height:0">
           <table style="width:100%;border-collapse:collapse">
             <thead><tr>
+              <th style="position:sticky;top:0;z-index:1;background:var(--surface2);text-align:center;padding:9px 6px"><input type="checkbox" onchange="toggleAllUsers(this.checked)" title="Select all" style="width:15px;height:15px;cursor:pointer"></th>
               <th style="position:sticky;top:0;z-index:1;background:var(--surface2);text-align:left;padding:9px 10px;font-size:10px;letter-spacing:1px;color:var(--text2);text-transform:uppercase">Name</th>
               <th style="position:sticky;top:0;z-index:1;background:var(--surface2);text-align:left;padding:9px 10px;font-size:10px;letter-spacing:1px;color:var(--text2);text-transform:uppercase">Email</th>
               <th style="position:sticky;top:0;z-index:1;background:var(--surface2);text-align:left;padding:9px 10px;font-size:10px;letter-spacing:1px;color:var(--text2);text-transform:uppercase">Access</th>
@@ -594,14 +601,25 @@ function showUsersModal() {
           <div style="font-size:11px;letter-spacing:1px;color:var(--text2);text-transform:uppercase;margin-bottom:2px">Currently signed in</div>
           <div id="active-sessions" style="max-height:150px;overflow:auto"></div>
         </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:18px;flex:0 0 auto">
-          <button class="sign-out-btn" onclick="exportUsers()" title="Download a CSV backup of all users">Export CSV</button>
-          <button class="sign-out-btn" onclick="closeModal()">Done</button>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:18px;flex:0 0 auto">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="sign-out-btn" onclick="showEditUserModal()" title="Add a new user" style="background:var(--inbound);color:#fff;border-color:var(--inbound);font-weight:700">＋ New</button>
+            <button class="sign-out-btn" onclick="editCheckedUser()" title="Edit the checked user">✎ Edit</button>
+            <button class="sign-out-btn" onclick="deleteCheckedUsers()" title="Delete checked user(s)" style="color:var(--danger,#dc2626)">✕ Delete</button>
+            <button class="sign-out-btn" onclick="emailSelectedUsers()" title="Email the app link + credentials to checked users" style="background:#1a3a6b;color:#fff;border-color:#1a3a6b;font-weight:700">✉ Email</button>
+            <button class="sign-out-btn" onclick="exportUsers()" title="Download a CSV backup of all users">Export CSV</button>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="sign-out-btn" onclick="saveAllUsers()" title="Save any pending edits" style="background:var(--accent2,#1a9e7a);color:#fff;border-color:var(--accent2,#1a9e7a);font-weight:700">Save</button>
+            <button class="sign-out-btn" onclick="closeModal()">Done</button>
+          </div>
         </div>
       </div>
     </div>`;
   renderUsersTable();
   renderActiveSessions();
+  const li = document.getElementById('app-link-input');
+  if (li) li.value = appLink();
 }
 
 function renderUsersTable() {
@@ -610,7 +628,7 @@ function renderUsersTable() {
   const entries = Object.entries(state.authUsers||{})
     .sort((a,b)=> (a[1].email||'').localeCompare(b[1].email||''));
   if (!entries.length) {
-    tb.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text2);font-size:13px">No authorized users yet. Add one above.</td></tr>';
+    tb.innerHTML = '<tr><td colspan="7" style="padding:16px;text-align:center;color:var(--text2);font-size:13px">No authorized users yet. Add one above.</td></tr>';
     return;
   }
   tb.innerHTML = entries.map(([id,u])=>{
@@ -619,8 +637,11 @@ function renderUsersTable() {
     const nameVal = (u.name||'').replace(/"/g,'&quot;');
     const pwVal = (u.password || (g==='piper'?PIPER_DEFAULT_PW:FFTI_DEFAULT_PW)).replace(/"/g,'&quot;');
     return `<tr style="border-top:1px solid var(--border)">
+      <td style="padding:8px 6px;text-align:center">
+        <input type="checkbox" class="user-select-cb" data-id="${id}" style="width:15px;height:15px;cursor:pointer">
+      </td>
       <td style="padding:8px 10px">
-        <input type="text" value="${nameVal}" placeholder="—" onchange="setAuthUserName('${id}',this.value)"
+        <input type="text" value="${nameVal}" placeholder="—" data-id="${id}" data-field="name" onchange="setAuthUserName('${id}',this.value)"
           style="width:120px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:var(--font)">
       </td>
       <td style="padding:8px 10px;font-size:13px">${email}</td>
@@ -634,10 +655,12 @@ function renderUsersTable() {
         <input type="checkbox" ${u.isAdmin?'checked':''} onchange="setAuthUserAdmin('${id}',this.checked)" style="width:16px;height:16px;cursor:pointer">
       </td>
       <td style="padding:8px 10px">
-        <input type="text" value="${pwVal}" onchange="setAuthUserPassword('${id}',this.value)"
+        <input type="text" value="${pwVal}" data-id="${id}" data-field="password" onchange="setAuthUserPassword('${id}',this.value)"
           style="width:120px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:var(--font)">
       </td>
-      <td style="padding:8px 10px;text-align:right">
+      <td style="padding:8px 10px;text-align:right;white-space:nowrap">
+        <button onclick="showEditUserModal('${id}')" title="Edit user details" style="border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:6px;padding:4px 9px;cursor:pointer;font-size:13px;margin-right:4px">✎</button>
+        <button onclick="emailUser('${id}')" title="Email this user their link + credentials" style="border:1px solid var(--border);background:var(--surface);color:#1a3a6b;border-radius:6px;padding:4px 9px;cursor:pointer;font-size:13px;margin-right:4px">✉</button>
         <button onclick="deleteAuthUser('${id}')" title="Remove user" style="border:1px solid var(--border);background:var(--surface);color:var(--danger,#dc2626);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:13px">&#10005;</button>
       </td>
     </tr>`;
@@ -699,6 +722,172 @@ function deleteAuthUser(id) {
   db.ref(ROOT+'/authUsers/'+id).remove()
     .then(()=>showAlert('User removed','success'))
     .catch(e=>showAlert('Could not remove user: '+e.message,'danger'));
+}
+
+function appLink() {
+  return (state.settings && state.settings.appUrl) || (location.origin + location.pathname);
+}
+function saveAppLink(v) {
+  if (!requireAdmin()) return;
+  const val = (v||'').trim();
+  const ref = db.ref(ROOT+'/settings/appUrl');
+  (val ? ref.set(val) : ref.remove())
+    .then(()=>showAlert('App link saved','success'))
+    .catch(e=>showAlert('Could not save link: '+e.message,'danger'));
+}
+function toggleAllUsers(checked) {
+  document.querySelectorAll('.user-select-cb').forEach(cb => cb.checked = checked);
+}
+function openMailto(url) {
+  const a = document.createElement('a');
+  a.href = url; a.style.display = 'none';
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{ try{ document.body.removeChild(a); }catch(e){} }, 0);
+}
+function normalizeUrl(u) {
+  u = (u||'').trim();
+  if (u && !/^https?:\/\//i.test(u)) u = 'https://' + u;
+  return u;
+}
+function buildUserMail(u, link) {
+  const g = u.group==='piper' ? 'piper' : 'ffti';
+  const pw = u.password || (g==='piper'?PIPER_DEFAULT_PW:FFTI_DEFAULT_PW);
+  const access = g==='piper' ? 'PIPER (full access)' : 'FFTI / SW (First Fleet only)';
+  const url = normalizeUrl(link);
+  const subject = 'Piper Dock Scheduler — Your Access';
+  const body =
+    'Hello' + (u.name ? (' '+u.name) : '') + ',\n\n' +
+    'You have been granted access to the Piper Warehouse Dock Scheduler (Location 6021 - Greensboro).\n\n' +
+    'Click the link below to open the app:\n' +
+    url + '\n\n' +
+    'Tip: Once it opens, save it to your browser Favorites (Bookmarks) so you can get back to it quickly.\n\n' +
+    'Sign in with:\n' +
+    '  Email: ' + (u.email||'') + '\n' +
+    '  Password: ' + pw + '\n' +
+    '  Access: ' + access + '\n\n' +
+    'Please keep these credentials private. Only one person can be signed in per account at a time.\n\n' +
+    'Thank you,\nPiper Warehouse & Logistics';
+  return 'mailto:' + (u.email||'') +
+    '?subject=' + encodeURIComponent(subject) +
+    '&body=' + encodeURIComponent(body);
+}
+function emailUser(id) {
+  if (!requireAdmin()) return;
+  const u = (state.authUsers||{})[id];
+  if (!u || !u.email) { showAlert('No email on file for this user','warning'); return; }
+  const link = (document.getElementById('app-link-input') ? document.getElementById('app-link-input').value : '') || appLink();
+  openMailto(buildUserMail(u, link.trim()));
+}
+function emailSelectedUsers() {
+  if (!requireAdmin()) return;
+  const cbs = Array.from(document.querySelectorAll('.user-select-cb:checked'));
+  if (!cbs.length) { showAlert('Check at least one user first','warning'); return; }
+  const link = ((document.getElementById('app-link-input') ? document.getElementById('app-link-input').value : '') || appLink()).trim();
+  const users = cbs.map(cb => (state.authUsers||{})[cb.getAttribute('data-id')]).filter(u => u && u.email);
+  if (!users.length) { showAlert('Selected users have no email on file','warning'); return; }
+  // One separate email per user so credentials are never shared between recipients.
+  users.forEach((u,i)=> setTimeout(()=>openMailto(buildUserMail(u, link)), i*700));
+  showAlert('Opening '+users.length+' email'+(users.length>1?'s':'')+' in your mail app…','success');
+}
+
+function showEditUserModal(id) {
+  if (!requireAdmin()) return;
+  const isNew = !id;
+  const u = isNew ? {} : (state.authUsers||{})[id];
+  if (!isNew && !u) { showAlert('User not found','warning'); return; }
+  const g = u.group==='piper' ? 'piper' : 'ffti';
+  const esc = v => String(v==null?'':v).replace(/"/g,'&quot;');
+  const fieldCss = 'width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid var(--border);border-radius:7px;font-size:14px;margin-bottom:14px';
+  const labelCss = 'display:block;font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);margin-bottom:5px;font-weight:600';
+  document.getElementById('modal-container').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)showUsersModal()">
+      <div class="modal" style="max-width:440px">
+        <h2 style="margin:0 0 18px">${isNew ? 'Add User' : 'Edit User'}</h2>
+        <label style="${labelCss}">Name</label>
+        <input type="text" id="edit-name" value="${esc(u.name)}" style="${fieldCss}">
+        <label style="${labelCss}">Email</label>
+        <input type="email" id="edit-email" value="${esc(u.email)}" style="${fieldCss};text-transform:none">
+        <label style="${labelCss}">Access</label>
+        <select id="edit-group" style="${fieldCss};font-family:var(--font)">
+          <option value="ffti" ${g==='ffti'?'selected':''}>FFTI / SW (First Fleet only)</option>
+          <option value="piper" ${g==='piper'?'selected':''}>PIPER (full access)</option>
+        </select>
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;cursor:pointer">
+          <input type="checkbox" id="edit-admin" ${u.isAdmin?'checked':''} style="width:16px;height:16px"> Admin (can manage users, import, tables)
+        </label>
+        <label style="${labelCss}">Password <span style="text-transform:none;font-weight:400">(leave blank to use the group default)</span></label>
+        <input type="text" id="edit-pw" value="${esc(u.password)}" placeholder="group default" style="${fieldCss};text-transform:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+          <button class="sign-out-btn" onclick="showUsersModal()">Cancel</button>
+          <button class="sign-out-btn" onclick="saveEditUser('${id||''}')" style="background:var(--inbound);color:#fff;border-color:var(--inbound);font-weight:700">${isNew ? 'Create User' : 'Save Changes'}</button>
+        </div>
+      </div>
+    </div>`;
+  setTimeout(()=>{ const n=document.getElementById('edit-name'); if(n) n.focus(); }, 0);
+}
+
+function saveEditUser(id) {
+  if (!requireAdmin()) return;
+  const isNew = !id;
+  if (!isNew && !(state.authUsers||{})[id]) { showAlert('User not found','warning'); return; }
+  const gv = sel => { const e=document.getElementById(sel); return e ? e.value : ''; };
+  const name  = (gv('edit-name')||'').trim();
+  const email = (gv('edit-email')||'').trim().toLowerCase();
+  const group = gv('edit-group')==='piper' ? 'piper' : 'ffti';
+  const isAdmin = document.getElementById('edit-admin').checked;
+  const pw    = (gv('edit-pw')||'').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showAlert('Enter a valid email address','warning'); return; }
+  const dup = Object.entries(state.authUsers||{}).some(([k,x]) => k!==id && (x.email||'').toLowerCase()===email);
+  if (dup) { showAlert('Another user already has that email','warning'); return; }
+  if (isNew) {
+    const rec = { email, group, isAdmin, addedAt: Date.now() };
+    if (name) rec.name = name;
+    if (pw) rec.password = pw;
+    db.ref(ROOT+'/authUsers').push(rec)
+      .then(()=>{ showAlert('User added','success'); showUsersModal(); })
+      .catch(e=>showAlert('Could not add user: '+e.message,'danger'));
+  } else {
+    const rec = { email, group, isAdmin, name: name || null, password: pw || null };
+    db.ref(ROOT+'/authUsers/'+id).update(rec)
+      .then(()=>{ showAlert('User updated','success'); showUsersModal(); })
+      .catch(e=>showAlert('Could not update user: '+e.message,'danger'));
+  }
+}
+
+function getCheckedUserIds() {
+  return Array.from(document.querySelectorAll('.user-select-cb:checked')).map(cb => cb.getAttribute('data-id'));
+}
+function editCheckedUser() {
+  if (!requireAdmin()) return;
+  const ids = getCheckedUserIds();
+  if (ids.length !== 1) { showAlert(ids.length ? 'Check just one user to edit' : 'Check a user to edit first','warning'); return; }
+  showEditUserModal(ids[0]);
+}
+function deleteCheckedUsers() {
+  if (!requireAdmin()) return;
+  const ids = getCheckedUserIds();
+  if (!ids.length) { showAlert('Check the user(s) to delete first','warning'); return; }
+  if (!window.confirm('Delete '+ids.length+' selected user'+(ids.length>1?'s':'')+'? This cannot be undone.')) return;
+  Promise.all(ids.map(id => db.ref(ROOT+'/authUsers/'+id).remove()))
+    .then(()=>showAlert(ids.length+' user'+(ids.length>1?'s':'')+' removed','success'))
+    .catch(e=>showAlert('Could not delete: '+e.message,'danger'));
+}
+function saveAllUsers() {
+  if (!requireAdmin()) return;
+  let count = 0;
+  document.querySelectorAll('#auth-users-tbody input[data-field]').forEach(inp => {
+    const id = inp.getAttribute('data-id');
+    const f  = inp.getAttribute('data-field');
+    const u  = (state.authUsers||{})[id];
+    if (!u) return;
+    const v = (inp.value||'').trim();
+    if (f === 'name' && v !== (u.name||'')) {
+      const r = db.ref(ROOT+'/authUsers/'+id+'/name'); (v ? r.set(v) : r.remove()); count++;
+    } else if (f === 'password' && v !== (u.password||'')) {
+      const r = db.ref(ROOT+'/authUsers/'+id+'/password'); (v ? r.set(v) : r.remove()); count++;
+    }
+  });
+  showAlert(count ? ('Saved '+count+' change'+(count>1?'s':'')) : 'All changes are saved','success');
 }
 
 function exportUsers() {
@@ -2141,6 +2330,9 @@ db.ref(ROOT+'/authUsers').on('value', snap => {
 db.ref(ROOT+'/sessions').on('value', snap => {
   state.sessions = snap.val() || {};
   if (document.getElementById('active-sessions')) renderActiveSessions();
+});
+db.ref(ROOT+'/settings').on('value', snap => {
+  state.settings = snap.val() || {};
 });
 buildLoginScreen();
 </script>
