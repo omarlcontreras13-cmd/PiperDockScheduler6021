@@ -594,7 +594,8 @@ function showUsersModal() {
           <div style="font-size:11px;letter-spacing:1px;color:var(--text2);text-transform:uppercase;margin-bottom:2px">Currently signed in</div>
           <div id="active-sessions" style="max-height:150px;overflow:auto"></div>
         </div>
-        <div style="display:flex;justify-content:flex-end;margin-top:18px;flex:0 0 auto">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:18px;flex:0 0 auto">
+          <button class="sign-out-btn" onclick="exportUsers()" title="Download a CSV backup of all users">Export CSV</button>
           <button class="sign-out-btn" onclick="closeModal()">Done</button>
         </div>
       </div>
@@ -698,6 +699,29 @@ function deleteAuthUser(id) {
   db.ref(ROOT+'/authUsers/'+id).remove()
     .then(()=>showAlert('User removed','success'))
     .catch(e=>showAlert('Could not remove user: '+e.message,'danger'));
+}
+
+function exportUsers() {
+  if (!requireAdmin()) return;
+  const entries = Object.values(state.authUsers||{})
+    .sort((a,b)=>(a.email||'').localeCompare(b.email||''));
+  const esc = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
+  const rows = entries.map(u=>{
+    const g = u.group==='piper' ? 'piper' : 'ffti';
+    const access = g==='piper' ? 'PIPER (full)' : 'FFTI / SW';
+    const pw = u.password || (g==='piper'?PIPER_DEFAULT_PW:FFTI_DEFAULT_PW);
+    return [u.name||'', u.email||'', access, u.isAdmin?'Yes':'No', pw].map(esc).join(',');
+  });
+  const csv = [['Name','Email','Access','Admin','Password'].map(esc).join(','), ...rows].join('\r\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const d = new Date();
+  const stamp = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const a = document.createElement('a');
+  a.href = url; a.download = 'piper-dock-users-'+stamp+'.csv';
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); }, 0);
+  showAlert('Exported '+entries.length+' user(s)','success');
 }
 
 function renderActiveSessions() {
