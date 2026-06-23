@@ -2374,20 +2374,25 @@ async function runImport() {
   go.disabled = true; go.textContent = 'Importing…';
   const clearFirst = (document.getElementById('import-clear')||{}).checked;
   try {
-    // Preserve FFTI statuses set by the remote user (who has no spreadsheet access):
-    // ASSIGNED / DRIVER IN ROUTE overrides — and their driver name — are kept through the import.
+    // Preserve data the remote FFTI user owns (the spreadsheet has no driver column,
+    // so an import would otherwise wipe in-app driver assignments):
+    //  - ASSIGNED / DRIVER IN ROUTE status overrides are kept.
+    //  - Any assigned driver name is kept (driver is only ever set in the app).
     const preserve = {};
     Object.values(state.outbound||{}).forEach(r => {
-      if (r && (r.ffStatus === 'ASSIGNED' || r.ffStatus === 'DRIVER IN ROUTE')) {
-        const key = (r.orderNum||'').toString().trim().toUpperCase();
-        if (key) preserve[key] = { ffStatus: r.ffStatus, driver: r.driver||'' };
-      }
+      if (!r) return;
+      const key = (r.orderNum||'').toString().trim().toUpperCase();
+      if (!key) return;
+      const keepStatus = (r.ffStatus === 'ASSIGNED' || r.ffStatus === 'DRIVER IN ROUTE');
+      const driver = (r.driver||'').toString().trim();
+      if (keepStatus || driver) preserve[key] = { ffStatus: keepStatus ? r.ffStatus : null, driver };
     });
     (_pendingImport.outbound||[]).forEach(r => {
       const key = (r.orderNum||'').toString().trim().toUpperCase();
-      if (key && preserve[key]) {
-        r.ffStatus = preserve[key].ffStatus;
-        if (preserve[key].driver) r.driver = preserve[key].driver;
+      const p = key && preserve[key];
+      if (p) {
+        if (p.ffStatus) r.ffStatus = p.ffStatus;
+        if (p.driver)   r.driver   = p.driver;
       }
     });
     if (clearFirst) {
