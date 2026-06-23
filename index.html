@@ -101,9 +101,9 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .status-btn { font-size:9px;font-weight:700;letter-spacing:.8px;padding:4px 9px;border-radius:20px;border:none;cursor:pointer;text-transform:uppercase;font-family:var(--font);white-space:nowrap;transition:.15s; }
 .status-btn:hover { opacity:.8; }
 .s-scheduled   { background:rgba(107,122,153,0.12);color:var(--text2); }
-.s-arrived     { background:rgba(26,58,107,0.12);color:var(--inbound); }
-.s-unloading   { background:rgba(217,119,6,0.12);color:var(--warning); }
-.s-completed   { background:rgba(26,158,122,0.12);color:var(--accent2); }
+.s-arrived     { background:#caedfb;color:#111;border:1px solid #9cd3ee; }
+.s-unloading   { background:#ffff00;color:#111;border:1px solid #d6d600;font-weight:800; }
+.s-completed   { background:#ffc000;color:#111;border:1px solid #d9a200;font-weight:800; }
 .s-order-recv  { background:#ffffff;color:#111;border:1px solid #ccc; }
 .s-pick-ticket { background:#f2ceef;color:#111;border:1px solid #dca9d6; }
 .s-being-picked{ background:#d0d0d0;color:#111;border:1px solid #b3b3b3; }
@@ -1080,7 +1080,7 @@ function renderInbound() {
         <td>
           <select class="status-select ${IB_CLASSES[r.status]||'s-scheduled'}"
             onchange="saveField('ib','${id}','status',this.value);this.className='status-select '+(IB_CLASSES[this.value]||'s-scheduled')"
-            style="color:${({SCHEDULED:'var(--text2)',ARRIVED:'var(--inbound)',UNLOADING:'var(--warning)',COMPLETED:'var(--accent2)'}[r.status])||'var(--text2)'}">
+            style="color:#111">
             ${ibOpts}
           </select>
         </td>
@@ -1496,9 +1496,7 @@ function renderFirstFleet() {
         <td style="min-width:90px">${cellInput(saveType,id,'trailer',r.trailer,'90px','Trailer #')}</td>
         <td style="min-width:130px">${cellInput(saveType,id,'driver',r.driver,'130px','Assigned Driver')}</td>
         <td style="min-width:160px">${cellInput(saveType,id,'notes',r.notes,'160px','Notes')}</td>
-        <td>
-          <button class="btn" style="font-size:10px;padding:4px 10px;color:var(--danger)" onclick="deleteFF('${id}')">✕</button>
-        </td>
+        <td></td>
       </tr>`;
     });
   }
@@ -2300,6 +2298,22 @@ async function runImport() {
   go.disabled = true; go.textContent = 'Importing…';
   const clearFirst = (document.getElementById('import-clear')||{}).checked;
   try {
+    // Preserve FFTI statuses set by the remote user (who has no spreadsheet access):
+    // ASSIGNED / DRIVER IN ROUTE overrides — and their driver name — are kept through the import.
+    const preserve = {};
+    Object.values(state.outbound||{}).forEach(r => {
+      if (r && (r.ffStatus === 'ASSIGNED' || r.ffStatus === 'DRIVER IN ROUTE')) {
+        const key = (r.orderNum||'').toString().trim().toUpperCase();
+        if (key) preserve[key] = { ffStatus: r.ffStatus, driver: r.driver||'' };
+      }
+    });
+    (_pendingImport.outbound||[]).forEach(r => {
+      const key = (r.orderNum||'').toString().trim().toUpperCase();
+      if (key && preserve[key]) {
+        r.ffStatus = preserve[key].ffStatus;
+        if (preserve[key].driver) r.driver = preserve[key].driver;
+      }
+    });
     if (clearFirst) {
       await db.ref(ROOT+'/inbound').remove();
       await db.ref(ROOT+'/outbound').remove();
