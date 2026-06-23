@@ -332,6 +332,7 @@ const state = {
   inbound: {},
   firstfleet: {},
   refTable: {},
+  fftiCustomers: [],
   outbound: {},
   yard: {},
   users: [],
@@ -976,6 +977,10 @@ function startListeners() {
     if (state.tab==='ib') renderInbound();
     else if (state.tab==='ob') renderOutbound();
   });
+  db.ref(ROOT+'/fftiCustomers').on('value', snap => {
+    state.fftiCustomers = snap.val()||[];
+    if (state.tab==='ff') renderFirstFleet();
+  });
   db.ref(ROOT+'/yard').on('value', snap => {
     state.yard = snap.val()||{};
     if (state.tab==='yd') renderYard();
@@ -1363,6 +1368,25 @@ const FF_TO_OB = {
 // FFTI-only statuses that have no Outbound equivalent — stored as an override
 const FF_MANUAL_ONLY = ['ASSIGNED','DRIVER IN ROUTE'];
 
+// Which Outbound customers are handled by First Fleet (visible under the FFTI tab).
+// Updatable via the table import. Defaults from the FFTI customer table.
+const DEFAULT_FFTI_CUSTOMERS = ['COVINGTON XDK','HOOD','LITHIA SPRINGS','NORCROSS XDK','PREGIS','SCI GAMES'];
+const FFTI_CUST_LABEL = { 'COVINGTON XDK':'COV XDK', 'NORCROSS XDK':'NOR XDK' };
+function fftiCustomerList() {
+  const c = state.fftiCustomers;
+  return (c && c.length) ? c.map(x=>String(x).toUpperCase().trim()) : DEFAULT_FFTI_CUSTOMERS;
+}
+function ffCustLabel(full) { return FFTI_CUST_LABEL[full] || full; }
+function custMatches(cust, full) {
+  const cu = (cust||'').toUpperCase().trim();
+  if (!cu || !full) return false;
+  return cu === full || cu.indexOf(full) > -1 || full.indexOf(cu) > -1;
+}
+function isFFTICarrier(carrier) {
+  const c = (carrier||'').toUpperCase();
+  return c.indexOf('FFTI')>-1 || c.indexOf('FIRST FLEET')>-1 || c.indexOf('FIRSTFLEET')>-1;
+}
+
 function toggleFFCust(full) {
   state.ffCustFilter = (state.ffCustFilter===full) ? null : full;
   renderFirstFleet();
@@ -1415,21 +1439,22 @@ function saveDriverName(source, id) {
 
 function renderFirstFleet() {
   const view = document.getElementById('view-ff');
-  // Include manually-added FF entries AND outbound loads with FFTI/First Fleet carrier
+  const yesCustomers = fftiCustomerList();
+
+  // Legacy manually-added FF entries for this date
   const ffManual = Object.entries(state.firstfleet||{})
     .filter(([,r])=>r.deliveryDate&&r.deliveryDate.slice(0,10)===state.ffDate)
     .map(([id,r])=>([id, {...r, _source:'ff'}]));
 
+  // Outbound loads whose customer is on the FFTI list (table-driven visibility)
   const ffFromOB = Object.entries(state.outbound||{})
-    .filter(([,r])=>{
-      const c = (r.carrier||'').toUpperCase();
-      return r.reqDate&&r.reqDate.slice(0,10)===state.ffDate &&
-             (c.includes('FFTI')||c.includes('FIRST FLEET')||c.includes('FIRSTFLEET'));
-    })
+    .filter(([,r])=> r.reqDate && r.reqDate.slice(0,10)===state.ffDate && yesCustomers.some(full=>custMatches(r.customer, full)))
     .map(([id,r])=>([id, {
       _source:      'outbound',
       deliveryDate: r.reqDate,
       loadId:       r.orderNum||r.loadNum||'',
+      orderNum:     r.orderNum||r.loadNum||'',
+      carrier:      r.carrier||'',
       door:         r.door||'',
       trailer:      r.trailer||'',
       driver:       r.driver||'',
@@ -1440,24 +1465,41 @@ function renderFirstFleet() {
       notes:        r.notes||''
     }]));
 
-  // Merge, deduplicate (manual entries take priority over OB-sourced)
   const manualIds = new Set(ffManual.map(([id])=>id));
-  const recsAll = [...ffManual, ...ffFromOB.filter(([id])=>!manualIds.has(id))]
-    .sort((a,b)=>(a[1].loadId||'').localeCompare(b[1].loadId||''));
+  const recsAll = [...ffManual, ...ffFromOB.filter(([id])=>!manualIds.has(id))];
+  recsAll.forEach(([,r])=>{ r._ffti = isFFTICarrier(r.carrier); });
 
-  const ffCustHeaders = [['COV XDK','COVINGTON XDK'],['HOOD','HOOD'],['LITHIA SPRINGS','LITHIA SPRINGS'],['NOR XDK','NORCROSS XDK'],['PREGIS','PREGIS'],['SCI GAMES','SCI GAMES']];
-  const ffCustCards = ffCustHeaders.map(([lbl,full])=>{
-    const c = recsAll.filter(([,r])=>{ const cu=(r.customer||'').toUpperCase(); return cu===full || cu.indexOf(full)>-1; }).length;
+  // Customer cards: per FFTI customer, FFTI-carrier vs Other-carrier counts
+  const ffCustCards = yesCustomers.map(full=>{
+    const mine = recsAll.filter(([,r])=>custMatches(r.customer, full));
+    const fftiQty = mine.filter(([,r])=>r._ffti).length;
+    const otherQty = mine.filter(([,r])=>!r._ffti).length;
     const active = state.ffCustFilter===full;
-    return `<div class="scard ff-cust-card${active?' active':''}" onclick="toggleFFCust('${full.replace(/'/g,"\\'")}')" title="Filter to ${lbl}">
-      <div class="scard-label">${lbl}</div><div class="scard-value" style="color:${active?'#fff':'var(--accent)'}">${c}</div></div>`;
+    const sub = active ? 'rgba(255,255,255,0.85)' : 'var(--text2)';
+    return `<div class="scard ff-cust-card${active?' active':''}" onclick="toggleFFCust('${full.replace(/'/g,"\\'")}')" title="Filter to ${full}">
+      <div class="scard-label" style="font-size:15px;letter-spacing:.3px;margin-bottom:6px">${ffCustLabel(full)}</div>
+      <div style="display:flex;justify-content:center;gap:14px;margin-top:3px">
+        <div style="text-align:center"><div style="font-size:8px;letter-spacing:.5px;font-weight:700;color:${sub}">FFTI</div><div style="font-size:14px;font-weight:800;line-height:1.1;color:${active?'#fff':'var(--accent)'}">${fftiQty}</div></div>
+        <div style="text-align:center"><div style="font-size:8px;letter-spacing:.5px;font-weight:700;color:${sub}">OTHER</div><div style="font-size:14px;font-weight:800;line-height:1.1;color:${active?'#fff':'var(--text2)'}">${otherQty}</div></div>
+      </div></div>`;
   }).join('');
 
-  const recs = state.ffCustFilter
-    ? recsAll.filter(([,r])=>{ const cu=(r.customer||'').toUpperCase(); return cu===state.ffCustFilter || cu.indexOf(state.ffCustFilter)>-1; })
+  const recsFiltered = state.ffCustFilter
+    ? recsAll.filter(([,r])=>custMatches(r.customer, state.ffCustFilter))
     : recsAll;
 
+  // Sort & segment: FFTI carrier first (by order #), then Other (by carrier, then order #)
+  const recs = recsFiltered.slice().sort((a,b)=>{
+    const ra=a[1], rb=b[1];
+    if (ra._ffti !== rb._ffti) return ra._ffti ? -1 : 1;
+    if (ra._ffti) return (ra.orderNum||ra.loadId||'').localeCompare(rb.orderNum||rb.loadId||'');
+    const cc=(ra.carrier||'').localeCompare(rb.carrier||'');
+    return cc!==0 ? cc : (ra.orderNum||ra.loadId||'').localeCompare(rb.orderNum||rb.loadId||'');
+  });
+
   const total      = recs.length;
+  const fftiTotal  = recs.filter(([,r])=>r._ffti).length;
+  const otherTotal = total - fftiTotal;
   const received   = recs.filter(([,r])=>r.status==='ORDER RECEIVED').length;
   const fulfilling = recs.filter(([,r])=>r.status==='ORDER BEING FULFILLED').length;
   const pending    = recs.filter(([,r])=>r.status==='PENDING LOADING').length;
@@ -1468,20 +1510,22 @@ function renderFirstFleet() {
 
   let rows = '';
   if (!recs.length) {
-    rows = `<tr><td colspan="8" class="empty-row">No First Fleet loads for this date.</td></tr>`;
+    rows = `<tr><td colspan="10" class="empty-row">No First Fleet loads for this date.</td></tr>`;
   } else {
+    let lastGroup = null;
     recs.forEach(([id,r]) => {
+      const grp = r._ffti ? 'FFTI' : 'OTHER';
+      if (grp !== lastGroup) {
+        const cnt = recs.filter(([,x])=>(x._ffti?'FFTI':'OTHER')===grp).length;
+        rows += `<tr><td colspan="10" style="background:var(--surface2);padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--text2)">${grp==='FFTI'?'FIRST FLEET (FFTI)':'OTHER CARRIERS'} &nbsp;&middot;&nbsp; ${cnt}</td></tr>`;
+        lastGroup = grp;
+      }
       const ffOpts = FF_STATUSES.map(s=>`<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('');
       const isOBSource = r._source==='outbound';
       const saveType = isOBSource ? 'outbound' : 'firstfleet';
       const ffRolled = isRolled(r);
       const ffOrig   = (r.origReqDate||r.reqDate||r.deliveryDate||'').slice(0,10);
-      // For OB-sourced rows, map FF fields back to OB field names
-      const driverField  = isOBSource ? 'driver'  : 'driver';
-      const statusSave   = isOBSource
-        ? (v)=>{ const obStatus = v==='LOAD PICKED UP'?'DEPARTED':v==='LOADED READY FOR PU'?'LOADED':v==='DRIVER IN ROUTE'?'LOADING':'PICK TICKET'; saveField('ob',id,'status',obStatus); }
-        : (v)=>{ saveField('firstfleet',id,'status',v); };
-      rows += `<tr${isOBSource?' style="background:rgba(124,58,237,0.025)"':''}>
+      rows += `<tr${isOBSource?' style="background:rgba(124,58,237,0.02)"':''}>
         <td>
           <select class="status-select ${FF_CLASSES[r.status]||'s-ff-assigned'}"
             onchange="ffStatusChange('${isOBSource?'ob':'firstfleet'}','${id}',this.value,this)"
@@ -1489,7 +1533,8 @@ function renderFirstFleet() {
             ${ffOpts}
           </select>
         </td>
-        <td style="min-width:100px;font-weight:600">${r.customer||''}${isOBSource?'<span style="font-size:8px;background:rgba(124,58,237,0.12);color:#7c3aed;padding:1px 5px;border-radius:4px;margin-left:4px;font-weight:700">OB</span>':''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
+        <td style="min-width:90px">${cellInput(saveType,id,'carrier',r.carrier,'90px','Carrier')}</td>
+        <td style="min-width:100px;font-weight:600">${r.customer||''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${ffRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${ffOrig}" onchange="saveField('${isOBSource?'ob':'firstfleet'}','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
         <td style="min-width:90px">${cellInput(saveType,id,'loadId',r.loadId,'90px','Load ID')}</td>
         <td style="min-width:52px">${cellInput(saveType,id,'door',r.door,'52px','Door #')}</td>
@@ -1503,18 +1548,18 @@ function renderFirstFleet() {
 
   view.innerHTML = `
   <div class="date-bar">
-    <button class="date-nav-btn" onclick="shiftDate('ff',-1)">‹</button>
+    <button class="date-nav-btn" onclick="shiftDate('ff',-1)">&lsaquo;</button>
     <div class="date-label">${fmtDateLabel(state.ffDate)}</div>
-    <button class="date-nav-btn" onclick="shiftDate('ff',1)">›</button>
+    <button class="date-nav-btn" onclick="shiftDate('ff',1)">&rsaquo;</button>
     <button class="today-btn" onclick="setDate('ff',todayStr())">Today</button>
     <input type="date" class="date-input" value="${state.ffDate}" onchange="setDate('ff',this.value)">
   </div>
-  <div class="summary-bar" style="grid-template-columns:repeat(6,1fr);max-width:1040px;margin-bottom:6px">
+  <div class="summary-bar" style="grid-template-columns:repeat(${yesCustomers.length},1fr);max-width:1150px;margin-bottom:6px">
     ${ffCustCards}
   </div>
-  ${state.ffCustFilter?`<div style="font-size:12px;color:var(--text2);margin-bottom:10px">Filtered to <strong style="color:var(--accent)">${state.ffCustFilter}</strong> — <a href="#" onclick="toggleFFCust('${state.ffCustFilter.replace(/'/g,"\\'")}');return false;" style="color:var(--outbound);font-weight:700">show all</a></div>`:''}
+  ${state.ffCustFilter?`<div style="font-size:12px;color:var(--text2);margin-bottom:10px">Filtered to <strong style="color:var(--accent)">${state.ffCustFilter}</strong> &mdash; <a href="#" onclick="toggleFFCust('${state.ffCustFilter.replace(/'/g,"\\'")}');return false;" style="color:var(--outbound);font-weight:700">show all</a></div>`:''}
   <div class="summary-bar" style="grid-template-columns:repeat(8,1fr);max-width:1200px">
-    <div class="scard"><div class="scard-label">Scheduled</div><div class="scard-value" style="color:#7c3aed">${total}</div></div>
+    <div class="scard"><div class="scard-label">Total</div><div class="scard-value" style="color:#7c3aed">${total}</div><div style="font-size:9px;color:var(--text2);font-weight:700">FFTI ${fftiTotal} &middot; OTHER ${otherTotal}</div></div>
     <div class="scard"><div class="scard-label">Order Received</div><div class="scard-value" style="color:#7c3aed">${received}</div></div>
     <div class="scard"><div class="scard-label">Being Fulfilled</div><div class="scard-value" style="color:#6366f1">${fulfilling}</div></div>
     <div class="scard"><div class="scard-label">Pending Loading</div><div class="scard-value" style="color:#0d9488">${pending}</div></div>
@@ -1527,6 +1572,7 @@ function renderFirstFleet() {
     <table class="schedule-table">
       <thead><tr>
         <th style="width:140px">Status</th>
+        <th>Carrier</th>
         <th>Customer</th>
         <th>Orig Req Date</th>
         <th>Load ID</th>
@@ -1608,17 +1654,17 @@ function renderYard() {
   const rail  = state.yard.rail||{};
 
   // Live door occupancy auto-derived from the schedule:
-  //  - Inbound loads at "Unloading" (today) occupy their assigned door
-  //  - Outbound loads at "Loaded" (today) occupy their assigned door
+  //  - A door is shown occupied as soon as a load has BOTH a door and a trailer
+  //    assigned (today), until it departs (outbound) or completes (inbound).
   const yToday = todayStr();
   const liveDoors = {};
   Object.values(state.inbound||{}).forEach(r => {
-    if (r.status==='UNLOADING' && r.door && r.reqDate && r.reqDate.slice(0,10)===yToday)
-      liveDoors[String(r.door).trim()] = { src:'ib', status:'UNLOADING', trailer:r.trailer||'', customer:r.customer||'', order:r.loadNum||'', carrier:r.carrier||'' };
+    if (r.door && r.trailer && r.status!=='COMPLETED' && r.reqDate && r.reqDate.slice(0,10)===yToday)
+      liveDoors[String(r.door).trim()] = { src:'ib', status:r.status||'INBOUND', trailer:r.trailer||'', customer:r.customer||'', order:r.loadNum||'', carrier:r.carrier||'' };
   });
   Object.values(state.outbound||{}).forEach(r => {
-    if (r.status==='LOADED' && r.door && r.reqDate && r.reqDate.slice(0,10)===yToday)
-      liveDoors[String(r.door).trim()] = { src:'ob', status:'LOADED', trailer:r.trailer||'', customer:r.customer||'', order:r.orderNum||'', carrier:r.carrier||'' };
+    if (r.door && r.trailer && r.status!=='DEPARTED' && r.reqDate && r.reqDate.slice(0,10)===yToday)
+      liveDoors[String(r.door).trim()] = { src:'ob', status:r.status||'OUTBOUND', trailer:r.trailer||'', customer:r.customer||'', order:r.orderNum||'', carrier:r.carrier||'' };
   });
 
   const doorNums = Object.keys(DOOR_TYPES).map(Number).sort((a,b)=>a-b);
@@ -2151,6 +2197,19 @@ function extractTable(wb) {
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws, { header:1, raw:true, defval:null, blankrows:false });
   if (!rows.length) return {};
+  // FFTI customer table: columns CUSTOMER OUTBOUND + FFTI (YES/NO) -> the visible-customer list
+  const hdrs = (rows[0]||[]).map(h=>String(h==null?'':h).trim().toUpperCase());
+  const fftiCol = hdrs.findIndex(h=>h==='FFTI');
+  const custCol = hdrs.findIndex(h=>h.indexOf('CUSTOMER')>-1);
+  if (fftiCol>-1 && custCol>-1) {
+    const yes=[];
+    for (let r=1;r<rows.length;r++){
+      const cust=String(rows[r][custCol]==null?'':rows[r][custCol]).trim().toUpperCase();
+      const flag=String(rows[r][fftiCol]==null?'':rows[r][fftiCol]).trim().toUpperCase();
+      if (cust && (flag==='YES'||flag==='Y'||flag==='TRUE'||flag==='1') && yes.indexOf(cust)===-1) yes.push(cust);
+    }
+    return { __ffti: yes };
+  }
   const headers = rows[0];
   const out = {};
   headers.forEach((h, ci) => {
@@ -2177,7 +2236,9 @@ function showTableImportModal() {
         <h2 style="margin:0 0 4px">Update Dropdown Table</h2>
         <p style="color:var(--text2);font-size:13px;margin:0 0 16px">
           Load the Dock Scheduler Table workbook to refresh the dropdown options
-          (operators, customers, doors, staging lanes). This updates the lists for everyone.
+          (operators, customers, doors, staging lanes), or the FFTI customer table
+          (CUSTOMER OUTBOUND + FFTI) to set which customers appear under the FFTI tab.
+          This updates the lists for everyone.
         </p>
         <input type="file" id="table-file" accept=".xlsx,.xlsm" onchange="previewTableImport(event)"
           style="display:block;width:100%;padding:10px;border:1px dashed var(--border);border-radius:8px;margin-bottom:14px">
@@ -2201,8 +2262,17 @@ function previewTableImport(ev) {
     try {
       const wb = XLSX.read(new Uint8Array(e.target.result), { type:'array' });
       const data = extractTable(wb);
+      if (data.__ffti) {
+        _pendingTable = data;
+        prev.innerHTML = `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px">
+          <div style="font-weight:700;margin-bottom:6px">FFTI customer list — ${data.__ffti.length} customers</div>
+          <div style="color:var(--text2);font-size:12px">${data.__ffti.join(', ')||'(none marked YES)'}</div></div>`;
+        const go = document.getElementById('table-go');
+        go.disabled = false; go.style.opacity = '1';
+        return;
+      }
       const keys = Object.keys(data);
-      if (!keys.length) { prev.innerHTML = '<span style="color:var(--danger)">No recognizable columns found. Expected headers like OPERATORS, CUSTOMER INBOUND, DOOR, STAGING LANE…</span>'; return; }
+      if (!keys.length) { prev.innerHTML = '<span style="color:var(--danger)">No recognizable columns found. Expected headers like OPERATORS, CUSTOMER INBOUND, DOOR, STAGING LANE… or the FFTI customer table (CUSTOMER OUTBOUND + FFTI).</span>'; return; }
       _pendingTable = data;
       prev.innerHTML = `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px">
         ${keys.map(k=>`<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)">
@@ -2221,9 +2291,15 @@ function runTableImport() {
   if (!_pendingTable) return;
   const go = document.getElementById('table-go');
   go.disabled = true; go.textContent = 'Updating…';
-  db.ref(ROOT+'/refTable').set(_pendingTable)
-    .then(()=>{ closeModal(); showAlert('Dropdown table updated','success'); })
-    .catch(e=>{ showAlert('Update failed: '+e.message,'danger'); go.disabled=false; go.textContent='Update Table'; });
+  let p;
+  if (_pendingTable.__ffti) {
+    p = db.ref(ROOT+'/fftiCustomers').set(_pendingTable.__ffti)
+      .then(()=>{ closeModal(); showAlert('FFTI customer list updated ('+_pendingTable.__ffti.length+' customers)','success'); });
+  } else {
+    p = db.ref(ROOT+'/refTable').set(_pendingTable)
+      .then(()=>{ closeModal(); showAlert('Dropdown table updated','success'); });
+  }
+  p.catch(e=>{ showAlert('Update failed: '+e.message,'danger'); go.disabled=false; go.textContent='Update Table'; });
 }
 
 function showImportModal() {
