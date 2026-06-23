@@ -341,6 +341,9 @@ const state = {
   settings: {},
   rollMode: { ib:false, ob:false },
   ffCustFilter: null,
+  ibCustFilter: null,
+  obCustFilter: null,
+  iconHeaders: {},
   obSearch: ''
 };
 let rollSel = new Set();
@@ -981,6 +984,11 @@ function startListeners() {
     state.fftiCustomers = snap.val()||[];
     if (state.tab==='ff') renderFirstFleet();
   });
+  db.ref(ROOT+'/iconHeaders').on('value', snap => {
+    state.iconHeaders = snap.val()||{};
+    if (state.tab==='ib') renderInbound();
+    else if (state.tab==='ob') renderOutbound();
+  });
   db.ref(ROOT+'/yard').on('value', snap => {
     state.yard = snap.val()||{};
     if (state.tab==='yd') renderYard();
@@ -1058,9 +1066,10 @@ function renderInbound() {
     <button class="roll-btn" onclick="rollSelected('ib')">Roll Loads</button>
     <button class="roll-btn ghost" onclick="exitRollMode('ib')">Cancel</button>
   </div>` : '';
-  const recs = Object.entries(state.inbound)
+  const recsDay = Object.entries(state.inbound)
     .filter(([,r])=>r.reqDate&&r.reqDate.slice(0,10)===state.ibDate)
     .sort((a,b)=>(a[1].apptTime||'99:99').localeCompare(b[1].apptTime||'99:99'));
+  const recs = state.ibCustFilter ? recsDay.filter(([,r])=>iconForCustomer('ib', r.customer)===state.ibCustFilter) : recsDay;
 
   const total   = recs.length;
   const arrived = recs.filter(([,r])=>r.status==='ARRIVED'||r.status==='UNLOADING'||r.status==='COMPLETED').length;
@@ -1130,6 +1139,8 @@ function renderInbound() {
     ${ibRollToggle}
   </div>
   ${ibRollBar}
+  ${custFilterBar('ib', recsDay, state.ibCustFilter, 'toggleIBCust', 'var(--inbound)')}
+  ${custFilterNotice(state.ibCustFilter, 'toggleIBCust')}
   <div class="summary-bar">
     <div class="scard"><div class="scard-label">Scheduled</div><div class="scard-value" style="color:var(--inbound)">${total}</div></div>
     <div class="scard"><div class="scard-label">Arrived</div><div class="scard-value" style="color:var(--warning)">${arrived}</div></div>
@@ -1176,17 +1187,18 @@ function renderOutbound() {
   </div>` : '';
   const obQuery = (state.obSearch||'').trim().toUpperCase();
   const obSearching = obQuery !== '';
-  const recs = Object.entries(state.outbound)
-    .filter(([,r])=>{
-      if (obSearching) {
-        return [r.orderNum,r.customer,r.destination,r.trailer,r.carrier,r.loadNum,r.door,r.picker,r.loader]
-          .some(v=>String(v||'').toUpperCase().indexOf(obQuery)>-1);
-      }
-      return r.reqDate&&r.reqDate.slice(0,10)===state.obDate;
-    })
-    .sort((a,b)=> obSearching
-      ? (String(a[1].reqDate||'').localeCompare(String(b[1].reqDate||'')) || (a[1].apptTime||'99:99').localeCompare(b[1].apptTime||'99:99'))
-      : (a[1].apptTime||'99:99').localeCompare(b[1].apptTime||'99:99'));
+  const recsDay = Object.entries(state.outbound)
+    .filter(([,r])=>r.reqDate&&r.reqDate.slice(0,10)===state.obDate)
+    .sort((a,b)=>(a[1].apptTime||'99:99').localeCompare(b[1].apptTime||'99:99'));
+  let recs;
+  if (obSearching) {
+    recs = Object.entries(state.outbound)
+      .filter(([,r])=>[r.orderNum,r.customer,r.destination,r.trailer,r.carrier,r.loadNum,r.door,r.picker,r.loader]
+        .some(v=>String(v||'').toUpperCase().indexOf(obQuery)>-1))
+      .sort((a,b)=> (String(a[1].reqDate||'').localeCompare(String(b[1].reqDate||'')) || (a[1].apptTime||'99:99').localeCompare(b[1].apptTime||'99:99')));
+  } else {
+    recs = state.obCustFilter ? recsDay.filter(([,r])=>iconForCustomer('ob', r.customer)===state.obCustFilter) : recsDay;
+  }
 
   const total   = recs.length;
   const active  = recs.filter(([,r])=>['LOADING','BEING PICKED','PICKED & STAGED'].includes(r.status)).length;
@@ -1215,7 +1227,7 @@ function renderOutbound() {
             ${obOpts}
           </select>
         </td>
-        <td style="min-width:110px">${cellSelect('ob',id,'customer',r.customer,refOpts('customerOB'),'110px')}${isPF?'<span style="font-size:8px;background:rgba(26,58,107,0.12);color:var(--inbound);padding:1px 5px;border-radius:4px;margin-left:4px;font-weight:700">PF</span>':''}${obIsRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
+        <td style="min-width:155px">${cellSelect('ob',id,'customer',r.customer,refOpts('customerOB'),'150px')}${isPF?'<span style="font-size:8px;background:rgba(26,58,107,0.12);color:var(--inbound);padding:1px 5px;border-radius:4px;margin-left:4px;font-weight:700">PF</span>':''}${obIsRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:120px">${cellInput('ob',id,'orderNum',r.orderNum,'115px','Order #')}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${obIsRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${obOrig}" onchange="saveField('ob','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
         <td style="min-width:150px">${cellInput('ob',id,'destination',r.destination,'140px','Destination')}</td>
@@ -1240,7 +1252,7 @@ function renderOutbound() {
         <td style="min-width:52px">${cellSelect('ob',id,'door',r.door,refOpts('door'),'58px')}</td>
         <td style="min-width:80px">${cellInput('ob',id,'trailer',r.trailer,'80px','Trailer')}</td>
         <td style="min-width:80px">${cellInput('ob',id,'carrier',r.carrier,'80px','Carrier')}</td>
-        <td style="min-width:140px">${cellInput('ob',id,'notes',r.notes,'140px','Notes')}</td>
+        <td style="min-width:110px">${cellInput('ob',id,'notes',r.notes,'110px','Notes')}</td>
         <td>
           <button class="btn" style="font-size:10px;padding:4px 10px" onclick="editLoad('ob','${id}')">✎</button>
           <button class="btn" style="font-size:10px;padding:4px 10px;color:var(--danger)" onclick="${isPF?`confirmPFDelete('${id}')`:`deleteLoad('ob','${id}')`}">✕</button>
@@ -1265,6 +1277,8 @@ function renderOutbound() {
   </div>
   ${obRollBar}
   ${obSearching?`<div style="background:rgba(217,119,6,0.1);border:1px solid rgba(217,119,6,0.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:13px;color:var(--warning)">Showing <strong>${total}</strong> load(s) matching "<strong>${obQuery}</strong>" across all dates. <a href="#" onclick="clearObSearch();return false;" style="color:var(--outbound);font-weight:700">Clear filter</a></div>`:''}
+  ${obSearching ? '' : custFilterBar('ob', recsDay, state.obCustFilter, 'toggleOBCust', 'var(--outbound)')}
+  ${obSearching ? '' : custFilterNotice(state.obCustFilter, 'toggleOBCust')}
   <div class="summary-bar">
     <div class="scard"><div class="scard-label">Total Loads</div><div class="scard-value" style="color:var(--accent)">${total}</div></div>
     <div class="scard"><div class="scard-label">Scheduled</div><div class="scard-value" style="color:var(--outbound)">${total-rolled}</div></div>
@@ -1391,6 +1405,65 @@ function toggleFFCust(full) {
   state.ffCustFilter = (state.ffCustFilter===full) ? null : full;
   renderFirstFleet();
 }
+
+// ── Icon header tables (customer -> icon group) for Inbound / Outbound ──
+// Updatable via the table import. Defaults seeded from the ICON_HEADERS table.
+const DEFAULT_ICON_IB = {
+  'ATL UPM':'ATL UPM','CATALYST':'CATALYST','IP':'IP','IPG - ITAPE':'IPG - ITAPE',
+  'WRK - PRATT':'WRK - PRATT','SMUR-WRK':'SMUR-WRK','TWIN RIVERS':'TWIN RIVERS'
+};
+const DEFAULT_ICON_OB = {
+  'ALL SOUTH':'OTHER','ATL UPM':'OTHER','ATLANTIC CONV':'OTHER','CATALYST':'CATALYST','CONWAY':'OTHER',
+  'COVINGTON XDK':'COVINGTON XDK','HBH':'HBH','HOOD':'HOOD','IP':'OTHER','IPG - ITAPE':'IPG - ITAPE',
+  'LANET - VALLEY':'OTHER','LITHIA SPRINGS':'LITHIA SPRINGS','MAXXON':'OTHER','MONTGOMEREY XDK':'OTHER',
+  'MPS':'OTHER','NORCROSS XDK':'NORCROSS XDK','PREGIS':'PREGIS','SCI GAMES':'SCI GAMES',
+  'SOUTHERN STATES PKG':'OTHER','TWIN RIVERS':'TWIN RIVERS','WRK ATL SHEET':'OTHER',
+  'WRK CONWAY':'OTHER','WRK HEBRON':'OTHER','WRK RECLAMATION':'OTHER'
+};
+function iconMap(tab) {
+  const ih = state.iconHeaders || {};
+  const m = (tab==='ib') ? ih.inbound : ih.outbound;
+  return (m && Object.keys(m).length) ? m : (tab==='ib' ? DEFAULT_ICON_IB : DEFAULT_ICON_OB);
+}
+function iconList(tab) {
+  const m = iconMap(tab);
+  const set = [];
+  Object.values(m).forEach(ic => { const v=(ic||'').toString().trim().toUpperCase(); if (v && set.indexOf(v)===-1) set.push(v); });
+  set.sort((a,b)=>{ if(a==='OTHER') return 1; if(b==='OTHER') return -1; return a.localeCompare(b); });
+  return set;
+}
+function iconForCustomer(tab, customer) {
+  const m = iconMap(tab);
+  const cu = (customer||'').toString().trim().toUpperCase();
+  if (!cu) return null;
+  for (const k in m) if (k.toUpperCase()===cu) return (m[k]||'').toString().trim().toUpperCase();
+  for (const k in m) { const ku=k.toUpperCase(); if (ku && (cu.indexOf(ku)>-1 || ku.indexOf(cu)>-1)) return (m[k]||'').toString().trim().toUpperCase(); }
+  return null;
+}
+
+// Icon-table-driven customer-filter bar (all icons shown, 0 when empty)
+function custFilterBar(tab, recsDay, current, toggleFn, accentVar) {
+  const icons = iconList(tab);
+  if (!icons.length) return '';
+  const counts = {}; icons.forEach(ic=>counts[ic]=0);
+  recsDay.forEach(([,r])=>{ const ic=iconForCustomer(tab, r.customer); if (ic && counts[ic]!==undefined) counts[ic]++; });
+  const cards = icons.map(ic=>{
+    const active = !!current && current.toUpperCase()===ic;
+    const esc = ic.replace(/'/g,"\\'");
+    return `<div class="scard ff-cust-card${active?' active':''}" onclick="${toggleFn}('${esc}')" title="Filter to ${ic}">
+      <div class="scard-label" style="font-size:13px;letter-spacing:.3px;margin-bottom:3px">${ic}</div>
+      <div class="scard-value" style="font-size:16px;line-height:1.1;color:${active?'#fff':accentVar}">${counts[ic]}</div>
+    </div>`;
+  }).join('');
+  return `<div class="summary-bar" style="max-height:142px;overflow:auto;margin-bottom:10px">${cards}</div>`;
+}
+function custFilterNotice(current, toggleFn) {
+  if (!current) return '';
+  const esc = current.replace(/'/g,"\\'");
+  return `<div style="font-size:12px;color:var(--text2);margin-bottom:10px">Filtered to <strong style="color:var(--accent)">${current}</strong> &mdash; <a href="#" onclick="${toggleFn}('${esc}');return false;" style="color:var(--outbound);font-weight:700">show all</a></div>`;
+}
+function toggleIBCust(c){ state.ibCustFilter = (state.ibCustFilter===c) ? null : c; renderInbound(); }
+function toggleOBCust(c){ state.obCustFilter = (state.obCustFilter===c) ? null : c; renderOutbound(); }
 
 function ffStatusChange(source, id, v, el) {
   if (source === 'ob') {
@@ -2210,6 +2283,20 @@ function extractTable(wb) {
     }
     return { __ffti: yes };
   }
+  // Icon headers table: CUSTOMER INBOUND + ICON … CUSTOMER OUTBOUND + ICON
+  const ciIB = hdrs.indexOf('CUSTOMER INBOUND');
+  const ciOB = hdrs.indexOf('CUSTOMER OUTBOUND');
+  if (ciIB>-1 && ciOB>-1) {
+    const inbound={}, outbound={};
+    const clean = v => String(v==null?'':v).trim();
+    for (let r=1;r<rows.length;r++){
+      const ci = clean(rows[r][ciIB]);
+      if (ci) inbound[ci.toUpperCase()] = (clean(rows[r][ciIB+1])||ci).toUpperCase();
+      const co = clean(rows[r][ciOB]);
+      if (co) outbound[co.toUpperCase()] = (clean(rows[r][ciOB+1])||co).toUpperCase();
+    }
+    return { __iconHeaders: { inbound, outbound } };
+  }
   const headers = rows[0];
   const out = {};
   headers.forEach((h, ci) => {
@@ -2236,9 +2323,9 @@ function showTableImportModal() {
         <h2 style="margin:0 0 4px">Update Dropdown Table</h2>
         <p style="color:var(--text2);font-size:13px;margin:0 0 16px">
           Load the Dock Scheduler Table workbook to refresh the dropdown options
-          (operators, customers, doors, staging lanes), or the FFTI customer table
-          (CUSTOMER OUTBOUND + FFTI) to set which customers appear under the FFTI tab.
-          This updates the lists for everyone.
+          (operators, customers, doors, staging lanes), the FFTI customer table
+          (CUSTOMER OUTBOUND + FFTI), or the Icon Headers table (CUSTOMER INBOUND/OUTBOUND + ICON)
+          to set the header cards on each tab. This updates the lists for everyone.
         </p>
         <input type="file" id="table-file" accept=".xlsx,.xlsm" onchange="previewTableImport(event)"
           style="display:block;width:100%;padding:10px;border:1px dashed var(--border);border-radius:8px;margin-bottom:14px">
@@ -2262,6 +2349,17 @@ function previewTableImport(ev) {
     try {
       const wb = XLSX.read(new Uint8Array(e.target.result), { type:'array' });
       const data = extractTable(wb);
+      if (data.__iconHeaders) {
+        _pendingTable = data;
+        const nIB = Object.keys(data.__iconHeaders.inbound||{}).length;
+        const nOB = Object.keys(data.__iconHeaders.outbound||{}).length;
+        prev.innerHTML = `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px">
+          <div style="font-weight:700;margin-bottom:6px">Icon headers — ${nIB} inbound, ${nOB} outbound customer mappings</div>
+          <div style="color:var(--text2);font-size:12px">Header icons rebuild from these mappings (all shown, 0 when no loads).</div></div>`;
+        const go = document.getElementById('table-go');
+        go.disabled = false; go.style.opacity = '1';
+        return;
+      }
       if (data.__ffti) {
         _pendingTable = data;
         prev.innerHTML = `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px">
@@ -2295,6 +2393,9 @@ function runTableImport() {
   if (_pendingTable.__ffti) {
     p = db.ref(ROOT+'/fftiCustomers').set(_pendingTable.__ffti)
       .then(()=>{ closeModal(); showAlert('FFTI customer list updated ('+_pendingTable.__ffti.length+' customers)','success'); });
+  } else if (_pendingTable.__iconHeaders) {
+    p = db.ref(ROOT+'/iconHeaders').set(_pendingTable.__iconHeaders)
+      .then(()=>{ closeModal(); showAlert('Icon headers updated','success'); });
   } else {
     p = db.ref(ROOT+'/refTable').set(_pendingTable)
       .then(()=>{ closeModal(); showAlert('Dropdown table updated','success'); });
