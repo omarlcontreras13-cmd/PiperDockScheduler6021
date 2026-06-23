@@ -280,6 +280,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
       <div class="header-user" id="user-display">—</div>
       <button class="sign-out-btn" id="import-btn" onclick="showImportModal()" style="display:none;margin-right:8px;background:var(--inbound);color:#fff;border-color:var(--inbound)">Import Excel</button>
       <button class="sign-out-btn" id="table-btn" onclick="showTableImportModal()" style="display:none;margin-right:8px;background:#0d9488;color:#fff;border-color:#0d9488">Update Table</button>
+      <button class="sign-out-btn" id="report-btn" onclick="showReportModal()" style="display:none;margin-right:8px;background:#b45309;color:#fff;border-color:#b45309">Reports</button>
       <button class="sign-out-btn" id="users-btn" onclick="showUsersModal()" style="display:none;margin-right:8px;background:#6b21a8;color:#fff;border-color:#6b21a8">Users</button>
       <button class="sign-out-btn" onclick="logout()">Sign Out</button>
     </div>
@@ -536,6 +537,7 @@ function loginGroup(group, isAdmin) {
   document.getElementById('import-btn').style.display = admin ? '' : 'none';
   document.getElementById('table-btn').style.display  = admin ? '' : 'none';
   document.getElementById('users-btn').style.display  = admin ? '' : 'none';
+  document.getElementById('report-btn').style.display = admin ? '' : 'none';
 
   // Tab visibility — FFTI/SW sees only First Fleet
   applyTabAccess(group);
@@ -570,6 +572,12 @@ function showUsersModal() {
           <label style="font-size:12px;color:var(--text2);white-space:nowrap;font-weight:600">App link</label>
           <input type="text" id="app-link-input" onchange="saveAppLink(this.value)" placeholder="https://your-app-url"
             style="flex:1 1 auto;padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px">
+        </div>
+        <div style="margin:0 0 16px;flex:0 0 auto">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:var(--text)">
+            <input type="checkbox" id="autoroll-toggle" onchange="saveAutoRoll(this.checked)" style="width:16px;height:16px">
+            Auto-roll outbound loads not departed by 5 PM ET to the next business day
+          </label>
         </div>
         <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;flex:0 0 auto">
           <input type="text" id="new-user-name" placeholder="Name"
@@ -624,6 +632,8 @@ function showUsersModal() {
   renderActiveSessions();
   const li = document.getElementById('app-link-input');
   if (li) li.value = appLink();
+  const ar = document.getElementById('autoroll-toggle');
+  if (ar) ar.checked = !(state.settings && state.settings.autoRoll === false);
 }
 
 function renderUsersTable() {
@@ -738,6 +748,12 @@ function saveAppLink(v) {
   (val ? ref.set(val) : ref.remove())
     .then(()=>showAlert('App link saved','success'))
     .catch(e=>showAlert('Could not save link: '+e.message,'danger'));
+}
+function saveAutoRoll(on) {
+  if (!requireAdmin()) return;
+  db.ref(ROOT+'/settings/autoRoll').set(!!on)
+    .then(()=>showAlert('Auto-roll '+(on?'enabled':'disabled'),'success'))
+    .catch(e=>showAlert('Could not save setting: '+e.message,'danger'));
 }
 function toggleAllUsers(checked) {
   document.querySelectorAll('.user-select-cb').forEach(cb => cb.checked = checked);
@@ -993,6 +1009,9 @@ function startListeners() {
     state.yard = snap.val()||{};
     if (state.tab==='yd') renderYard();
   });
+  // Auto-roll outbound loads not departed by 5 PM ET to the next business day
+  setTimeout(autoRollOutbound, 4000);
+  if (!_autoRollTimer) _autoRollTimer = setInterval(autoRollOutbound, 5*60*1000);
 }
 
 function updateBadges() {
@@ -2530,6 +2549,163 @@ db.ref(ROOT+'/sessions').on('value', snap => {
 db.ref(ROOT+'/settings').on('value', snap => {
   state.settings = snap.val() || {};
 });
+// ───────────────────────────── Auto-roll (Outbound) ─────────────────────────────
+let _autoRollTimer = null;
+function etParts() {
+  try {
+    const f = new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hourCycle:'h23'});
+    const p = {}; f.formatToParts(new Date()).forEach(x=>p[x.type]=x.value);
+    return { date:`${p.year}-${p.month}-${p.day}`, hour:parseInt(p.hour,10)||0 };
+  } catch(e) { const d=new Date(); return { date:todayStr(), hour:d.getHours() }; }
+}
+function nextBusinessDay(ymd) {
+  const [Y,M,D] = ymd.split('-').map(Number);
+  const d = new Date(Y, M-1, D);
+  do { d.setDate(d.getDate()+1); } while (d.getDay()===0 || d.getDay()===6);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function eodPassed(ymd) {
+  const et = etParts();
+  if (ymd < et.date) return true;
+  if (ymd === et.date) return et.hour >= 17;
+  return false;
+}
+// Any outbound load not DEPARTED whose 5 PM ET cutoff has passed rolls to the next business day.
+function autoRollOutbound() {
+  if (!state.user || state.user.group !== 'piper') return;
+  if (state.settings && state.settings.autoRoll === false) return;   // disabled by admin
+  const updates = {};
+  Object.entries(state.outbound||{}).forEach(([id,r])=>{
+    if (!r || r.status === 'DEPARTED') return;
+    const d = (r.reqDate||'').slice(0,10);
+    if (!d || !eodPassed(d)) return;
+    let newD = d, guard = 0;
+    while (eodPassed(newD) && guard++ < 500) newD = nextBusinessDay(newD);
+    if (newD !== d) updates[id] = { reqDate:newD, origReqDate: r.origReqDate || d };
+  });
+  Object.keys(updates).forEach(id => db.ref(ROOT+'/outbound/'+id).update(updates[id]).catch(()=>{}));
+}
+
+// ───────────────────────────── Reports ─────────────────────────────
+function periodInfo(ymd, gran) {
+  const [Y,M,D] = ymd.split('-').map(Number);
+  const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  if (gran==='day')   return { key:ymd, label:ymd };
+  if (gran==='week') {
+    const d = new Date(Y, M-1, D);
+    const dow = (d.getDay()+6)%7;          // Mon=0
+    d.setDate(d.getDate()-dow);
+    const k = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    return { key:k, label:'Week of '+k };
+  }
+  if (gran==='month')   return { key:`${Y}-${String(M).padStart(2,'0')}`, label:`${MON[M-1]} ${Y}` };
+  if (gran==='quarter') { const q=Math.floor((M-1)/3)+1; return { key:`${Y}-Q${q}`, label:`Q${q} ${Y}` }; }
+  return { key:`${Y}`, label:`${Y}` };
+}
+function buildReport(gran, from, to) {
+  const inRange = d => (!from || d>=from) && (!to || d<=to);
+  const vol = {};
+  function volB(k,label,carrier){ vol[k]=vol[k]||{label,carriers:{}}; const c=(carrier||'(none)').toString().trim()||'(none)'; vol[k].carriers[c]=vol[k].carriers[c]||{recv:0,ship:0,roll:0}; return vol[k].carriers[c]; }
+  Object.values(state.inbound||{}).forEach(r=>{ const d=(r.reqDate||'').slice(0,10); if(!d||!inRange(d))return; const pi=periodInfo(d,gran); volB(pi.key,pi.label,r.carrier).recv++; });
+  Object.values(state.outbound||{}).forEach(r=>{ if(r.status!=='DEPARTED')return; const d=(r.reqDate||'').slice(0,10); if(!d||!inRange(d))return; const pi=periodInfo(d,gran); volB(pi.key,pi.label,r.carrier).ship++; });
+  [].concat(Object.values(state.inbound||{}),Object.values(state.outbound||{})).forEach(r=>{ if(!isRolled(r))return; const d=(r.origReqDate||'').slice(0,10); if(!d||!inRange(d))return; const pi=periodInfo(d,gran); volB(pi.key,pi.label,r.carrier).roll++; });
+  const ot = {};
+  function otB(k,label){ ot[k]=ot[k]||{label,early:0,ontime:0,late:0,sumVar:0,sumAbs:0,n:0}; return ot[k]; }
+  [].concat(Object.values(state.inbound||{}),Object.values(state.outbound||{})).forEach(r=>{
+    const d=(r.reqDate||'').slice(0,10); if(!d||!inRange(d))return;
+    if(!r.apptTime||!r.timeIn)return;
+    const v=calcVariance(r.apptTime,r.timeIn); if(v===null)return;
+    const pi=periodInfo(d,gran); const b=otB(pi.key,pi.label);
+    b.n++; b.sumVar+=v; b.sumAbs+=Math.abs(v);
+    if(v<0)b.early++; else if(v<15)b.ontime++; else b.late++;
+  });
+  return { vol, ot };
+}
+function showReportModal() {
+  if (!requireAdmin()) return;
+  const today = todayStr();
+  const dd=new Date(); dd.setDate(dd.getDate()-90);
+  const from = `${dd.getFullYear()}-${String(dd.getMonth()+1).padStart(2,'0')}-${String(dd.getDate()).padStart(2,'0')}`;
+  const ctl='padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:var(--font)';
+  const lab='display:block;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);margin-bottom:4px;font-weight:600';
+  document.getElementById('modal-container').innerHTML = `
+  <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal" style="max-width:980px;width:96vw;max-height:92vh;display:flex;flex-direction:column;overflow:hidden">
+      <h2 style="margin:0 0 4px;flex:0 0 auto">Reports</h2>
+      <p style="color:var(--text2);font-size:13px;margin:0 0 14px;flex:0 0 auto">Volume (Received / Shipped / Rolled) by carrier, and on-time performance — summarized by period. Variance is minutes vs. appointment (negative = early).</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;flex:0 0 auto">
+        <div><label style="${lab}">View</label>
+          <select id="rep-gran" onchange="renderReport()" style="${ctl}">
+            <option value="day">Day</option><option value="week">Week</option>
+            <option value="month" selected>Month</option><option value="quarter">Quarter</option><option value="year">Year</option>
+          </select></div>
+        <div><label style="${lab}">From</label><input type="date" id="rep-from" value="${from}" onchange="renderReport()" style="${ctl}"></div>
+        <div><label style="${lab}">To</label><input type="date" id="rep-to" value="${today}" onchange="renderReport()" style="${ctl}"></div>
+        <button class="sign-out-btn" onclick="renderReport()">Refresh</button>
+        <button class="sign-out-btn" onclick="exportReportExcel()" style="background:#1d6f42;color:#fff;border-color:#1d6f42;font-weight:700">Export to Excel</button>
+      </div>
+      <div id="report-output" style="flex:1 1 auto;min-height:0;overflow:auto"></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:14px;flex:0 0 auto"><button class="sign-out-btn" onclick="closeModal()">Done</button></div>
+    </div>
+  </div>`;
+  renderReport();
+}
+function renderReport() {
+  const gran=document.getElementById('rep-gran').value;
+  const from=document.getElementById('rep-from').value;
+  const to=document.getElementById('rep-to').value;
+  const { vol, ot } = buildReport(gran, from, to);
+  const th='padding:6px 9px;text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);position:sticky;top:0;background:var(--surface2)';
+  const thr=th+';text-align:right';
+  const td='padding:6px 9px;font-size:13px;border-top:1px solid var(--border)';
+  const tdr=td+';text-align:right';
+  let v='<h3 style="margin:4px 0 8px;font-size:14px">Volume by Carrier</h3>';
+  const vKeys=Object.keys(vol).sort();
+  if(!vKeys.length){ v+='<div style="color:var(--text2);font-size:13px;margin-bottom:18px">No loads in range.</div>'; }
+  else {
+    v+=`<table style="width:100%;border-collapse:collapse;margin-bottom:20px"><thead><tr><th style="${th}">Period</th><th style="${th}">Carrier</th><th style="${thr}">Received (IB)</th><th style="${thr}">Shipped (OB)</th><th style="${thr}">Rolled</th></tr></thead><tbody>`;
+    vKeys.forEach(k=>{
+      const per=vol[k]; let tr=0,ts=0,tro=0;
+      Object.keys(per.carriers).sort().forEach(c=>{ const x=per.carriers[c]; tr+=x.recv;ts+=x.ship;tro+=x.roll;
+        v+=`<tr><td style="${td}">${per.label}</td><td style="${td}">${c}</td><td style="${tdr}">${x.recv}</td><td style="${tdr}">${x.ship}</td><td style="${tdr}">${x.roll}</td></tr>`; });
+      v+=`<tr style="background:var(--surface2);font-weight:700"><td style="${td}">${per.label}</td><td style="${td}">TOTAL</td><td style="${tdr}">${tr}</td><td style="${tdr}">${ts}</td><td style="${tdr}">${tro}</td></tr>`;
+    });
+    v+='</tbody></table>';
+  }
+  let o='<h3 style="margin:4px 0 8px;font-size:14px">On-Time Performance</h3>';
+  const oKeys=Object.keys(ot).sort();
+  if(!oKeys.length){ o+='<div style="color:var(--text2);font-size:13px">No appointment + arrival times in range.</div>'; }
+  else {
+    o+=`<table style="width:100%;border-collapse:collapse"><thead><tr><th style="${th}">Period</th><th style="${thr}">Loads</th><th style="${thr}">Early</th><th style="${thr}">On Time</th><th style="${thr}">Late</th><th style="${thr}">Avg Var (min)</th><th style="${thr}">Avg |Var| (min)</th></tr></thead><tbody>`;
+    oKeys.forEach(k=>{ const b=ot[k]; const av=b.n?(b.sumVar/b.n).toFixed(1):'0'; const aa=b.n?(b.sumAbs/b.n).toFixed(1):'0';
+      o+=`<tr><td style="${td}">${b.label}</td><td style="${tdr}">${b.n}</td><td style="${tdr};color:var(--inbound)">${b.early}</td><td style="${tdr};color:var(--accent2)">${b.ontime}</td><td style="${tdr};color:var(--danger)">${b.late}</td><td style="${tdr}">${av}</td><td style="${tdr}">${aa}</td></tr>`; });
+    o+='</tbody></table>';
+  }
+  document.getElementById('report-output').innerHTML = v+o;
+}
+function exportReportExcel() {
+  const gran=document.getElementById('rep-gran').value;
+  const from=document.getElementById('rep-from').value;
+  const to=document.getElementById('rep-to').value;
+  const { vol, ot } = buildReport(gran, from, to);
+  const wb = XLSX.utils.book_new();
+  const vAoa=[['Period','Carrier','Received (IB)','Shipped (OB)','Rolled']];
+  Object.keys(vol).sort().forEach(k=>{ const per=vol[k]; let tr=0,ts=0,tro=0;
+    Object.keys(per.carriers).sort().forEach(c=>{ const x=per.carriers[c]; vAoa.push([per.label,c,x.recv,x.ship,x.roll]); tr+=x.recv;ts+=x.ship;tro+=x.roll; });
+    vAoa.push([per.label,'TOTAL',tr,ts,tro]);
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(vAoa), 'Volume by Carrier');
+  const oAoa=[['Period','Loads','Early','On Time','Late','Avg Variance (min)','Avg Abs Variance (min)']];
+  Object.keys(ot).sort().forEach(k=>{ const b=ot[k]; oAoa.push([b.label,b.n,b.early,b.ontime,b.late, b.n?+(b.sumVar/b.n).toFixed(1):0, b.n?+(b.sumAbs/b.n).toFixed(1):0]); });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(oAoa), 'On-Time Performance');
+  const out = XLSX.write(wb,{bookType:'xlsx',type:'array'});
+  const blob = new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download=`dock-report-${gran}-${from||'all'}_to_${to||'all'}.xlsx`;
+  document.body.appendChild(a); a.click(); setTimeout(()=>{ try{document.body.removeChild(a);}catch(e){} URL.revokeObjectURL(url); },0);
+  showAlert('Report exported','success');
+}
+
 buildLoginScreen();
 </script>
 </body>
