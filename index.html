@@ -1769,16 +1769,15 @@ function renderYard() {
   const rail  = state.yard.rail||{};
 
   // Live door occupancy auto-derived from the schedule:
-  //  - A door is shown occupied as soon as a load has BOTH a door and a trailer
-  //    assigned (today), until it departs (outbound) or completes (inbound).
-  const yToday = todayStr();
+  //  - A door is shown occupied whenever a load has BOTH a door and a trailer
+  //    assigned (any day), until it departs (outbound) or completes (inbound).
   const liveDoors = {};
   Object.values(state.inbound||{}).forEach(r => {
-    if (r.door && r.trailer && r.status!=='COMPLETED' && r.reqDate && r.reqDate.slice(0,10)===yToday)
+    if (r.door && r.trailer && r.status!=='COMPLETED')
       liveDoors[String(r.door).trim()] = { src:'ib', status:r.status||'INBOUND', trailer:r.trailer||'', customer:r.customer||'', order:r.loadNum||'', carrier:r.carrier||'' };
   });
   Object.values(state.outbound||{}).forEach(r => {
-    if (r.door && r.trailer && r.status!=='DEPARTED' && r.reqDate && r.reqDate.slice(0,10)===yToday)
+    if (r.door && r.trailer && r.status!=='DEPARTED')
       liveDoors[String(r.door).trim()] = { src:'ob', status:r.status||'OUTBOUND', trailer:r.trailer||'', customer:r.customer||'', order:r.orderNum||'', carrier:r.carrier||'' };
   });
 
@@ -2180,6 +2179,32 @@ function saveField(type, id, field, value) {
   const path = type==='ib'?'inbound':type==='ob'?'outbound':type==='firstfleet'?'firstfleet':'outbound';
   db.ref(ROOT+'/'+path+'/'+id+'/'+field).set(value)
     .catch(e=>console.warn('Field save error',e));
+  if (path==='outbound' && (field==='door' || field==='trailer')) checkDupAssignment(field, id, value);
+}
+// Warn if a door or trailer entered in Outbound collides with another active load
+// (a door can hold one trailer; a trailer can't be in two places).
+function checkDupAssignment(field, id, value) {
+  const v = (value||'').toString().trim();
+  if (!v) return;
+  const vU = v.toUpperCase();
+  let hit = null;
+  const scan = (recs, src) => {
+    if (hit) return;
+    for (const k in (recs||{})) {
+      if (k === id) continue;
+      const r = recs[k]; if (!r) continue;
+      if (src==='ob' && r.status==='DEPARTED') continue;
+      if (src==='ib' && r.status==='COMPLETED') continue;
+      const rv = (r[field]||'').toString().trim().toUpperCase();
+      if (rv && rv === vU) { hit = { customer:r.customer||'', order:r.orderNum||r.loadNum||'', side:src }; return; }
+    }
+  };
+  scan(state.outbound, 'ob');
+  scan(state.inbound, 'ib');
+  if (hit) {
+    const who = (hit.customer || 'another load') + (hit.order ? ` (${hit.order})` : '') + (hit.side==='ib' ? ' — INBOUND' : '');
+    showAlert(`⚠ Duplicate ${field==='door'?'door':'trailer'} ${v} — already assigned to ${who}`, 'danger');
+  }
 }
 
 function closeModal() { document.getElementById('modal-container').innerHTML=''; }
