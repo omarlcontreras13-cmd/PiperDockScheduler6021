@@ -92,6 +92,9 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .roll-btn:disabled { opacity:.45;cursor:default; }
 .roll-toggle { font-size:11px;font-weight:700;letter-spacing:.5px;padding:8px 14px;border-radius:8px;border:1px solid var(--warning);background:transparent;color:var(--warning);cursor:pointer; }
 .rolled-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#fff;background:var(--warning);padding:1px 5px;border-radius:4px;vertical-align:middle; }
+.pri-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#fff;background:var(--danger);padding:1px 5px;border-radius:4px;vertical-align:middle; }
+tr.priority-row > td { background:rgba(220,38,38,0.07) !important; }
+tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
 .rolled-date { border-color:var(--warning)!important;background:rgba(217,119,6,0.10)!important;font-weight:700; }
 .schedule-table td { padding:8px 8px;border-bottom:1px solid var(--border);vertical-align:middle; }
 .schedule-table tr:last-child td { border-bottom:none; }
@@ -741,6 +744,10 @@ function deleteAuthUser(id) {
 function appLink() {
   return (state.settings && state.settings.appUrl) || (location.origin + location.pathname);
 }
+function setPriority(id, on) {
+  db.ref(ROOT+'/outbound/'+id+'/priority').set(!!on)
+    .catch(e=>showAlert('Could not update priority: '+e.message,'danger'));
+}
 function saveAppLink(v) {
   if (!requireAdmin()) return;
   const val = (v||'').trim();
@@ -1238,7 +1245,11 @@ function renderOutbound() {
       const obRollCell = state.rollMode.ob ? `<td style="text-align:center"><input type="checkbox" class="roll-check" ${rollSel.has(id)?'checked':''} onclick="toggleRollSel('ob','${id}',this)"></td>` : '';
       const obIsRolled = isRolled(r);
       const obOrig = (r.origReqDate||r.reqDate||'').slice(0,10);
-      rows += `<tr${isPF?' style="background:rgba(26,58,107,0.025)"':''}>${obRollCell}
+      const obPri = !!r.priority;
+      const obTrCls = obPri ? ' class="priority-row"' : '';
+      const obTrStyle = (!obPri && isPF) ? ' style="background:rgba(26,58,107,0.025)"' : '';
+      rows += `<tr${obTrCls}${obTrStyle}>${obRollCell}
+        <td style="text-align:center"><input type="checkbox" ${obPri?'checked':''} onchange="setPriority('${id}',this.checked)" title="Mark load as priority" style="width:16px;height:16px;cursor:pointer;accent-color:var(--danger)"></td>
         <td>
           <select class="status-select ${OB_CLASSES[r.status]||'s-order-recv'}"
             onchange="saveField('ob','${id}','status',this.value);saveField('ob','${id}','ffStatus',null);this.className='status-select '+(OB_CLASSES[this.value]||'s-order-recv')"
@@ -1246,7 +1257,7 @@ function renderOutbound() {
             ${obOpts}
           </select>
         </td>
-        <td style="min-width:155px">${cellSelect('ob',id,'customer',r.customer,refOpts('customerOB'),'150px')}${isPF?'<span style="font-size:8px;background:rgba(26,58,107,0.12);color:var(--inbound);padding:1px 5px;border-radius:4px;margin-left:4px;font-weight:700">PF</span>':''}${obIsRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
+        <td style="min-width:155px">${cellSelect('ob',id,'customer',r.customer,refOpts('customerOB'),'150px')}${obPri?'<span class="pri-badge">★ PRIORITY</span>':''}${isPF?'<span style="font-size:8px;background:rgba(26,58,107,0.12);color:var(--inbound);padding:1px 5px;border-radius:4px;margin-left:4px;font-weight:700">PF</span>':''}${obIsRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:120px">${cellInput('ob',id,'orderNum',r.orderNum,'115px','Order #')}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${obIsRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${obOrig}" onchange="saveField('ob','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
         <td style="min-width:150px">${cellInput('ob',id,'destination',r.destination,'140px','Destination')}</td>
@@ -1311,6 +1322,7 @@ function renderOutbound() {
     <table class="schedule-table">
       <thead><tr>
         ${state.rollMode.ob?'<th style="width:34px;text-align:center"></th>':''}
+        <th style="width:40px;text-align:center" title="Priority">Pri</th>
         <th style="width:130px">Status</th>
         <th>Customer</th>
         <th>Order #</th>
@@ -1618,7 +1630,8 @@ function renderFirstFleet() {
       const saveType = isOBSource ? 'outbound' : 'firstfleet';
       const ffRolled = isRolled(r);
       const ffOrig   = (r.origReqDate||r.reqDate||r.deliveryDate||'').slice(0,10);
-      rows += `<tr${isOBSource?' style="background:rgba(124,58,237,0.02)"':''}>
+      const ffPri    = !!r.priority;
+      rows += `<tr${ffPri?' class="priority-row"':(isOBSource?' style="background:rgba(124,58,237,0.02)"':'')}>
         <td>
           <select class="status-select ${FF_CLASSES[r.status]||'s-ff-assigned'}"
             onchange="ffStatusChange('${isOBSource?'ob':'firstfleet'}','${id}',this.value,this)"
@@ -1627,7 +1640,7 @@ function renderFirstFleet() {
           </select>
         </td>
         <td style="min-width:90px">${cellInput(saveType,id,'carrier',r.carrier,'90px','Carrier')}</td>
-        <td style="min-width:100px;font-weight:600">${r.customer||''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
+        <td style="min-width:100px;font-weight:600">${r.customer||''}${ffPri?'<span class="pri-badge">★ PRIORITY</span>':''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${ffRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${ffOrig}" onchange="saveField('${isOBSource?'ob':'firstfleet'}','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
         <td style="min-width:90px">${cellInput(saveType,id,'loadId',r.loadId,'90px','Load ID')}</td>
         <td style="min-width:52px">${cellInput(saveType,id,'door',r.door,'52px','Door #')}</td>
@@ -2177,7 +2190,7 @@ function showAlert(msg, type='success') {
 // first column of the block; load rows below it are real only when a
 // customer / load# / order# is present.
 
-const IB_COL = { status:1, customer:2, location:3, loadNum:4, reqDateCol:5, apptTime:6, timeIn:7, timeOut:8, door:11, trailer:12, carrier:13, notes:14 }; // 0-based (B=1 ... O=14)
+const IB_COL = { status:1, customer:2, loadNum:3, reqDateCol:4, apptTime:5, timeIn:6, timeOut:7, door:10, trailer:11, carrier:12, notes:13 }; // INBOUND sheet 0-based (B=1 … N=13); LOCATION no longer on sheet
 const OB_COL = { status:15, customer:16, orderNum:17, reqDateCol:19, destination:18, apptTime:20, timeIn:21, timeOut:22, picker:25, stageLoc:26, loader:27, door:28, trailer:29, carrier:30, notes:31 }; // P=15 ... AF=31
 
 function xlsxVal(v) {
@@ -2254,21 +2267,84 @@ function parseSide(rows, COL, realKeys, statusMap, defaultStatus, sideFields) {
   return out;
 }
 
+// Detect inbound columns by header name on the INBOUND sheet, so a future
+// column insert/delete/reorder won't shift the mapping. Falls back to IB_COL.
+// Only the inbound block is read (stops at the second STATUS, which is the
+// outbound block that shares the same wide sheet).
+function detectIBCols(rows) {
+  const norm = s => String(s==null?'':s).toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim();
+  const HMAP = {
+    'STATUS':'status','CUSTOMER':'customer','LOCATION':'location',
+    'LOAD':'loadNum','LOAD NO':'loadNum','LOAD NUM':'loadNum','LOAD NUMBER':'loadNum',
+    'REQ DATE':'reqDateCol','REQUESTED DATE':'reqDateCol',
+    'APPT TIME':'apptTime','APPT':'apptTime','APPOINTMENT':'apptTime','APPOINTMENT TIME':'apptTime',
+    'TIME IN':'timeIn','TIME OUT':'timeOut',
+    'DOOR':'door','DOOR NO':'door',
+    'TRAILER':'trailer','CARRIER':'carrier','NOTES':'notes','NOTE':'notes'
+  };
+  for (let i=0; i<Math.min(rows.length,80); i++) {
+    const row = rows[i]||[];
+    const N = row.map(norm);
+    if (N.indexOf('STATUS')===-1 || N.indexOf('CUSTOMER')===-1) continue;
+    const COL = {};
+    for (let c=0; c<row.length; c++) {
+      const n = N[c];
+      if (n==='STATUS' && COL.status!=null) break;     // hit outbound block — stop
+      const key = HMAP[n];
+      if (key && COL[key]==null) COL[key] = c;          // first occurrence = inbound block
+    }
+    if (COL.status!=null && COL.customer!=null && COL.loadNum!=null) return COL;
+  }
+  return null;
+}
+// Detect OUTBOUND columns by header name. The outbound sheet also has an inbound
+// block on the left (B–N), so we locate the outbound block by its ORDER # header
+// (outbound-only) and read from that block's STATUS rightward.
+function detectOBCols(rows) {
+  const norm = s => String(s==null?'':s).toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim();
+  const HMAP = {
+    'STATUS':'status','CUSTOMER':'customer','ORDER':'orderNum','ORDER NO':'orderNum','ORDER NUM':'orderNum',
+    'DESTINATION':'destination','DEST':'destination','REQ DATE':'reqDateCol','REQUESTED DATE':'reqDateCol',
+    'APPT TIME':'apptTime','APPT':'apptTime','APPOINTMENT':'apptTime','APPOINTMENT TIME':'apptTime',
+    'TIME IN':'timeIn','TIME OUT':'timeOut',
+    'PICKER':'picker','STAGE LOC':'stageLoc','STAGE LOCATION':'stageLoc','STAGE':'stageLoc','STAGING':'stageLoc',
+    'LOADER':'loader','DOOR':'door','DOOR NO':'door','TRAILER':'trailer','CARRIER':'carrier','NOTES':'notes','NOTE':'notes'
+  };
+  for (let i=0; i<Math.min(rows.length,80); i++) {
+    const row = rows[i]||[];
+    const N = row.map(norm);
+    const orderIdx = N.indexOf('ORDER');
+    if (orderIdx===-1) continue;
+    let start = -1;                                   // the outbound block's STATUS (at/left of ORDER)
+    for (let c=orderIdx; c>=0; c--) { if (N[c]==='STATUS') { start=c; break; } }
+    if (start===-1) continue;
+    const COL = {};
+    for (let c=start; c<row.length; c++) {
+      const key = HMAP[N[c]];
+      if (key && COL[key]==null) COL[key] = c;        // first occurrence within the outbound block
+    }
+    if (COL.status!=null && COL.customer!=null && COL.orderNum!=null) return COL;
+  }
+  return null;
+}
 function extractWorkbook(wb) {
   const ibSheet = wb.Sheets['2026_6021_INBOUND'];
   const obSheet = wb.Sheets['2026_6021_OUTBOUND'];
   if (!ibSheet || !obSheet)
     throw new Error('Could not find sheets "2026_6021_INBOUND" / "2026_6021_OUTBOUND". Make sure you selected the 6021 Greensboro workbook.');
-  // Force each sheet to read from column A so column indices line up
-  // (the inbound sheet's used range starts at column B, which would shift everything).
   const fullRange = ws => { const r = XLSX.utils.decode_range(ws['!ref']); r.s.r = 0; r.s.c = 0; return XLSX.utils.encode_range(r); };
   const opt = ws => ({ header:1, raw:true, defval:null, blankrows:true, range: fullRange(ws) });
   const ibRows = XLSX.utils.sheet_to_json(ibSheet, opt(ibSheet));
   const obRows = XLSX.utils.sheet_to_json(obSheet, opt(obSheet));
-  const inbound  = parseSide(ibRows, IB_COL, ['customer','loadNum'],  IB_STATUS_MAP, 'SCHEDULED',
-                    ['customer','location','loadNum','apptTime','timeIn','timeOut','door','trailer','carrier','notes']);
-  const outbound = parseSide(obRows, OB_COL, ['customer','orderNum'], OB_STATUS_MAP, 'ORDER RECEIVED',
-                    ['customer','orderNum','destination','apptTime','timeIn','timeOut','picker','stageLoc','loader','door','trailer','carrier','notes']);
+
+  const ibCOL = detectIBCols(ibRows) || IB_COL;                          // header-driven, IB_COL fallback
+  const ibFields = ['customer','loadNum','apptTime','timeIn','timeOut','door','trailer','carrier','notes'];
+  if (ibCOL.location != null) ibFields.splice(1, 0, 'location');
+  const inbound  = parseSide(ibRows, ibCOL, ['customer','loadNum'],  IB_STATUS_MAP, 'SCHEDULED', ibFields);
+
+  const obCOL = detectOBCols(obRows) || OB_COL;                          // header-driven, OB_COL fallback
+  const obFields = ['customer','orderNum','destination','apptTime','timeIn','timeOut','picker','stageLoc','loader','door','trailer','carrier','notes'];
+  const outbound = parseSide(obRows, obCOL, ['customer','orderNum'], OB_STATUS_MAP, 'ORDER RECEIVED', obFields);
   return { inbound, outbound };
 }
 
@@ -2506,7 +2582,8 @@ async function runImport() {
       if (!key) return;
       const keepStatus = (r.ffStatus === 'ASSIGNED' || r.ffStatus === 'DRIVER IN ROUTE');
       const driver = (r.driver||'').toString().trim();
-      if (keepStatus || driver) preserve[key] = { ffStatus: keepStatus ? r.ffStatus : null, driver };
+      const priority = !!r.priority;
+      if (keepStatus || driver || priority) preserve[key] = { ffStatus: keepStatus ? r.ffStatus : null, driver, priority };
     });
     (_pendingImport.outbound||[]).forEach(r => {
       const key = (r.orderNum||'').toString().trim().toUpperCase();
@@ -2514,6 +2591,7 @@ async function runImport() {
       if (p) {
         if (p.ffStatus) r.ffStatus = p.ffStatus;
         if (p.driver)   r.driver   = p.driver;
+        if (p.priority) r.priority = true;
       }
     });
     if (clearFirst) {
