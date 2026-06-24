@@ -93,6 +93,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .roll-toggle { font-size:11px;font-weight:700;letter-spacing:.5px;padding:8px 14px;border-radius:8px;border:1px solid var(--warning);background:transparent;color:var(--warning);cursor:pointer; }
 .rolled-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#fff;background:var(--warning);padding:1px 5px;border-radius:4px;vertical-align:middle; }
 .pri-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#fff;background:var(--danger);padding:1px 5px;border-radius:4px;vertical-align:middle; }
+.loaded-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#111;background:#86efac;padding:1px 5px;border-radius:4px;vertical-align:middle; }
 tr.priority-row > td { background:rgba(220,38,38,0.07) !important; }
 tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
 .rolled-date { border-color:var(--warning)!important;background:rgba(217,119,6,0.10)!important;font-weight:700; }
@@ -1570,6 +1571,7 @@ function renderFirstFleet() {
       reqDate:      r.reqDate,
       origReqDate:  r.origReqDate||r.reqDate,
       status:       r.ffStatus || obToFF(r.status),
+      obStatus:     r.status,
       priority:     !!r.priority,
       notes:        r.notes||''
     }]));
@@ -1646,7 +1648,7 @@ function renderFirstFleet() {
         <td style="min-width:90px">${cellInput(saveType,id,'carrier',r.carrier,'90px','Carrier')}</td>
         <td style="min-width:100px;font-weight:600">${r.customer||''}${ffPri?'<span class="pri-badge">★ PRIORITY</span>':''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${ffRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${ffOrig}" onchange="saveField('${isOBSource?'ob':'firstfleet'}','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
-        <td style="min-width:90px">${cellInput(saveType,id,'loadId',r.loadId,'90px','Load ID')}</td>
+        <td style="min-width:120px">${cellInput(saveType,id,'loadId',r.loadId,'90px','Load ID')}${r.obStatus==='LOADED'?'<span class="loaded-badge">LOADED</span>':''}</td>
         <td style="min-width:52px">${cellInput(saveType,id,'door',r.door,'52px','Door #')}</td>
         <td style="min-width:90px">${cellInput(saveType,id,'trailer',r.trailer,'90px','Trailer #')}</td>
         <td style="min-width:130px">${cellInput(saveType,id,'driver',r.driver,'130px','Assigned Driver')}</td>
