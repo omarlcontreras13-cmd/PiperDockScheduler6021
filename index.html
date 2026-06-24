@@ -1362,9 +1362,10 @@ function rollSelected(type) {
   const fromDate = type==='ib' ? state.ibDate : state.obDate;
   const updates = {};
   rollSel.forEach(id => {
-    updates[branch+'/'+id+'/reqDate']    = target;
-    updates[branch+'/'+id+'/rolledFrom'] = fromDate;
-    updates[branch+'/'+id+'/updatedAt']  = Date.now();
+    updates[branch+'/'+id+'/reqDate']       = target;
+    updates[branch+'/'+id+'/manualReqDate']  = target;
+    updates[branch+'/'+id+'/rolledFrom']     = fromDate;
+    updates[branch+'/'+id+'/updatedAt']      = Date.now();
   });
   const n = rollSel.size;
   db.ref(ROOT).update(updates).then(() => {
@@ -2571,14 +2572,18 @@ function eodPassed(ymd) {
   return false;
 }
 // Any outbound load not DEPARTED whose 5 PM ET cutoff has passed rolls to the next business day.
+const NO_AUTO_ROLL_CUSTOMERS = ['SCI GAMES'];  // picked up/delivered overnight — manual roll only
 function autoRollOutbound() {
   if (!state.user || state.user.group !== 'piper') return;
   if (state.settings && state.settings.autoRoll === false) return;   // disabled by admin
   const updates = {};
   Object.entries(state.outbound||{}).forEach(([id,r])=>{
     if (!r || r.status === 'DEPARTED') return;
+    const cust = (r.customer||'').toUpperCase();
+    if (NO_AUTO_ROLL_CUSTOMERS.some(c => cust.indexOf(c) > -1)) return;   // excluded customers (e.g. Sci Games)
     const d = (r.reqDate||'').slice(0,10);
     if (!d || !eodPassed(d)) return;
+    if ((r.manualReqDate||'').slice(0,10) === d) return;   // user deliberately set this date — leave it
     let newD = d, guard = 0;
     while (eodPassed(newD) && guard++ < 500) newD = nextBusinessDay(newD);
     if (newD !== d) updates[id] = { reqDate:newD, origReqDate: r.origReqDate || d };
