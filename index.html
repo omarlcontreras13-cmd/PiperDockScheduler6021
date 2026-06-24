@@ -281,6 +281,8 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
       <div class="header-date" id="header-clock"></div>
       <div style="font-size:11px;color:var(--text2)">|</div>
       <div class="header-user" id="user-display">—</div>
+      <input type="file" id="quick-import-file" accept=".xlsx,.xlsm" style="display:none" onchange="runQuickImport(event)">
+      <button class="sign-out-btn" id="refresh-btn" onclick="triggerQuickImport()" style="display:none;margin-right:8px;background:#1d6f42;color:#fff;border-color:#1d6f42;font-weight:700" title="Pick the downloaded workbook and reseed in one step">↻ Refresh</button>
       <button class="sign-out-btn" id="import-btn" onclick="showImportModal()" style="display:none;margin-right:8px;background:var(--inbound);color:#fff;border-color:var(--inbound)">Import Excel</button>
       <button class="sign-out-btn" id="table-btn" onclick="showTableImportModal()" style="display:none;margin-right:8px;background:#0d9488;color:#fff;border-color:#0d9488">Update Table</button>
       <button class="sign-out-btn" id="report-btn" onclick="showReportModal()" style="display:none;margin-right:8px;background:#b45309;color:#fff;border-color:#b45309">Reports</button>
@@ -537,6 +539,7 @@ function loginGroup(group, isAdmin) {
   document.getElementById('user-display').textContent = isPiper ? 'PIPER' : 'FFTI / SW';
 
   // Admin-only tools: Import, Update Table, Users
+  document.getElementById('refresh-btn').style.display = admin ? '' : 'none';
   document.getElementById('import-btn').style.display = admin ? '' : 'none';
   document.getElementById('table-btn').style.display  = admin ? '' : 'none';
   document.getElementById('users-btn').style.display  = admin ? '' : 'none';
@@ -2566,47 +2569,50 @@ function previewImport(ev) {
   reader.readAsArrayBuffer(file);
 }
 
+// Shared commit: preserve in-app outbound data (driver / ASSIGNED|DRIVER IN ROUTE
+// override / priority) by order #, optionally wipe first, then write both sides.
+// Clearing first is what prevents duplicate records on a re-import.
+async function commitImport(data, clearFirst) {
+  const preserve = {};
+  Object.values(state.outbound||{}).forEach(r => {
+    if (!r) return;
+    const key = (r.orderNum||'').toString().trim().toUpperCase();
+    if (!key) return;
+    const keepStatus = (r.ffStatus === 'ASSIGNED' || r.ffStatus === 'DRIVER IN ROUTE');
+    const driver = (r.driver||'').toString().trim();
+    const priority = !!r.priority;
+    if (keepStatus || driver || priority) preserve[key] = { ffStatus: keepStatus ? r.ffStatus : null, driver, priority };
+  });
+  (data.outbound||[]).forEach(r => {
+    const key = (r.orderNum||'').toString().trim().toUpperCase();
+    const p = key && preserve[key];
+    if (p) {
+      if (p.ffStatus) r.ffStatus = p.ffStatus;
+      if (p.driver)   r.driver   = p.driver;
+      if (p.priority) r.priority = true;
+    }
+  });
+  if (clearFirst) {
+    await db.ref(ROOT+'/inbound').remove();
+    await db.ref(ROOT+'/outbound').remove();
+  }
+  const writeBatch = async (path, records) => {
+    const ref = db.ref(ROOT+'/'+path);
+    const payload = {};
+    records.forEach(r => { payload[ref.push().key] = r; });
+    if (Object.keys(payload).length) await ref.update(payload);
+  };
+  await writeBatch('inbound',  data.inbound);
+  await writeBatch('outbound', data.outbound);
+}
+
 async function runImport() {
   if (!_pendingImport) return;
   const go = document.getElementById('import-go');
   go.disabled = true; go.textContent = 'Importing…';
   const clearFirst = (document.getElementById('import-clear')||{}).checked;
   try {
-    // Preserve data the remote FFTI user owns (the spreadsheet has no driver column,
-    // so an import would otherwise wipe in-app driver assignments):
-    //  - ASSIGNED / DRIVER IN ROUTE status overrides are kept.
-    //  - Any assigned driver name is kept (driver is only ever set in the app).
-    const preserve = {};
-    Object.values(state.outbound||{}).forEach(r => {
-      if (!r) return;
-      const key = (r.orderNum||'').toString().trim().toUpperCase();
-      if (!key) return;
-      const keepStatus = (r.ffStatus === 'ASSIGNED' || r.ffStatus === 'DRIVER IN ROUTE');
-      const driver = (r.driver||'').toString().trim();
-      const priority = !!r.priority;
-      if (keepStatus || driver || priority) preserve[key] = { ffStatus: keepStatus ? r.ffStatus : null, driver, priority };
-    });
-    (_pendingImport.outbound||[]).forEach(r => {
-      const key = (r.orderNum||'').toString().trim().toUpperCase();
-      const p = key && preserve[key];
-      if (p) {
-        if (p.ffStatus) r.ffStatus = p.ffStatus;
-        if (p.driver)   r.driver   = p.driver;
-        if (p.priority) r.priority = true;
-      }
-    });
-    if (clearFirst) {
-      await db.ref(ROOT+'/inbound').remove();
-      await db.ref(ROOT+'/outbound').remove();
-    }
-    const writeBatch = async (path, records) => {
-      const ref = db.ref(ROOT+'/'+path);
-      const payload = {};
-      records.forEach(r => { payload[ref.push().key] = r; });
-      if (Object.keys(payload).length) await ref.update(payload);
-    };
-    await writeBatch('inbound',  _pendingImport.inbound);
-    await writeBatch('outbound', _pendingImport.outbound);
+    await commitImport(_pendingImport, clearFirst);
     showAlert(`Imported ${_pendingImport.inbound.length} inbound + ${_pendingImport.outbound.length} outbound loads`,'success');
     _pendingImport = null;
     closeModal();
@@ -2614,6 +2620,46 @@ async function runImport() {
     showAlert('Import failed: '+err.message,'danger');
     go.disabled = false; go.textContent = 'Import';
   }
+}
+
+// One-click Refresh: pick the downloaded workbook → clean reseed, no modal/preview.
+let _quickBusy = false;
+function triggerQuickImport() {
+  if (!state.user || state.user.role !== 'admin') { showAlert('Admin only','warning'); return; }
+  if (_quickBusy) { showAlert('Refresh already running…','warning'); return; }
+  const inp = document.getElementById('quick-import-file');
+  if (inp) { inp.value = ''; inp.click(); }
+}
+function runQuickImport(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  const btn = document.getElementById('refresh-btn');
+  _quickBusy = true;
+  if (btn) { btn.dataset.label = btn.textContent; btn.textContent = '↻ Refreshing…'; btn.style.opacity = '.6'; }
+  showAlert('Reading '+file.name+'…','success');
+  const reader = new FileReader();
+  reader.onload = async e => {
+    try {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type:'array', cellDates:true });
+      const data = extractWorkbook(wb);
+      if (!data.inbound.length && !data.outbound.length)
+        throw new Error('No loads found — is this the 6021 Greensboro workbook?');
+      await commitImport(data, true);   // refresh = clean reseed (preserves driver/priority/FFTI status)
+      showAlert(`Refreshed — ${data.inbound.length} inbound + ${data.outbound.length} outbound loads`,'success');
+    } catch (err) {
+      showAlert('Refresh failed: '+err.message,'danger');
+    } finally {
+      _quickBusy = false;
+      if (btn) { btn.textContent = btn.dataset.label || '↻ Refresh'; btn.style.opacity = '1'; }
+      ev.target.value = '';
+    }
+  };
+  reader.onerror = () => {
+    _quickBusy = false;
+    if (btn) { btn.textContent = btn.dataset.label || '↻ Refresh'; btn.style.opacity = '1'; }
+    showAlert('Could not read file','danger'); ev.target.value = '';
+  };
+  reader.readAsArrayBuffer(file);
 }
 
 // ─── INIT ───────────────────────────────────────────────────────────────
