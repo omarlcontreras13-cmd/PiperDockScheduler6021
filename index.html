@@ -94,6 +94,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .rolled-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#fff;background:var(--warning);padding:1px 5px;border-radius:4px;vertical-align:middle; }
 .pri-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#fff;background:var(--danger);padding:1px 5px;border-radius:4px;vertical-align:middle; }
 .loaded-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#111;background:#86efac;padding:1px 5px;border-radius:4px;vertical-align:middle; }
+.notexcel-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#111;background:#fde047;padding:1px 5px;border-radius:4px;vertical-align:middle;white-space:nowrap; }
 tr.priority-row > td { background:rgba(220,38,38,0.07) !important; }
 tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
 .rolled-date { border-color:var(--warning)!important;background:rgba(217,119,6,0.10)!important;font-weight:700; }
@@ -1250,6 +1251,7 @@ function renderOutbound() {
       const obIsRolled = isRolled(r);
       const obOrig = (r.origReqDate||r.reqDate||'').slice(0,10);
       const obPri = !!r.priority;
+      const obManual = r.source !== 'excel-import' && r.sourceType !== 'pickflow';
       const obTrCls = obPri ? ' class="priority-row"' : '';
       const obTrStyle = (!obPri && isPF) ? ' style="background:rgba(26,58,107,0.025)"' : '';
       rows += `<tr${obTrCls}${obTrStyle}>${obRollCell}
@@ -1262,7 +1264,7 @@ function renderOutbound() {
           </select>
         </td>
         <td style="min-width:155px">${cellSelect('ob',id,'customer',r.customer,refOpts('customerOB'),'150px')}${obPri?'<span class="pri-badge">★ PRIORITY</span>':''}${isPF?'<span style="font-size:8px;background:rgba(26,58,107,0.12);color:var(--inbound);padding:1px 5px;border-radius:4px;margin-left:4px;font-weight:700">PF</span>':''}${obIsRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
-        <td style="min-width:120px">${cellInput('ob',id,'orderNum',r.orderNum,'115px','Order #')}</td>
+        <td style="min-width:150px">${cellInput('ob',id,'orderNum',r.orderNum,'115px','Order #')}${obManual?'<span class="notexcel-badge">NOT ON EXCEL</span>':''}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${obIsRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${obOrig}" onchange="saveField('ob','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
         <td style="min-width:150px">${cellInput('ob',id,'destination',r.destination,'140px','Destination')}</td>
         <td style="min-width:70px">${cellInput('ob',id,'apptTime',r.apptTime,'70px','HH:MM')}</td>
@@ -2027,7 +2029,7 @@ function saveLoad(type, id) {
     data.status = (id?state.outbound[id]?.status:null)||'ORDER RECEIVED';
   }
   const path = ROOT+(isIB?'/inbound/':'/outbound/')+(id||db.ref().push().key);
-  if(!id) { data.createdAt = Date.now(); data.origReqDate = data.reqDate; }
+  if(!id) { data.createdAt = Date.now(); data.origReqDate = data.reqDate; data.source = 'manual'; }
   db.ref(path).update(data).then(()=>{showAlert('Saved!','success');closeModal();});
 }
 
@@ -2595,8 +2597,16 @@ async function commitImport(data, clearFirst) {
     }
   });
   if (clearFirst) {
-    await db.ref(ROOT+'/inbound').remove();
-    await db.ref(ROOT+'/outbound').remove();
+    // Only clear loads that came from Excel — leave app-added (manual) and
+    // PickFlow loads in place so a refresh can't delete them.
+    const wipeImported = async (path) => {
+      const cur = (path==='inbound' ? state.inbound : state.outbound) || {};
+      const updates = {};
+      Object.entries(cur).forEach(([k,r]) => { if (r && r.source === 'excel-import') updates[k] = null; });
+      if (Object.keys(updates).length) await db.ref(ROOT+'/'+path).update(updates);
+    };
+    await wipeImported('inbound');
+    await wipeImported('outbound');
   }
   const writeBatch = async (path, records) => {
     const ref = db.ref(ROOT+'/'+path);
