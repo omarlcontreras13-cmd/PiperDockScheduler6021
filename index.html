@@ -1567,6 +1567,7 @@ function renderFirstFleet() {
       reqDate:      r.reqDate,
       origReqDate:  r.origReqDate||r.reqDate,
       status:       r.ffStatus || obToFF(r.status),
+      priority:     !!r.priority,
       notes:        r.notes||''
     }]));
 
