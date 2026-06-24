@@ -228,6 +228,7 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
 .cs:focus { border-color:var(--accent);background:#fff; }
 .modal input[type=text] { text-transform:uppercase; }
 .ff-cust-card { cursor:pointer;transition:.15s; }
+.cust-filter-bar .scard { padding:8px 6px; }
 .ff-cust-card:hover { border-color:var(--accent);box-shadow:0 2px 8px rgba(26,58,107,0.1); }
 .ff-cust-card.active { background:var(--accent);border-color:var(--accent); }
 .ff-cust-card.active .scard-label { color:#fff;opacity:.85; }
@@ -1451,7 +1452,7 @@ const DEFAULT_ICON_IB = {
   'WRK - PRATT':'WRK - PRATT','SMUR-WRK':'SMUR-WRK','TWIN RIVERS':'TWIN RIVERS'
 };
 const DEFAULT_ICON_OB = {
-  'ALL SOUTH':'OTHER','ATL UPM':'OTHER','ATLANTIC CONV':'OTHER','CATALYST':'CATALYST','CONWAY':'OTHER',
+  'ALL SOUTH':'OTHER','ATL UPM':'ATL UPM','ATLANTIC CONV':'OTHER','CATALYST':'CATALYST','CONWAY':'OTHER',
   'COVINGTON XDK':'COVINGTON XDK','HBH':'HBH','HOOD':'HOOD','IP':'OTHER','IPG - ITAPE':'IPG - ITAPE',
   'LANET - VALLEY':'OTHER','LITHIA SPRINGS':'LITHIA SPRINGS','MAXXON':'OTHER','MONTGOMEREY XDK':'OTHER',
   'MPS':'OTHER','NORCROSS XDK':'NORCROSS XDK','PREGIS':'PREGIS','SCI GAMES':'SCI GAMES',
@@ -1489,11 +1490,11 @@ function custFilterBar(tab, recsDay, current, toggleFn, accentVar) {
     const active = !!current && current.toUpperCase()===ic;
     const esc = ic.replace(/'/g,"\\'");
     return `<div class="scard ff-cust-card${active?' active':''}" onclick="${toggleFn}('${esc}')" title="Filter to ${ic}">
-      <div class="scard-label" style="font-size:13px;letter-spacing:.3px;margin-bottom:3px">${ic}</div>
-      <div class="scard-value" style="font-size:16px;line-height:1.1;color:${active?'#fff':accentVar}">${counts[ic]}</div>
+      <div class="scard-label" style="font-size:12px;letter-spacing:.2px;margin-bottom:3px;line-height:1.15">${ic}</div>
+      <div class="scard-value" style="font-size:15px;line-height:1.1;color:${active?'#fff':accentVar}">${counts[ic]}</div>
     </div>`;
   }).join('');
-  return `<div class="summary-bar" style="max-height:142px;overflow:auto;margin-bottom:10px">${cards}</div>`;
+  return `<div class="summary-bar cust-filter-bar" style="grid-template-columns:repeat(${icons.length},minmax(0,1fr));gap:6px;margin-bottom:10px">${cards}</div>`;
 }
 function custFilterNotice(current, toggleFn) {
   if (!current) return '';
