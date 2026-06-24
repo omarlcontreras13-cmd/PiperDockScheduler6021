@@ -1258,7 +1258,7 @@ function renderOutbound() {
         <td style="text-align:center"><input type="checkbox" ${obPri?'checked':''} onchange="setPriority('${id}',this.checked)" title="Mark load as priority" style="width:16px;height:16px;cursor:pointer;accent-color:var(--danger)"></td>
         <td>
           <select class="status-select ${OB_CLASSES[r.status]||'s-order-recv'}"
-            onchange="saveField('ob','${id}','status',this.value);saveField('ob','${id}','ffStatus',null);this.className='status-select '+(OB_CLASSES[this.value]||'s-order-recv')"
+            onchange="saveField('ob','${id}','status',this.value);if(this.value==='DEPARTED')saveField('ob','${id}','ffStatus',null);this.className='status-select '+(OB_CLASSES[this.value]||'s-order-recv')"
             style="color:${obStatusColor}">
             ${obOpts}
           </select>
@@ -1572,7 +1572,7 @@ function renderFirstFleet() {
       customer:     r.customer||'',
       reqDate:      r.reqDate,
       origReqDate:  r.origReqDate||r.reqDate,
-      status:       r.ffStatus || obToFF(r.status),
+      status:       (r.status === 'DEPARTED') ? 'LOAD PICKED UP' : (r.ffStatus || obToFF(r.status)),
       obStatus:     r.status,
       priority:     !!r.priority,
       notes:        r.notes||''
@@ -2591,7 +2591,7 @@ async function commitImport(data, clearFirst) {
     const key = (r.orderNum||'').toString().trim().toUpperCase();
     const p = key && preserve[key];
     if (p) {
-      if (p.ffStatus) r.ffStatus = p.ffStatus;
+      if (p.ffStatus && r.status !== 'DEPARTED') r.ffStatus = p.ffStatus;
       if (p.driver)   r.driver   = p.driver;
       if (p.priority) r.priority = true;
     }
