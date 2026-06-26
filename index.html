@@ -116,6 +116,7 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
 .s-loading     { background:#ffff00;color:#111;border:1px solid #d6d600;font-weight:800; }
 .s-loaded      { background:#caedfb;color:#111;border:1px solid #9cd3ee; }
 .s-departed    { background:#ffc000;color:#111;border:1px solid #d9a200;font-weight:800; }
+.s-cancelled   { background:#ffd1d1;color:#b91c1c;border:1px solid #f0a6a6;font-weight:800; }
 .s-ff-assigned { background:rgba(124,58,237,0.12);color:#7c3aed;border:1px solid rgba(124,58,237,0.3); }
 .s-ff-enroute  { background:rgba(217,119,6,0.12);color:var(--warning);border:1px solid rgba(217,119,6,0.3); }
 .s-ff-pickedup { background:rgba(26,158,122,0.15);color:var(--accent2);border:1px solid rgba(26,158,122,0.3);font-weight:800; }
@@ -1070,9 +1071,9 @@ function cycleIBStatus(id) {
 }
 
 // ─── OUTBOUND STATUS ───────────────────────────────────────────────────
-const OB_STATUSES = ['ORDER RECEIVED','PICK TICKET','BEING PICKED','PICKED & STAGED','LOADING','LOADED','DEPARTED'];
-const OB_CLASSES  = {'ORDER RECEIVED':'s-order-recv','PICK TICKET':'s-pick-ticket','BEING PICKED':'s-being-picked','PICKED & STAGED':'s-picked-staged','LOADING':'s-loading','LOADED':'s-loaded','DEPARTED':'s-departed'};
-const OB_LABELS   = {'ORDER RECEIVED':'Order Received','PICK TICKET':'Pick Ticket','BEING PICKED':'Being Picked','PICKED & STAGED':'Picked & Staged','LOADING':'Loading','LOADED':'Loaded','DEPARTED':'Departed'};
+const OB_STATUSES = ['ORDER RECEIVED','PICK TICKET','BEING PICKED','PICKED & STAGED','LOADING','LOADED','CANCELLED','DEPARTED'];
+const OB_CLASSES  = {'ORDER RECEIVED':'s-order-recv','PICK TICKET':'s-pick-ticket','BEING PICKED':'s-being-picked','PICKED & STAGED':'s-picked-staged','LOADING':'s-loading','LOADED':'s-loaded','CANCELLED':'s-cancelled','DEPARTED':'s-departed'};
+const OB_LABELS   = {'ORDER RECEIVED':'Order Received','PICK TICKET':'Pick Ticket','BEING PICKED':'Being Picked','PICKED & STAGED':'Picked & Staged','LOADING':'Loading','LOADED':'Loaded','CANCELLED':'Cancelled','DEPARTED':'Departed'};
 
 function cycleOBStatus(id) {
   const rec = state.outbound[id];
@@ -1247,7 +1248,7 @@ function renderOutbound() {
       const isPF = r.sourceType==='pickflow';
       const obOpts = OB_STATUSES.map(s=>`<option value="${s}" ${r.status===s?'selected':''}>${OB_LABELS[s]}</option>`).join('');
       const obArrBadge = arrivalStatus(r.apptTime, r.timeIn);
-      const obStatusColor = {'ORDER RECEIVED':'#111','PICK TICKET':'#880044','BEING PICKED':'#333','PICKED & STAGED':'#1a5c30','LOADING':'#333','LOADED':'#1a3a6b','DEPARTED':'#4a2500'}[r.status]||'#111';
+      const obStatusColor = {'ORDER RECEIVED':'#111','PICK TICKET':'#880044','BEING PICKED':'#333','PICKED & STAGED':'#1a5c30','LOADING':'#333','LOADED':'#1a3a6b','CANCELLED':'#b91c1c','DEPARTED':'#4a2500'}[r.status]||'#111';
       const obRollCell = state.rollMode.ob ? `<td style="text-align:center"><input type="checkbox" class="roll-check" ${rollSel.has(id)?'checked':''} onclick="toggleRollSel('ob','${id}',this)"></td>` : '';
       const obIsRolled = isRolled(r);
       const obOrig = (r.origReqDate||r.reqDate||'').slice(0,10);
@@ -1259,7 +1260,7 @@ function renderOutbound() {
         <td style="text-align:center"><input type="checkbox" ${obPri?'checked':''} onchange="setPriority('${id}',this.checked)" title="Mark load as priority" style="width:16px;height:16px;cursor:pointer;accent-color:var(--danger)"></td>
         <td>
           <select class="status-select ${OB_CLASSES[r.status]||'s-order-recv'}"
-            onchange="saveField('ob','${id}','status',this.value);if(this.value==='DEPARTED')saveField('ob','${id}','ffStatus',null);this.className='status-select '+(OB_CLASSES[this.value]||'s-order-recv')"
+            onchange="saveField('ob','${id}','status',this.value);if(this.value==='DEPARTED'||this.value==='CANCELLED')saveField('ob','${id}','ffStatus',null);this.className='status-select '+(OB_CLASSES[this.value]||'s-order-recv')"
             style="color:${obStatusColor}">
             ${obOpts}
           </select>
@@ -1394,9 +1395,9 @@ function rollSelected(type) {
 }
 
 // ─── FIRST FLEET ──────────────────────────────────────────────────────────────
-const FF_STATUSES = ['ORDER RECEIVED','ORDER BEING FULFILLED','ASSIGNED','PENDING LOADING','DRIVER IN ROUTE','LOADING','LOAD READY FOR PU','LOAD PICKED UP'];
-const FF_CLASSES  = {'ORDER RECEIVED':'s-order-recv','ORDER BEING FULFILLED':'s-being-picked','ASSIGNED':'s-ff-assigned','PENDING LOADING':'s-picked-staged','DRIVER IN ROUTE':'s-ff-enroute','LOADING':'s-loading','LOAD READY FOR PU':'s-loaded','LOAD PICKED UP':'s-departed'};
-const FF_COLORS   = {'ORDER RECEIVED':'#111','ORDER BEING FULFILLED':'#111','ASSIGNED':'#7c3aed','PENDING LOADING':'#111','DRIVER IN ROUTE':'var(--warning)','LOADING':'#111','LOAD READY FOR PU':'#111','LOAD PICKED UP':'#111'};
+const FF_STATUSES = ['ORDER RECEIVED','ORDER BEING FULFILLED','ASSIGNED','PENDING LOADING','DRIVER IN ROUTE','LOADING','LOAD READY FOR PU','LOAD CANCELLED','LOAD PICKED UP'];
+const FF_CLASSES  = {'ORDER RECEIVED':'s-order-recv','ORDER BEING FULFILLED':'s-being-picked','ASSIGNED':'s-ff-assigned','PENDING LOADING':'s-picked-staged','DRIVER IN ROUTE':'s-ff-enroute','LOADING':'s-loading','LOAD READY FOR PU':'s-loaded','LOAD CANCELLED':'s-cancelled','LOAD PICKED UP':'s-departed'};
+const FF_COLORS   = {'ORDER RECEIVED':'#111','ORDER BEING FULFILLED':'#111','ASSIGNED':'#7c3aed','PENDING LOADING':'#111','DRIVER IN ROUTE':'var(--warning)','LOADING':'#111','LOAD READY FOR PU':'#111','LOAD CANCELLED':'#b91c1c','LOAD PICKED UP':'#111'};
 
 // Cross-reference: Outbound status → FFTI status (FFTI auto-follows Outbound)
 const OB_TO_FF = {
@@ -1406,6 +1407,7 @@ const OB_TO_FF = {
   'PICKED & STAGED':'PENDING LOADING',
   'LOADING':'LOADING',
   'LOADED':'LOAD READY FOR PU',
+  'CANCELLED':'LOAD CANCELLED',
   'DEPARTED':'LOAD PICKED UP'
 };
 function obToFF(s){ return OB_TO_FF[s] || 'ORDER RECEIVED'; }
@@ -1416,6 +1418,7 @@ const FF_TO_OB = {
   'PENDING LOADING':'PICKED & STAGED',
   'LOADING':'LOADING',
   'LOAD READY FOR PU':'LOADED',
+  'LOAD CANCELLED':'CANCELLED',
   'LOAD PICKED UP':'DEPARTED'
 };
 // FFTI-only statuses that have no Outbound equivalent — stored as an override
@@ -1459,10 +1462,20 @@ const DEFAULT_ICON_OB = {
   'SOUTHERN STATES PKG':'OTHER','TWIN RIVERS':'TWIN RIVERS','WRK ATL SHEET':'OTHER',
   'WRK CONWAY':'OTHER','WRK HEBRON':'OTHER','WRK RECLAMATION':'OTHER'
 };
+// A real icon map self-maps each customer to a known key or to OTHER. The bad
+// combined-table import wrote customer -> door-number (and customer -> other
+// customer) which fail this test, so we ignore it and fall back to defaults.
+function looksValidIconMap(m) {
+  const keys = Object.keys(m||{}).map(k=>String(k).toUpperCase());
+  const vals = Object.values(m||{}).map(v=>String(v||'').trim().toUpperCase());
+  if (!vals.length) return false;
+  const ok = vals.filter(v => v==='OTHER' || keys.indexOf(v)>-1).length;
+  return (ok/vals.length) >= 0.6;
+}
 function iconMap(tab) {
   const ih = state.iconHeaders || {};
   const m = (tab==='ib') ? ih.inbound : ih.outbound;
-  return (m && Object.keys(m).length) ? m : (tab==='ib' ? DEFAULT_ICON_IB : DEFAULT_ICON_OB);
+  return (m && Object.keys(m).length && looksValidIconMap(m)) ? m : (tab==='ib' ? DEFAULT_ICON_IB : DEFAULT_ICON_OB);
 }
 function iconList(tab) {
   const m = iconMap(tab);
@@ -1573,7 +1586,7 @@ function renderFirstFleet() {
       customer:     r.customer||'',
       reqDate:      r.reqDate,
       origReqDate:  r.origReqDate||r.reqDate,
-      status:       (r.status === 'DEPARTED') ? 'LOAD PICKED UP' : (r.ffStatus || obToFF(r.status)),
+      status:       (r.status === 'DEPARTED') ? 'LOAD PICKED UP' : (r.status === 'CANCELLED') ? 'LOAD CANCELLED' : (r.ffStatus || obToFF(r.status)),
       obStatus:     r.status,
       priority:     !!r.priority,
       notes:        r.notes||''
@@ -2257,7 +2270,7 @@ const IB_STATUS_MAP = { 'COMPLETED':'COMPLETED','UNLOADING':'UNLOADING','ARRIVED
 const OB_STATUS_MAP = {
   'ORDER RECEIVED':'ORDER RECEIVED','PICK TICKET':'PICK TICKET','PICK TICKET CREATED':'PICK TICKET',
   'BEING PICKED':'BEING PICKED','PICKED & STAGED':'PICKED & STAGED','LOADING':'LOADING',
-  'LOADED':'LOADED','DEPARTED':'DEPARTED','COMPLETED':'DEPARTED'
+  'LOADED':'LOADED','CANCELLED':'CANCELLED','DEPARTED':'DEPARTED','COMPLETED':'DEPARTED'
 };
 
 function parseSide(rows, COL, realKeys, statusMap, defaultStatus, sideFields) {
@@ -2413,10 +2426,13 @@ function extractTable(wb) {
     }
     return { __ffti: yes };
   }
-  // Icon headers table: CUSTOMER INBOUND + ICON … CUSTOMER OUTBOUND + ICON
+  // Icon headers table: CUSTOMER INBOUND + ICON … CUSTOMER OUTBOUND + ICON.
+  // Require an actual ICON column next to each customer column, otherwise a
+  // combined reference table (CUSTOMER INBOUND | CUSTOMER OUTBOUND | DOOR | …)
+  // would be misread, grabbing the DOOR column as the outbound "icons".
   const ciIB = hdrs.indexOf('CUSTOMER INBOUND');
   const ciOB = hdrs.indexOf('CUSTOMER OUTBOUND');
-  if (ciIB>-1 && ciOB>-1) {
+  if (ciIB>-1 && ciOB>-1 && /ICON/.test(hdrs[ciIB+1]||'') && /ICON/.test(hdrs[ciOB+1]||'')) {
     const inbound={}, outbound={};
     const clean = v => String(v==null?'':v).trim();
     for (let r=1;r<rows.length;r++){
@@ -2617,7 +2633,7 @@ async function commitImport(data, clearFirst) {
     const key = (r.orderNum||'').toString().trim().toUpperCase();
     const p = key && preserve[key];
     if (p) {
-      if (p.ffStatus && r.status !== 'DEPARTED') r.ffStatus = p.ffStatus;
+      if (p.ffStatus && r.status !== 'DEPARTED' && r.status !== 'CANCELLED') r.ffStatus = p.ffStatus;
       if (p.driver)   r.driver   = p.driver;
       if (p.priority) r.priority = true;
     }
