@@ -86,6 +86,9 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .schedule-wrap { background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:auto;flex:1 1 0;min-height:120px; }
 .schedule-table { width:100%;border-collapse:collapse;font-size:12px; }
 .schedule-table th { position:sticky;top:0;z-index:5;background:var(--surface2);padding:9px 8px;font-size:9px;letter-spacing:1.2px;text-transform:uppercase;color:var(--text);font-weight:800;border-bottom:2px solid var(--border);box-shadow:0 1px 0 var(--border);white-space:nowrap;text-align:left; }
+.schedule-table th.th-sort, .schedule-table th .th-sort { cursor:pointer; }
+.schedule-table th.th-sort:hover, .schedule-table th .th-sort:hover { color:var(--accent); }
+.sort-arrow { font-size:8px;color:var(--accent);vertical-align:middle; }
 .col-filter { display:block;width:100%;min-width:0;box-sizing:border-box;margin-top:4px;font-size:11px;font-weight:500;letter-spacing:normal;text-transform:uppercase;color:var(--text);padding:3px 6px;border:1px solid var(--border);border-radius:5px;background:#fff; }
 .col-filter::placeholder { color:#aab2c5;font-weight:400;text-transform:none; }
 .roll-bar { display:flex;align-items:center;gap:12px;background:rgba(217,119,6,0.08);border:1px solid var(--warning);border-radius:10px;padding:10px 14px;margin-bottom:14px;flex-wrap:wrap; }
@@ -244,11 +247,13 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
 .cs:hover { border-color:var(--border);background:var(--surface2); }
 .cs:focus { border-color:var(--accent);background:#fff; }
 .modal input[type=text] { text-transform:uppercase; }
-.ff-cust-card { cursor:pointer;transition:.15s; }
-.cust-filter-bar .scard { padding:8px 6px; }
+.ff-cust-card { cursor:pointer;transition:.15s; }.cust-filter-bar .scard { padding:8px 6px; }
 .ff-cust-card:hover { border-color:var(--accent);box-shadow:0 2px 8px rgba(26,58,107,0.1); }
 .ff-cust-card.active { background:var(--accent);border-color:var(--accent); }
 .ff-cust-card.active .scard-label { color:#fff;opacity:.85; }
+.stat-card { cursor:pointer;transition:.15s; }
+.stat-card:hover { border-color:var(--accent);box-shadow:0 2px 8px rgba(26,58,107,0.1); }
+.stat-card.active { border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset;background:rgba(26,58,107,0.05); }
 /* Arrival status badge */
 .arr-early  { font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;background:rgba(26,158,122,0.12);color:var(--accent2); }
 .arr-ontime { font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;background:rgba(26,58,107,0.12);color:var(--inbound); }
@@ -372,7 +377,11 @@ const state = {
   iconHeaders: {},
   obSearch: '',
   ibColFilter: { customer:'', loadNum:'' },
-  obColFilter: { customer:'', orderNum:'', picker:'', loader:'', trailer:'' }
+  obColFilter: { customer:'', orderNum:'', picker:'', loader:'', trailer:'' },
+  ibSort: { field:'', dir:1 },
+  obSort: { field:'', dir:1 },
+  ibStatFilter: null,
+  obStatFilter: null
 };
 let rollSel = new Set();
 
@@ -1081,11 +1090,13 @@ const IB_LABELS   = {SCHEDULED:'Scheduled',ARRIVED:'Arrived',UNLOADING:'Unloadin
 const APPT_SLOTS = ['08:30','09:00','09:30','10:00','10:30','11:00','11:30','12:00','12:30','13:00','13:30','14:00','14:30','15:00','15:30','16:00'];
 const APPT_NOAPPT_MAX = 6;
 const NOAPPT_VAL = '__NOAPPT__';
+const DROPHOOK_VAL = '__DROPHOOK__';   // Outbound: drop-and-hook (FFTI loads land here instead of No Appt)
 // Back-compat aliases (Inbound code already references these names)
 const IB_SLOTS = APPT_SLOTS;
 const IB_NOAPPT_MAX = APPT_NOAPPT_MAX;
 const IB_NOAPPT_VAL = NOAPPT_VAL;
 function fmtApptLabel(t) {
+  if (t === DROPHOOK_VAL) return 'Drop & Hook';
   if (!t) return 'No Appt';
   const p = String(t).slice(0,5).split(':'); let h = parseInt(p[0],10); const m = p[1]||'00';
   if (isNaN(h)) return t;
@@ -1105,10 +1116,10 @@ function apptSlotsTaken(coll, date, excludeId) {
 }
 // Build <option> list of appointment times still available in `coll` for `date`.
 // `selected` may be a slot 'HH:MM', the no-appt sentinel, '' / undefined (none).
-function apptOptions(coll, date, selected, excludeId) {
+function apptOptions(coll, date, selected, excludeId, allowDropHook) {
   const { taken, noApptCount } = apptSlotsTaken(coll, date, excludeId);
   const sel = (selected===undefined||selected===null) ? '' : selected;
-  const selSlot = (sel && sel!==NOAPPT_VAL) ? sel.slice(0,5) : '';
+  const selSlot = (sel && sel!==NOAPPT_VAL && sel!==DROPHOOK_VAL) ? sel.slice(0,5) : '';
   let opts = '<option value="">— Select appt time —</option>';
   APPT_SLOTS.forEach(t => {
     if (taken.has(t) && t!==selSlot) return;        // taken by another load -> not selectable
@@ -1117,7 +1128,21 @@ function apptOptions(coll, date, selected, excludeId) {
   if (noApptCount < APPT_NOAPPT_MAX || sel===NOAPPT_VAL) {
     opts += '<option value="'+NOAPPT_VAL+'" '+(sel===NOAPPT_VAL?'selected':'')+'>No Appointment</option>';
   }
+  if (allowDropHook) {
+    opts += '<option value="'+DROPHOOK_VAL+'" '+(sel===DROPHOOK_VAL?'selected':'')+'>Drop &amp; Hook</option>';
+  }
   return opts;
+}
+// A load counts as "drop & hook" if it's explicitly set that way, or it's an FFTI load with no appointment.
+function isDropHook(r){ return r && (r.apptTime===DROPHOOK_VAL || ((r.apptTime||'')==='' && (r.carrier||'').toUpperCase()==='FFTI')); }
+// Effective appointment label for a load (shows Drop & Hook for FFTI/no-appt loads).
+function effApptLabel(r){ return isDropHook(r) ? 'Drop & Hook' : fmtApptLabel(r.apptTime); }
+// The Appt-Time value to pre-select when opening the edit form for a load.
+function apptSelForEdit(r){
+  const t = (r.apptTime||'');
+  if (t === DROPHOOK_VAL || isDropHook(r)) return DROPHOOK_VAL;
+  const s = t.slice(0,5);
+  return APPT_SLOTS.includes(s) ? s : NOAPPT_VAL;
 }
 // Build <option> list of customers from a reference-table key (keeps any custom value already on a load).
 function customerOptionsFrom(refKey, selected) {
@@ -1133,7 +1158,7 @@ function ibSlotsTaken(date, excludeId){ return apptSlotsTaken(state.inbound, dat
 function ibApptOptions(date, selected, excludeId){ return apptOptions(state.inbound, date, selected, excludeId); }
 function ibCustomerOptions(selected){ return customerOptionsFrom('customerIB', selected); }
 function obSlotsTaken(date, excludeId){ return apptSlotsTaken(state.outbound, date, excludeId); }
-function obApptOptions(date, selected, excludeId){ return apptOptions(state.outbound, date, selected, excludeId); }
+function obApptOptions(date, selected, excludeId){ return apptOptions(state.outbound, date, selected, excludeId, true); }
 function obCustomerOptions(selected){ return customerOptionsFrom('customerOB', selected); }
 // Rebuild the Appt Time dropdown when the Req Date changes inside the Add/Edit modal.
 function refreshApptOptions(type, excludeId) {
@@ -1272,9 +1297,9 @@ function renderInbound() {
         <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
       </tr>`;
 
-  if (state.ibCustFilter || ibFiltering()) {
-    // Filtered (customer card and/or column filter): show matching booked loads only (no open slots).
-    const ibShown = recs.filter(([,r])=>ibColMatch(r));
+  if (state.ibCustFilter || ibFiltering() || ibSorting() || state.ibStatFilter) {
+    // Filtered/sorted: show matching booked loads only (no open slots).
+    const ibShown = sortRecs(recs.filter(([,r])=>ibColMatch(r)&&ibStatMatch(r,state.ibStatFilter)), state.ibSort);
     rows = ibShown.length
       ? ibShown.map(([id,r])=>ibBookedRow(id,r)).join('')
       : `<tr><td colspan="${ibCols}" class="empty-row">No inbound loads match the current filter.</td></tr>`;
@@ -1310,32 +1335,33 @@ function renderInbound() {
   </div>
   ${ibRollBar}
   <div class="summary-bar">
-    <div class="scard"><div class="scard-label">Scheduled</div><div class="scard-value" style="color:var(--inbound)">${total}</div></div>
-    <div class="scard"><div class="scard-label">Arrived</div><div class="scard-value" style="color:var(--warning)">${arrived}</div></div>
-    <div class="scard"><div class="scard-label">Unloading</div><div class="scard-value" style="color:var(--warning)">${unload}</div></div>
-    <div class="scard"><div class="scard-label">Completed</div><div class="scard-value" style="color:var(--accent2)">${complt}</div></div>
-    <div class="scard"><div class="scard-label">Rolled Over</div><div class="scard-value" style="color:var(--warning)">${ibRolled}</div></div>
-    <div class="scard"><div class="scard-label">Remaining</div><div class="scard-value" style="color:var(--danger)">${total-complt}</div></div>
+    ${statCard('ib','scheduled','Scheduled',total,'var(--inbound)')}
+    ${statCard('ib','arrived','Arrived',arrived,'var(--warning)')}
+    ${statCard('ib','unloading','Unloading',unload,'var(--warning)')}
+    ${statCard('ib','completed','Completed',complt,'var(--accent2)')}
+    ${statCard('ib','rolled','Rolled Over',ibRolled,'var(--warning)')}
+    ${statCard('ib','remaining','Remaining',total-complt,'var(--danger)')}
   </div>
+  ${statNotice('ib')}
   ${custFilterBar('ib', recsDay, state.ibCustFilter, 'toggleIBCust', 'var(--inbound)')}
   ${custFilterNotice(state.ibCustFilter, 'toggleIBCust')}
   <div class="schedule-wrap">
     <table class="schedule-table">
       <thead><tr>
         ${state.rollMode.ib?'<th style="width:34px;text-align:center"></th>':''}
-        <th style="width:110px">Status</th>
+        ${thS('Status','ib','status','style="width:110px"')}
         ${thFilter('Customer','ib','customer')}
         ${thFilter('Load #','ib','loadNum')}
-        <th>Appt</th>
-        <th>Time In</th>
-        <th>Time Out</th>
+        ${thS('Appt','ib','apptTime')}
+        ${thS('Time In','ib','timeIn')}
+        ${thS('Time Out','ib','timeOut')}
         <th>Variance</th>
         <th>Duration</th>
         <th>Arr</th>
-        <th>Door</th>
-        <th>Trailer</th>
-        <th>Carrier</th>
-        <th>Notes</th>
+        ${thS('Door','ib','door')}
+        ${thS('Trailer','ib','trailer')}
+        ${thS('Carrier','ib','carrier')}
+        ${thS('Notes','ib','notes')}
         <th style="width:80px"></th>
       </tr></thead>
       <tbody>${rows}</tbody>
@@ -1404,7 +1430,7 @@ function renderOutbound() {
         <td style="min-width:150px">${cellInput('ob',id,'orderNum',r.orderNum,'115px','Order #','font-weight:700')}${obManual?'<span class="notexcel-badge">NOT ON EXCEL</span>':''}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${obIsRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${obOrig}" onchange="saveField('ob','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
         <td style="min-width:150px">${cellInput('ob',id,'destination',r.destination,'140px','Destination')}</td>
-        <td style="min-width:70px"><span class="ib-appt-label">${fmtApptLabel(r.apptTime)}</span></td>
+        <td style="min-width:70px"><span class="ib-appt-label">${effApptLabel(r)}</span></td>
         <td>
           <input class="time-input" type="text" inputmode="numeric" placeholder="HH:MM"
             value="${r.timeIn||''}"
@@ -1443,21 +1469,22 @@ function renderOutbound() {
       </tr>`;
 
   if (obSearching) {
-    const obShown = recs.filter(([,r])=>obColMatch(r));
+    const obShown = sortRecs(recs.filter(([,r])=>obColMatch(r)&&obStatMatch(r,state.obStatFilter)), state.obSort);
     rows = obShown.length
       ? obShown.map(([id,r])=>obBookedRow(id,r)).join('')
       : `<tr><td colspan="${obCols}" class="empty-row">No loads match your search.</td></tr>`;
-  } else if (state.obCustFilter || obFiltering()) {
-    const obShown = recs.filter(([,r])=>obColMatch(r));
+  } else if (state.obCustFilter || obFiltering() || obSorting() || state.obStatFilter) {
+    const obShown = sortRecs(recs.filter(([,r])=>obColMatch(r)&&obStatMatch(r,state.obStatFilter)), state.obSort);
     rows = obShown.length
       ? obShown.map(([id,r])=>obBookedRow(id,r)).join('')
       : `<tr><td colspan="${obCols}" class="empty-row">No outbound loads match the current filter.</td></tr>`;
   } else {
-    // Full appointment grid: every timed segment + the No Appointment slots, booked or open.
-    const bySlot = {}; const obNoAppt = [];
+    // Full appointment grid: every timed segment + No Appointment + Drop & Hook, booked or open.
+    const bySlot = {}; const obNoAppt = []; const obDropHook = [];
     recs.forEach(([id,r]) => {
       const t = (r.apptTime||'').slice(0,5);
-      if (APPT_SLOTS.includes(t)) { (bySlot[t]=bySlot[t]||[]).push([id,r]); }
+      if (isDropHook(r)) { obDropHook.push([id,r]); }
+      else if (APPT_SLOTS.includes(t)) { (bySlot[t]=bySlot[t]||[]).push([id,r]); }
       else { obNoAppt.push([id,r]); }
     });
     APPT_SLOTS.forEach(t => {
@@ -1469,6 +1496,12 @@ function renderOutbound() {
     for (let i=0; i<naRows; i++) {
       if (obNoAppt[i]) rows += obBookedRow(obNoAppt[i][0], obNoAppt[i][1]);
       else if (i < APPT_NOAPPT_MAX) rows += obOpenRow('No Appointment', NOAPPT_VAL);
+    }
+    rows += `<tr class="ib-section"><td colspan="${obCols}">Drop &amp; Hook</td></tr>`;
+    const dhRows = Math.max(3, obDropHook.length);
+    for (let i=0; i<dhRows; i++) {
+      if (obDropHook[i]) rows += obBookedRow(obDropHook[i][0], obDropHook[i][1]);
+      else if (i < 3) rows += obOpenRow('Drop & Hook', DROPHOOK_VAL);
     }
   }
 
@@ -1489,38 +1522,39 @@ function renderOutbound() {
   ${obRollBar}
   ${obSearching?`<div style="background:rgba(217,119,6,0.1);border:1px solid rgba(217,119,6,0.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:13px;color:var(--warning)">Showing <strong>${total}</strong> load(s) matching "<strong>${obQuery}</strong>" across all dates. <a href="#" onclick="clearObSearch();return false;" style="color:var(--outbound);font-weight:700">Clear filter</a></div>`:''}
   <div class="summary-bar">
-    <div class="scard"><div class="scard-label">Total Loads</div><div class="scard-value" style="color:var(--accent)">${total}</div></div>
-    <div class="scard"><div class="scard-label">Scheduled</div><div class="scard-value" style="color:var(--outbound)">${total-rolled}</div></div>
-    <div class="scard"><div class="scard-label">Rolled Over</div><div class="scard-value" style="color:var(--warning)">${rolled}</div></div>
-    <div class="scard"><div class="scard-label">Active</div><div class="scard-value" style="color:var(--warning)">${active}</div></div>
-    <div class="scard"><div class="scard-label">Loaded</div><div class="scard-value" style="color:var(--accent2)">${loaded}</div></div>
-    <div class="scard"><div class="scard-label">Departed</div><div class="scard-value" style="color:var(--accent2)">${depart}</div></div>
-    <div class="scard"><div class="scard-label">Remaining</div><div class="scard-value" style="color:var(--danger)">${total-depart}</div></div>
+    ${statCard('ob','total','Total Loads',total,'var(--accent)')}
+    ${statCard('ob','scheduled','Scheduled',total-rolled,'var(--outbound)')}
+    ${statCard('ob','rolled','Rolled Over',rolled,'var(--warning)')}
+    ${statCard('ob','active','Active',active,'var(--warning)')}
+    ${statCard('ob','loaded','Loaded',loaded,'var(--accent2)')}
+    ${statCard('ob','departed','Departed',depart,'var(--accent2)')}
+    ${statCard('ob','remaining','Remaining',total-depart,'var(--danger)')}
   </div>
+  ${statNotice('ob')}
   ${obSearching ? '' : custFilterBar('ob', recsDay, state.obCustFilter, 'toggleOBCust', 'var(--outbound)')}
   ${obSearching ? '' : custFilterNotice(state.obCustFilter, 'toggleOBCust')}
   <div class="schedule-wrap">
     <table class="schedule-table">
       <thead><tr>
         ${state.rollMode.ob?'<th style="width:34px;text-align:center"></th>':''}
-        <th style="width:40px;text-align:center" title="Priority">Pri</th>
-        <th style="width:130px">Status</th>
+        ${thS('Pri','ob','priority','style="width:40px;text-align:center"')}
+        ${thS('Status','ob','status','style="width:130px"')}
         ${thFilter('Customer','ob','customer')}
         ${thFilter('Order #','ob','orderNum')}
-        <th>Req Date</th>
-        <th>Destination</th>
-        <th>Appt</th>
-        <th>Time In</th>
-        <th>Time Out</th>
+        ${thS('Req Date','ob','reqDate')}
+        ${thS('Destination','ob','destination')}
+        ${thS('Appt','ob','apptTime')}
+        ${thS('Time In','ob','timeIn')}
+        ${thS('Time Out','ob','timeOut')}
         <th>Duration</th>
         <th>Arr</th>
         ${thFilter('Picker','ob','picker')}
-        <th>Stage Loc</th>
+        ${thS('Stage Loc','ob','stageLoc')}
         ${thFilter('Loader','ob','loader')}
-        <th>Door</th>
+        ${thS('Door','ob','door')}
         ${thFilter('Trailer','ob','trailer')}
-        <th>Carrier</th>
-        <th>Notes</th>
+        ${thS('Carrier','ob','carrier')}
+        ${thS('Notes','ob','notes')}
         <th style="width:80px"></th>
       </tr></thead>
       <tbody>${rows}</tbody>
@@ -1695,6 +1729,47 @@ function custFilterNotice(current, toggleFn) {
 }
 function toggleIBCust(c){ state.ibCustFilter = (state.ibCustFilter===c) ? null : c; renderInbound(); }
 function toggleOBCust(c){ state.obCustFilter = (state.obCustFilter===c) ? null : c; renderOutbound(); }
+
+// ─── SUMMARY STAT CARDS (click to filter the board) ───────────────────
+function statCard(board, key, label, value, color){
+  const cur = board==='ib' ? state.ibStatFilter : state.obStatFilter;
+  const active = cur===key;
+  return `<div class="scard stat-card${active?' active':''}" onclick="toggleStat('${board}','${key}')" title="Filter to ${label}">
+    <div class="scard-label">${label}</div>
+    <div class="scard-value" style="color:${color}">${value}</div></div>`;
+}
+function toggleStat(board, key){
+  const f = board==='ib' ? 'ibStatFilter' : 'obStatFilter';
+  state[f] = (state[f]===key) ? null : key;
+  if (board==='ib') renderInbound(); else renderOutbound();
+}
+function obStatMatch(r, key){
+  switch(key){
+    case 'scheduled': return !isRolled(r);
+    case 'rolled':    return isRolled(r);
+    case 'active':    return ['LOADING','BEING PICKED','PICKED & STAGED'].includes(r.status);
+    case 'loaded':    return r.status==='LOADED';
+    case 'departed':  return r.status==='DEPARTED';
+    case 'remaining': return r.status!=='DEPARTED';
+    default:          return true;   // 'total' or none
+  }
+}
+function ibStatMatch(r, key){
+  switch(key){
+    case 'arrived':   return r.status==='ARRIVED';
+    case 'unloading': return r.status==='UNLOADING';
+    case 'completed': return r.status==='COMPLETED';
+    case 'rolled':    return isRolled(r);
+    case 'remaining': return r.status!=='COMPLETED';
+    default:          return true;   // 'scheduled' (day total) or none
+  }
+}
+const STAT_LABELS = { total:'Total Loads', scheduled:'Scheduled', rolled:'Rolled Over', active:'Active', loaded:'Loaded', departed:'Departed', remaining:'Remaining', arrived:'Arrived', unloading:'Unloading', completed:'Completed' };
+function statNotice(board){
+  const cur = board==='ib' ? state.ibStatFilter : state.obStatFilter;
+  if (!cur) return '';
+  return `<div style="font-size:12px;color:var(--text2);margin-bottom:10px">Filtered to <strong style="color:var(--accent)">${STAT_LABELS[cur]||cur}</strong> &mdash; <a href="#" onclick="toggleStat('${board}','${cur}');return false;" style="color:var(--outbound);font-weight:700">show all</a></div>`;
+}
 
 function ffStatusChange(source, id, v, el) {
   if (source === 'ob') {
@@ -2073,7 +2148,44 @@ function thFilter(label, board, field, width){
   const val = ((board==='ib'?state.ibColFilter:state.obColFilter)[field]||'').replace(/"/g,'&quot;');
   const setter = board==='ib'?'setIbFilter':'setObFilter';
   const w = width?` style="vertical-align:top;width:${width}"`:' style="vertical-align:top"';
-  return `<th${w}><div>${label}</div><input id="${board}-filter-${field}" class="col-filter" type="text" size="4" value="${val}" placeholder="filter" oninput="${setter}('${field}',this.value)"></th>`;
+  return `<th${w}><div class="th-sort" onclick="sortBoard('${board}','${field}')" title="Click to sort by ${label}">${label}${sortArrow(board,field)}</div><input id="${board}-filter-${field}" class="col-filter" type="text" size="4" value="${val}" placeholder="filter" onclick="event.stopPropagation()" oninput="${setter}('${field}',this.value)"></th>`;
+}
+// ─── COLUMN SORT (click a header to sort the board) ─────────────────────
+function ibSorting(){ return !!(state.ibSort && state.ibSort.field); }
+function obSorting(){ return !!(state.obSort && state.obSort.field); }
+function sortArrow(board, field){
+  const s = board==='ib' ? state.ibSort : state.obSort;
+  if (!s || s.field !== field) return '';
+  return ' <span class="sort-arrow">' + (s.dir===1 ? '\u25B2' : '\u25BC') + '</span>';
+}
+function thS(label, board, field, attrs){
+  return '<th class="th-sort" '+(attrs||'')+' onclick="sortBoard(\''+board+'\',\''+field+'\')" title="Click to sort by '+label+'">'+label+sortArrow(board,field)+'</th>';
+}
+function _sortVal(r, field){
+  if (field==='priority') return r.priority ? 0 : 1;
+  if (field==='door') { const n = parseInt(r.door,10); return isNaN(n) ? 1e9 : n; }
+  if (field==='apptTime') {
+    if (isDropHook(r)) return 'ZZZ2';
+    const t = (r.apptTime||'').slice(0,5);
+    return t ? ('A'+t) : 'ZZZ1';
+  }
+  if (field==='reqDate') return String(r.reqDate||'');
+  return String(r[field]||'').toUpperCase();
+}
+function sortRecs(recs, s){
+  if (!s || !s.field) return recs;
+  return recs.slice().sort((a,b)=>{
+    const va=_sortVal(a[1],s.field), vb=_sortVal(b[1],s.field);
+    if (va<vb) return -s.dir; if (va>vb) return s.dir; return 0;
+  });
+}
+function sortBoard(board, field){
+  const key = board==='ib' ? 'ibSort' : 'obSort';
+  const s = state[key] || {field:'',dir:1};
+  if (s.field===field) { if (s.dir===1) { s.dir=-1; } else { s.field=''; s.dir=1; } }  // asc -> desc -> off
+  else { s.field=field; s.dir=1; }
+  state[key]=s;
+  if (board==='ib') renderInbound(); else renderOutbound();
 }
 
 function setDate(type, val) {
@@ -2086,7 +2198,7 @@ function setDate(type, val) {
 // ─── ADD / EDIT LOAD ───────────────────────────────────────────────────
 function showAddLoad(type, prefillAppt) {
   const isIB = type==='ib';
-  const date = isIB?state.ibDate:state.obDate;
+  const date = nextBusinessDay(todayStr());   // default to the next business day, not today
   const color = isIB?'var(--inbound)':'var(--outbound)';
   const title = isIB?'Add Inbound Load':'Add Outbound Load';
 
@@ -2178,7 +2290,7 @@ function editLoad(type, id) {
       </div>
       <div class="form-group">
         <label>Appt Time</label>
-        <select id="f-appttime">${(isIB?ibApptOptions:obApptOptions)(rec.reqDate||'', (APPT_SLOTS.includes((rec.apptTime||'').slice(0,5))?(rec.apptTime||'').slice(0,5):NOAPPT_VAL), id)}</select>
+        <select id="f-appttime">${(isIB?ibApptOptions:obApptOptions)(rec.reqDate||'', apptSelForEdit(rec), id)}</select>
       </div>
       ${!isIB?`
       <div class="form-group">
@@ -2228,11 +2340,15 @@ function saveLoad(type, id) {
   let apptTime = (g('f-appttime')||{}).value||'';
   if (apptTime===NOAPPT_VAL) {
     apptTime = '';
+  } else if (apptTime===DROPHOOK_VAL) {
+    /* drop & hook — not a timed slot, no double-book check */
   } else if (apptTime) {
     const coll = isIB ? state.inbound : state.outbound;
     const { taken } = apptSlotsTaken(coll, reqDate, id||undefined);
     if (taken.has(apptTime.slice(0,5))) { showAlert('That appointment time is already booked for '+reqDate+'. Pick another.','warning'); return; }
   }
+  // Outbound FFTI loads with no appointment go under Drop & Hook, not No Appointment.
+  if (!isIB && apptTime==='' && UP('f-carrier')==='FFTI') apptTime = DROPHOOK_VAL;
   const data = {
     customer:    UP('f-customer'),
     reqDate:     reqDate,
