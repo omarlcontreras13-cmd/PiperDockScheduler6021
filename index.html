@@ -43,7 +43,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 /* ── HEADER ─────────────────────────────────────────────────────── */
 .header { background:var(--surface);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;flex-shrink:0; }
 #main-app { height:100vh;flex-direction:column;overflow:hidden; }
-#view-ib,#view-ob,#view-yd,#view-ff { display:flex;flex-direction:column;flex:1 1 auto;min-height:0; }
+#view-ib,#view-ob,#view-yd,#view-sc,#view-pwd,#view-ff { display:flex;flex-direction:column;flex:1 1 auto;min-height:0; }
 .main > div > * { flex-shrink:0; }
 .main > div > .schedule-wrap { flex:1 1 0;min-height:0; }
 .header-user { font-size:12px;color:var(--text2);font-weight:600;letter-spacing:1px; }
@@ -60,6 +60,33 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .nav-tab.active-ob { color:var(--outbound);border-bottom-color:var(--outbound); }
 .nav-tab.active-yd { color:var(--yard);border-bottom-color:var(--yard); }
 .nav-tab.active-ff { color:#7c3aed;border-bottom-color:#7c3aed; }
+.nav-tab.active-sc { color:#0d9488;border-bottom-color:#0d9488; }
+.nav-tab.active-pwd { color:#0891b2;border-bottom-color:#0891b2; }
+.sc-wrap { background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:auto;flex:1 1 0;min-height:120px; }
+.sc-table { border-collapse:collapse;font-size:11px;white-space:nowrap; }
+.sc-table th,.sc-table td { border:1px solid var(--border);padding:3px 5px;text-align:center; }
+.sc-table thead th { position:sticky;top:0;z-index:6;background:var(--surface2);font-size:8px;letter-spacing:.4px;text-transform:uppercase;color:var(--text);font-weight:800; }
+.sc-table thead tr.sc-grp th { top:0;z-index:7;font-size:9px;letter-spacing:.6px; }
+.sc-table thead tr.sc-sub th { top:22px;z-index:6; }
+.sc-gcol { background:rgba(13,148,136,0.06); }
+.sc-date { position:sticky;left:0;z-index:4;background:var(--surface);font-weight:700;text-align:left;padding-left:8px; }
+.sc-table thead .sc-date { z-index:8;background:var(--surface2); }
+.sc-in { width:42px;border:1px solid transparent;border-radius:4px;padding:2px 3px;font-size:11px;text-align:center;font-family:var(--font);background:transparent;color:var(--text); }
+.sc-in::-webkit-outer-spin-button,.sc-in::-webkit-inner-spin-button { -webkit-appearance:none;margin:0; }
+.sc-in { -moz-appearance:textfield; }
+.sc-in:hover { border-color:var(--border);background:#fff; }
+.sc-in:focus { border-color:var(--accent);background:#fff;outline:none; }
+.sc-calc { color:var(--text2);font-weight:600;background:rgba(0,0,0,0.02); }
+.sc-tot { font-weight:800;color:var(--accent); }
+.sc-tons { background:rgba(217,119,6,0.06); }
+.sc-avg td { background:var(--surface2);font-weight:800;color:var(--accent); }
+.sc-weekend .sc-date { color:var(--danger); }
+.sc-toolbar { display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px; }
+.door-loadlink { cursor:pointer;text-decoration:underline;text-underline-offset:2px;font-weight:800; }
+.door-loadlink:hover { color:var(--outbound); }
+.door-manual-tag { margin-left:6px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#b45309;background:rgba(217,119,6,0.14);padding:1px 5px;border-radius:4px;vertical-align:middle; }
+@keyframes rowFlash { 0%{ background:rgba(13,148,136,.30); } 100%{ background:transparent; } }
+.row-flash > td { animation:rowFlash 2.1s ease-out; }
 
 /* ── MAIN LAYOUT ─────────────────────────────────────────────────── */
 .main { padding:20px 24px;max-width:2200px;margin:0 auto;width:100%;box-sizing:border-box;align-self:center;flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden; }
@@ -79,6 +106,10 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 /* ── SUMMARY CARDS ───────────────────────────────────────────────── */
 .summary-bar { display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:18px; }
 .scard { background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;text-align:center; }
+.yard-cfilter { transition:box-shadow .15s, border-color .15s, transform .05s; }
+.yard-cfilter:hover { box-shadow:inset 0 0 0 2px var(--border); }
+.yard-cfilter:active { transform:translateY(1px); }
+.yard-cfilter.active { background:var(--surface); }
 .scard-label { font-size:9px;color:var(--text2);letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:4px; }
 .scard-value { font-size:22px;font-weight:800; }
 
@@ -246,7 +277,8 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
 .cs { padding:3px 6px;border:1px solid transparent;border-radius:5px;font-family:var(--font);font-size:12px;color:var(--text);background:transparent;outline:none;width:100%;box-sizing:border-box;cursor:pointer; }
 .cs:hover { border-color:var(--border);background:var(--surface2); }
 .cs:focus { border-color:var(--accent);background:#fff; }
-.modal input[type=text] { text-transform:uppercase; }
+.modal input[type=text], .modal textarea { text-transform:uppercase; }
+.cs { text-transform:uppercase; }
 .ff-cust-card { cursor:pointer;transition:.15s; }.cust-filter-bar .scard { padding:8px 6px; }
 .ff-cust-card:hover { border-color:var(--accent);box-shadow:0 2px 8px rgba(26,58,107,0.1); }
 .ff-cust-card.active { background:var(--accent);border-color:var(--accent); }
@@ -320,14 +352,18 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
     <button class="nav-tab" id="tab-ib" onclick="switchTab('ib')">📥 Inbound<span id="badge-ib" class="badge-count badge-ib"></span></button>
     <button class="nav-tab" id="tab-ob" onclick="switchTab('ob')">📤 Outbound<span id="badge-ob" class="badge-count badge-ob"></span></button>
     <button class="nav-tab" id="tab-yd" onclick="switchTab('yd')">🏗 Yard Manager</button>
+    <button class="nav-tab" id="tab-sc" onclick="switchTab('sc')">📊 Scorecard</button>
     <button class="nav-tab" id="tab-ff" onclick="switchTab('ff')">🚚 First Fleet</button>
+    <button class="nav-tab" id="tab-pwd" onclick="switchTab('pwd')">🚛 PWD</button>
   </div>
 
   <div class="main">
     <div id="view-ib"></div>
     <div id="view-ob" style="display:none"></div>
     <div id="view-yd" style="display:none"></div>
+    <div id="view-sc" style="display:none"></div>
     <div id="view-ff" style="display:none"></div>
+    <div id="view-pwd" style="display:none"></div>
   </div>
 </div>
 
@@ -359,6 +395,7 @@ const state = {
   tab: 'ib',
   ibDate: todayStr(),
   ffDate: todayStr(),
+  pwdDate: todayStr(),
   obDate: todayStr(),
   inbound: {},
   firstfleet: {},
@@ -372,16 +409,27 @@ const state = {
   settings: {},
   rollMode: { ib:false, ob:false },
   ffCustFilter: null,
+  pwdCustFilter: null,
+  yardCarrierFilter: null,
   ibCustFilter: null,
   obCustFilter: null,
   iconHeaders: {},
   obSearch: '',
   ibColFilter: { customer:'', loadNum:'' },
   obColFilter: { customer:'', orderNum:'', picker:'', loader:'', trailer:'' },
+  ffColFilter: { status:'', carrier:'', customer:'', origReqDate:'', loadId:'', door:'', trailer:'', driver:'', notes:'' },
+  pwdColFilter: { status:'', carrier:'', customer:'', origReqDate:'', loadId:'', door:'', trailer:'', driver:'', notes:'' },
   ibSort: { field:'', dir:1 },
   obSort: { field:'', dir:1 },
+  ffSort: { field:'', dir:1 },
+  pwdSort: { field:'', dir:1 },
   ibStatFilter: null,
-  obStatFilter: null
+  obStatFilter: null,
+  scorecard: {},
+  scMonth: '',
+  scReportMode: 'day',      // day | week | month | range
+  scReportStart: '',
+  scReportEnd: ''
 };
 let rollSel = new Set();
 
@@ -584,7 +632,7 @@ function loginGroup(group, isAdmin) {
 }
 
 function applyTabAccess(group) {
-  const piperOnly = ['tab-ib','tab-ob','tab-yd'];
+  const piperOnly = ['tab-ib','tab-ob','tab-yd','tab-sc','tab-pwd'];
   const show = group === 'piper';
   piperOnly.forEach(id => {
     const b = document.getElementById(id);
@@ -1026,12 +1074,28 @@ function startListeners() {
     if (state.tab==='ob') renderOutbound();
     if (state.tab==='yd') renderYard();
     if (state.tab==='ff') renderFirstFleet();
+    if (state.tab==='pwd') renderPWD();
+    if (state.tab==='sc') scDeferRender();
     updateBadges();
   });
   db.ref(ROOT+'/firstfleet').on('value', snap => {
     state.firstfleet = snap.val()||{};
     if (state.tab==='ff') renderFirstFleet();
   });
+  db.ref(ROOT+'/scorecard').on('value', snap => {
+    state.scorecard = snap.val()||{};
+    if (state.tab==='sc') scDeferRender();
+  });
+  // When the cursor leaves the scorecard grid entirely, re-render once so the deferred
+  // computed columns (balances, totals) catch up to the entered values.
+  const vsc = document.getElementById('view-sc');
+  if (vsc && !vsc._scBlurHooked) {
+    vsc._scBlurHooked = true;
+    vsc.addEventListener('focusout', e => {
+      const to = e.relatedTarget;
+      if (!to || !vsc.contains(to)) setTimeout(()=>{ if (state.tab==='sc' && !scGridEditing()) renderScorecard(); }, 0);
+    });
+  }
   db.ref(ROOT+'/refTable').on('value', snap => {
     state.refTable = snap.val()||{};
     if (state.tab==='ib') renderInbound();
@@ -1068,16 +1132,18 @@ function updateBadges() {
 // ─── TABS ──────────────────────────────────────────────────────────────
 function switchTab(tab) {
   state.tab = tab;
-  ['ib','ob','yd','ff'].forEach(t => {
+  ['ib','ob','yd','sc','ff','pwd'].forEach(t => {
     const v = document.getElementById('view-'+t); if(v) v.style.display = t===tab?'':'none';
     const btn = document.getElementById('tab-'+t); if(!btn) return;
-    btn.classList.remove('active-ib','active-ob','active-yd','active-ff');
+    btn.classList.remove('active-ib','active-ob','active-yd','active-sc','active-ff','active-pwd');
     if(t===tab) btn.classList.add(t==='ff'?'active-ff':'active-'+t);
   });
   if(tab==='ib') renderInbound();
   if(tab==='ob') renderOutbound();
   if(tab==='yd') renderYard();
+  if(tab==='sc') renderScorecard();
   if(tab==='ff') renderFirstFleet();
+  if(tab==='pwd') renderPWD();
 }
 
 // ─── INBOUND STATUS ────────────────────────────────────────────────────
@@ -1125,9 +1191,8 @@ function apptOptions(coll, date, selected, excludeId, allowDropHook) {
     if (taken.has(t) && t!==selSlot) return;        // taken by another load -> not selectable
     opts += '<option value="'+t+'" '+(t===selSlot?'selected':'')+'>'+fmtApptLabel(t)+'</option>';
   });
-  if (noApptCount < APPT_NOAPPT_MAX || sel===NOAPPT_VAL) {
-    opts += '<option value="'+NOAPPT_VAL+'" '+(sel===NOAPPT_VAL?'selected':'')+'>No Appointment</option>';
-  }
+  // "No Appointment" is always selectable so a load can be saved without a time.
+  opts += '<option value="'+NOAPPT_VAL+'" '+(sel===NOAPPT_VAL?'selected':'')+'>No Appointment</option>';
   if (allowDropHook) {
     opts += '<option value="'+DROPHOOK_VAL+'" '+(sel===DROPHOOK_VAL?'selected':'')+'>Drop &amp; Hook</option>';
   }
@@ -1252,7 +1317,7 @@ function renderInbound() {
       const ibArrBadge = arrivalStatus(r.apptTime, r.timeIn);
       const ibRollCell = state.rollMode.ib ? `<td style="text-align:center"><input type="checkbox" class="roll-check" ${rollSel.has(id)?'checked':''} onclick="toggleRollSel('ib','${id}',this)"></td>` : '';
       const ibIsRolled = isRolled(r);
-      return `<tr>${ibRollCell}
+      return `<tr data-lid="${id}">${ibRollCell}
         <td>
           <select class="status-select ${IB_CLASSES[r.status]||'s-scheduled'}"
             onchange="saveField('ib','${id}','status',this.value);this.className='status-select '+(IB_CLASSES[this.value]||'s-scheduled')"
@@ -1417,7 +1482,7 @@ function renderOutbound() {
       const obManual = r.source !== 'excel-import' && r.sourceType !== 'pickflow';
       const obTrCls = obPri ? ' class="priority-row"' : '';
       const obTrStyle = (!obPri && isPF) ? ' style="background:rgba(26,58,107,0.025)"' : '';
-      return `<tr${obTrCls}${obTrStyle}>${obRollCell}
+      return `<tr data-lid="${id}"${obTrCls}${obTrStyle}>${obRollCell}
         <td style="text-align:center"><input type="checkbox" ${obPri?'checked':''} onchange="setPriority('${id}',this.checked)" title="Mark load as priority" style="width:16px;height:16px;cursor:pointer;accent-color:var(--danger)"></td>
         <td>
           <select class="status-select ${OB_CLASSES[r.status]||'s-order-recv'}"
@@ -1866,18 +1931,22 @@ function renderFirstFleet() {
       </div></div>`;
   }).join('');
 
-  const recsFiltered = state.ffCustFilter
+  const recsFiltered = (state.ffCustFilter
     ? recsAll.filter(([,r])=>custMatches(r.customer, state.ffCustFilter))
-    : recsAll;
+    : recsAll).filter(([,r])=>ffColMatch(r));
 
-  // Sort & segment: FFTI carrier first (by order #), then Other (by carrier, then order #)
-  const recs = recsFiltered.slice().sort((a,b)=>{
-    const ra=a[1], rb=b[1];
-    if (ra._ffti !== rb._ffti) return ra._ffti ? -1 : 1;
-    if (ra._ffti) return (ra.orderNum||ra.loadId||'').localeCompare(rb.orderNum||rb.loadId||'');
-    const cc=(ra.carrier||'').localeCompare(rb.carrier||'');
-    return cc!==0 ? cc : (ra.orderNum||ra.loadId||'').localeCompare(rb.orderNum||rb.loadId||'');
-  });
+  // FFTI carrier first, then Other carriers. A column sort (if active) orders within each
+  // segment; otherwise the default order applies (FFTI by order#, Other by carrier then order#).
+  const ffColSorted = ffSorting();
+  const ffOrder = (list, isFFTI) => ffColSorted
+    ? sortRecs(list, state.ffSort)
+    : list.slice().sort((a,b)=> isFFTI
+        ? (a[1].orderNum||a[1].loadId||'').localeCompare(b[1].orderNum||b[1].loadId||'')
+        : ((a[1].carrier||'').localeCompare(b[1].carrier||'') || (a[1].orderNum||a[1].loadId||'').localeCompare(b[1].orderNum||b[1].loadId||'')));
+  const recs = [
+    ...ffOrder(recsFiltered.filter(([,r])=>r._ffti), true),
+    ...ffOrder(recsFiltered.filter(([,r])=>!r._ffti), false)
+  ];
 
   const total      = recs.length;
   const fftiTotal  = recs.filter(([,r])=>r._ffti).length;
@@ -1954,16 +2023,177 @@ function renderFirstFleet() {
   <div class="schedule-wrap">
     <table class="schedule-table">
       <thead><tr>
-        <th style="width:140px">Status</th>
-        <th>Carrier</th>
-        <th>Customer</th>
-        <th>Orig Req Date</th>
-        <th>Load ID</th>
-        <th>Door #</th>
-        <th>Trailer #</th>
-        <th>Assigned Driver</th>
-        <th>Notes</th>
-        <th style="width:50px"></th>
+        ${thFilter('Status','ff','status','140px')}
+        ${thFilter('Carrier','ff','carrier')}
+        ${thFilter('Customer','ff','customer')}
+        ${thFilter('Orig Req Date','ff','origReqDate')}
+        ${thFilter('Load ID','ff','loadId')}
+        ${thFilter('Door #','ff','door','60px')}
+        ${thFilter('Trailer #','ff','trailer')}
+        ${thFilter('Assigned Driver','ff','driver')}
+        ${thFilter('Notes','ff','notes')}
+        <th style="width:50px;vertical-align:top"></th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+// ═══ PWD (PIPER FLEET) ═════════════════════════════════════════════════
+// Clone of the First Fleet screen for Piper's own fleet. Shows Outbound loads for
+// CATALYST / TWIN RIVERS / ATL UPM, with PWD-carrier loads on top and Other Carriers
+// on the bottom. Reuses the same status workflow, cards, and cell editors.
+const PWD_CUSTOMERS = ['CATALYST','TWIN RIVERS','ATL UPM'];
+function isPWDCarrier(carrier){
+  const c = (carrier||'').toUpperCase();
+  return c.indexOf('PWD')>-1 || c.indexOf('PIPER')>-1 || c.indexOf('OWN FLEET')>-1;
+}
+function togglePWDCust(full){ state.pwdCustFilter = (state.pwdCustFilter===full) ? null : full; renderPWD(); }
+
+function renderPWD(){
+  const view = document.getElementById('view-pwd');
+  if (!view) return;
+  keepScroll(view);
+  const custs = PWD_CUSTOMERS;
+  const date = state.pwdDate;
+
+  // Source: Outbound loads for the PWD customers on this date (not cancelled)
+  const recsAll = Object.entries(state.outbound||{})
+    .filter(([,r])=> r.reqDate && r.reqDate.slice(0,10)===date && r.status!=='CANCELLED' && custs.some(full=>custMatches(r.customer, full)))
+    .map(([id,r])=>([id, {
+      _source:     'outbound',
+      deliveryDate: r.reqDate,
+      loadId:      r.orderNum||r.loadNum||'',
+      orderNum:    r.orderNum||r.loadNum||'',
+      carrier:     r.carrier||'',
+      door:        r.door||'',
+      trailer:     r.trailer||'',
+      driver:      r.driver||'',
+      customer:    r.customer||'',
+      reqDate:     r.reqDate,
+      origReqDate: r.origReqDate||r.reqDate,
+      status:      (r.status==='DEPARTED') ? 'LOAD PICKED UP' : (r.status==='CANCELLED') ? 'LOAD CANCELLED' : (r.ffStatus || obToFF(r.status)),
+      obStatus:    r.status,
+      priority:    !!r.priority,
+      notes:       r.notes||''
+    }]));
+  recsAll.forEach(([,r])=>{ r._pwd = isPWDCarrier(r.carrier); });
+
+  // Customer cards: per customer, PWD-carrier vs Other-carrier counts
+  const custCards = custs.map(full=>{
+    const mine = recsAll.filter(([,r])=>custMatches(r.customer, full));
+    const pwdQty = mine.filter(([,r])=>r._pwd).length;
+    const otherQty = mine.filter(([,r])=>!r._pwd).length;
+    const active = state.pwdCustFilter===full;
+    const sub = active ? 'rgba(255,255,255,0.85)' : 'var(--text2)';
+    return `<div class="scard ff-cust-card${active?' active':''}" onclick="togglePWDCust('${full.replace(/'/g,"\\'")}')" title="Filter to ${full}">
+      <div class="scard-label" style="font-size:15px;letter-spacing:.3px;margin-bottom:6px">${full}</div>
+      <div style="display:flex;justify-content:center;gap:14px;margin-top:3px">
+        <div style="text-align:center"><div style="font-size:8px;letter-spacing:.5px;font-weight:700;color:${sub}">PWD</div><div style="font-size:14px;font-weight:800;line-height:1.1;color:${active?'#fff':'var(--accent)'}">${pwdQty}</div></div>
+        <div style="text-align:center"><div style="font-size:8px;letter-spacing:.5px;font-weight:700;color:${sub}">OTHER</div><div style="font-size:14px;font-weight:800;line-height:1.1;color:${active?'#fff':'var(--text2)'}">${otherQty}</div></div>
+      </div></div>`;
+  }).join('');
+
+  const recsFiltered = (state.pwdCustFilter
+    ? recsAll.filter(([,r])=>custMatches(r.customer, state.pwdCustFilter))
+    : recsAll).filter(([,r])=>pwdColMatch(r));
+
+  // PWD carrier first, then Other carriers. A column sort (if active) orders within each
+  // segment; otherwise the default order applies (PWD by order#, Other by carrier then order#).
+  const pwdColSorted = pwdSorting();
+  const pwdOrder = (list, isPWD) => pwdColSorted
+    ? sortRecs(list, state.pwdSort)
+    : list.slice().sort((a,b)=> isPWD
+        ? (a[1].orderNum||a[1].loadId||'').localeCompare(b[1].orderNum||b[1].loadId||'')
+        : ((a[1].carrier||'').localeCompare(b[1].carrier||'') || (a[1].orderNum||a[1].loadId||'').localeCompare(b[1].orderNum||b[1].loadId||'')));
+  const recs = [
+    ...pwdOrder(recsFiltered.filter(([,r])=>r._pwd), true),
+    ...pwdOrder(recsFiltered.filter(([,r])=>!r._pwd), false)
+  ];
+
+  const total     = recs.length;
+  const pwdTotal  = recs.filter(([,r])=>r._pwd).length;
+  const otherTotal= total - pwdTotal;
+  const received  = recs.filter(([,r])=>r.status==='ORDER RECEIVED').length;
+  const fulfilling= recs.filter(([,r])=>r.status==='ORDER BEING FULFILLED').length;
+  const pending   = recs.filter(([,r])=>r.status==='PENDING LOADING').length;
+  const loading   = recs.filter(([,r])=>r.status==='LOADING').length;
+  const readypu   = recs.filter(([,r])=>r.status==='LOAD READY FOR PU').length;
+  const pickedup  = recs.filter(([,r])=>r.status==='LOAD PICKED UP').length;
+  const rolled    = recs.filter(([,r])=>isRolled(r)).length;
+
+  let rows = '';
+  if (!recs.length) {
+    rows = `<tr><td colspan="10" class="empty-row">No PWD-customer loads for this date.</td></tr>`;
+  } else {
+    let lastGroup = null;
+    recs.forEach(([id,r]) => {
+      const grp = r._pwd ? 'PWD' : 'OTHER';
+      if (grp !== lastGroup) {
+        const cnt = recs.filter(([,x])=>(x._pwd?'PWD':'OTHER')===grp).length;
+        rows += `<tr><td colspan="10" style="background:var(--surface2);padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--text2)">${grp==='PWD'?'PWD (PIPER FLEET)':'OTHER CARRIERS'} &nbsp;&middot;&nbsp; ${cnt}</td></tr>`;
+        lastGroup = grp;
+      }
+      const ffOpts = FF_STATUSES.map(s=>`<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('');
+      const ffRolled = isRolled(r);
+      const ffOrig   = (r.origReqDate||r.reqDate||r.deliveryDate||'').slice(0,10);
+      const ffPri    = !!r.priority;
+      rows += `<tr${ffPri?' class="priority-row"':''}>
+        <td>
+          <select class="status-select ${FF_CLASSES[r.status]||'s-ff-assigned'}"
+            onchange="ffStatusChange('ob','${id}',this.value,this)"
+            style="color:${FF_COLORS[r.status]||'#0891b2'}">
+            ${ffOpts}
+          </select>
+        </td>
+        <td style="min-width:90px">${cellInput('outbound',id,'carrier',r.carrier,'90px','Carrier')}</td>
+        <td style="min-width:100px;font-weight:600">${r.customer||''}${ffPri?'<span class="pri-badge">★ PRIORITY</span>':''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
+        <td style="min-width:120px"><input type="date" class="date-input ${ffRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${ffOrig}" onchange="saveField('ob','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
+        <td style="min-width:120px">${cellInput('outbound',id,'loadId',r.loadId,'90px','Load ID')}${r.obStatus==='LOADED'?'<span class="loaded-badge">LOADED</span>':''}</td>
+        <td style="min-width:52px">${cellInput('outbound',id,'door',r.door,'52px','Door #')}</td>
+        <td style="min-width:90px">${cellInput('outbound',id,'trailer',r.trailer,'90px','Trailer #')}</td>
+        <td style="min-width:130px">${cellInput('outbound',id,'driver',r.driver,'130px','Assigned Driver')}</td>
+        <td style="min-width:160px">${cellInput('outbound',id,'notes',r.notes,'160px','Notes')}</td>
+        <td></td>
+      </tr>`;
+    });
+  }
+
+  view.innerHTML = `
+  <div class="date-bar">
+    <button class="date-nav-btn" onclick="shiftDate('pwd',-1)">&lsaquo;</button>
+    <div class="date-label">${fmtDateLabel(state.pwdDate)}</div>
+    <button class="date-nav-btn" onclick="shiftDate('pwd',1)">&rsaquo;</button>
+    <button class="today-btn" onclick="setDate('pwd',todayStr())">Today</button>
+    <input type="date" class="date-input" value="${state.pwdDate}" onchange="setDate('pwd',this.value)">
+  </div>
+  <div class="summary-bar" style="grid-template-columns:repeat(${custs.length},1fr);max-width:720px;margin-bottom:6px">
+    ${custCards}
+  </div>
+  ${state.pwdCustFilter?`<div style="font-size:12px;color:var(--text2);margin-bottom:10px">Filtered to <strong style="color:var(--accent)">${state.pwdCustFilter}</strong> &mdash; <a href="#" onclick="togglePWDCust('${state.pwdCustFilter.replace(/'/g,"\\'")}');return false;" style="color:var(--outbound);font-weight:700">show all</a></div>`:''}
+  <div class="summary-bar" style="grid-template-columns:repeat(8,1fr);max-width:1200px">
+    <div class="scard"><div class="scard-label">Total</div><div class="scard-value" style="color:#0891b2">${total}</div><div style="font-size:9px;color:var(--text2);font-weight:700">PWD ${pwdTotal} &middot; OTHER ${otherTotal}</div></div>
+    <div class="scard"><div class="scard-label">Order Received</div><div class="scard-value" style="color:#0891b2">${received}</div></div>
+    <div class="scard"><div class="scard-label">Being Fulfilled</div><div class="scard-value" style="color:#6366f1">${fulfilling}</div></div>
+    <div class="scard"><div class="scard-label">Pending Loading</div><div class="scard-value" style="color:#0d9488">${pending}</div></div>
+    <div class="scard"><div class="scard-label">Loading</div><div class="scard-value" style="color:#ea580c">${loading}</div></div>
+    <div class="scard"><div class="scard-label">Ready for PU</div><div class="scard-value" style="color:#1a3a6b">${readypu}</div></div>
+    <div class="scard"><div class="scard-label">Picked Up</div><div class="scard-value" style="color:var(--accent2)">${pickedup}</div></div>
+    <div class="scard"><div class="scard-label">Rolled</div><div class="scard-value" style="color:var(--warning)">${rolled}</div></div>
+  </div>
+  <div class="schedule-wrap">
+    <table class="schedule-table">
+      <thead><tr>
+        ${thFilter('Status','pwd','status','140px')}
+        ${thFilter('Carrier','pwd','carrier')}
+        ${thFilter('Customer','pwd','customer')}
+        ${thFilter('Orig Req Date','pwd','origReqDate')}
+        ${thFilter('Load ID','pwd','loadId')}
+        ${thFilter('Door #','pwd','door','60px')}
+        ${thFilter('Trailer #','pwd','trailer')}
+        ${thFilter('Assigned Driver','pwd','driver')}
+        ${thFilter('Notes','pwd','notes')}
+        <th style="width:50px;vertical-align:top"></th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
@@ -2041,38 +2271,75 @@ function renderYard() {
   //  - A door is shown occupied whenever a load has BOTH a door and a trailer
   //    assigned (any day), until it departs (outbound) or completes (inbound).
   const liveDoors = {};
-  Object.values(state.inbound||{}).forEach(r => {
+  Object.entries(state.inbound||{}).forEach(([id,r]) => {
     if (r.door && r.trailer && r.status!=='COMPLETED')
-      liveDoors[String(r.door).trim()] = { src:'ib', status:r.status||'INBOUND', trailer:r.trailer||'', customer:r.customer||'', order:r.loadNum||'', carrier:r.carrier||'' };
+      liveDoors[String(r.door).trim()] = { id, reqDate:r.reqDate||'', src:'ib', status:r.status||'INBOUND', trailer:r.trailer||'', customer:r.customer||'', order:r.loadNum||'', carrier:r.carrier||'' };
   });
-  Object.values(state.outbound||{}).forEach(r => {
+  Object.entries(state.outbound||{}).forEach(([id,r]) => {
     if (r.door && r.trailer && r.status!=='DEPARTED')
-      liveDoors[String(r.door).trim()] = { src:'ob', status:r.status||'OUTBOUND', trailer:r.trailer||'', customer:r.customer||'', order:r.orderNum||'', carrier:r.carrier||'' };
+      liveDoors[String(r.door).trim()] = { id, reqDate:r.reqDate||'', src:'ob', status:r.status||'OUTBOUND', trailer:r.trailer||'', customer:r.customer||'', order:r.orderNum||'', carrier:r.carrier||'' };
   });
+
+  // A manually-saved door record (yard/doors) is independent of the schedule and
+  // only clears via "Clear Door". So when its load departs/cancels (OB) or completes
+  // (IB), the saved record would linger. Treat such records as empty (self-healing).
+  const doneTrailers = new Set(), doneOrders = new Set();
+  Object.values(state.outbound||{}).forEach(r => {
+    if (r.status==='DEPARTED' || r.status==='CANCELLED') {
+      if (r.trailer)  doneTrailers.add(String(r.trailer).trim().toUpperCase());
+      if (r.orderNum) doneOrders.add(String(r.orderNum).trim().toUpperCase());
+    }
+  });
+  Object.values(state.inbound||{}).forEach(r => {
+    if (r.status==='COMPLETED') {
+      if (r.trailer) doneTrailers.add(String(r.trailer).trim().toUpperCase());
+      if (r.loadNum) doneOrders.add(String(r.loadNum).trim().toUpperCase());
+    }
+  });
+  function manualStale(d){
+    if (!d || !d.trailer) return false;
+    const t = String(d.trailer).trim().toUpperCase(), o = String(d.order||'').trim().toUpperCase();
+    return doneTrailers.has(t) || (o && doneOrders.has(o));
+  }
 
   const doorNums = Object.keys(DOOR_TYPES).map(Number).sort((a,b)=>a-b);
-  const occupied = doorNums.filter(n=>(doors[n]&&doors[n].trailer)||liveDoors[String(n)]).length;
+  const occupied = doorNums.filter(n => liveDoors[String(n)] || (doors[n] && doors[n].trailer && !manualStale(doors[n]))).length;
 
-  let doorCards = '';
+  const carrierFilter = state.yardCarrierFilter || null;   // null | 'FFTI' | 'PWD'
+  let fftiCount = 0, pwdCount = 0;
+  let doorCards = '', shownDoors = 0;
   doorNums.forEach(n => {
-    const d = doors[n]||{};
     const live = liveDoors[String(n)];
+    const dRaw = doors[n]||{};
+    const d = (!live && manualStale(dRaw)) ? {} : dRaw;   // hide stale departed/completed residue
     const type = DOOR_TYPES[n]||'';
     const cls = TYPE_CLASS[type]||'';
     const typColor = TYPE_COLOR[type]||'var(--text2)';
     const eff = live ? { trailer:live.trailer, carrier:live.carrier, customer:live.customer, order:live.order } : d;
     const isOccupied = !!(eff.trailer || live);
+    const isManual = !live && !!eff.trailer;   // keyed in via the door editor (not from the schedule)
+    // Tally FFTI / PWD occupied doors (by carrier) and apply the active carrier filter
+    const carrierIsFFTI = isOccupied && isFFTICarrier(eff.carrier);
+    const carrierIsPWD  = isOccupied && isPWDCarrier(eff.carrier);
+    if (carrierIsFFTI) fftiCount++;
+    if (carrierIsPWD)  pwdCount++;
+    if (carrierFilter==='FFTI' && !carrierIsFFTI) return;
+    if (carrierFilter==='PWD'  && !carrierIsPWD)  return;
+    shownDoors++;
     const liveCls = live ? (live.src==='ib'?'ib-live':'ob-live') : (isOccupied?'occupied':'');
     let badge = '';
     if (live) badge = `<span class="door-badge ${live.src==='ib'?'badge-unloading':'badge-loaded'}">${live.status}</span>`;
     else if (d.trailer) badge = `<span class="door-badge ${d.loaded==='LOADED'?'badge-loaded':'badge-empty'}">${d.loaded||'EMPTY'}</span>`;
+    const tag = live
+      ? `<span style="margin-left:6px;font-size:8px;font-weight:800;letter-spacing:.5px;color:${live.src==='ib'?'var(--inbound)':'var(--outbound)'}">LIVE ${live.src==='ib'?'IB':'OB'}</span>`
+      : (isManual ? `<span class="door-manual-tag">MANUAL ENTRY</span>` : '');
     doorCards += `<div class="door-card ${cls} ${liveCls}" onclick="editDoor(${n})">
       <div class="door-num">${n}</div>
       <div class="door-info">
-        <div class="door-type" style="color:${typColor}">${type}${live?`<span style="margin-left:6px;font-size:8px;font-weight:800;letter-spacing:.5px;color:${live.src==='ib'?'var(--inbound)':'var(--outbound)'}">LIVE ${live.src==='ib'?'IB':'OB'}</span>`:''}</div>
+        <div class="door-type" style="color:${typColor}">${type}${tag}</div>
         <div class="door-trailer">${eff.trailer||'<span style="color:var(--text2);font-weight:400;font-size:11px">Empty</span>'}</div>
         ${eff.carrier||eff.customer?`<div class="door-meta">${[eff.carrier,eff.customer].filter(Boolean).join(' · ')}</div>`:''}
-        ${eff.order?`<div class="door-meta" style="color:var(--accent)">${live?(live.src==='ib'?'Load: ':'Order: '):'Order: '}${eff.order}</div>`:''}
+        ${eff.order?`<div class="door-meta" style="color:var(--accent)">${live?(live.src==='ib'?'Load: ':'Order: '):'Order: '}${live?`<a class="door-loadlink" title="Go to this load on the ${live.src==='ib'?'Inbound':'Outbound'} schedule" onclick="event.stopPropagation();yardNavToLoad('${live.src}','${live.id}')">${eff.order}</a>`:eff.order}</div>`:''}
       </div>
       ${badge}
     </div>`;
@@ -2090,38 +2357,60 @@ function renderYard() {
     </div>`;
   });
 
+  const cchip = (key,label,count,color)=>{
+    const active = carrierFilter===key;
+    return `<div class="scard yard-cfilter${active?' active':''}" onclick="toggleYardCarrier('${key}')" title="Click to ${active?'clear the':'show only'} ${label} loads"
+      style="cursor:pointer${active?`;border-color:${color};box-shadow:inset 0 0 0 2px ${color}`:''}">
+      <div class="scard-label" style="color:${color}">${label}${active?' ✕':''}</div>
+      <div class="scard-value" style="color:${color}">${count}</div>
+    </div>`;
+  };
+  const filterNote = carrierFilter
+    ? `<span style="font-weight:600;color:${carrierFilter==='PWD'?'#0891b2':'var(--outbound)'}">· showing ${carrierFilter} only (${shownDoors})</span>`
+    : '';
+  const emptyMsg = (carrierFilter && shownDoors===0)
+    ? `<div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--text2);font-size:13px">No ${carrierFilter} loads on the doors right now. <a style="color:var(--accent);cursor:pointer;text-decoration:underline" onclick="toggleYardCarrier('${carrierFilter}')">Clear filter</a></div>`
+    : '';
+
   view.innerHTML = `
-  <div class="summary-bar" style="grid-template-columns:repeat(3,1fr);max-width:500px">
+  <div class="summary-bar" style="grid-template-columns:repeat(5,1fr);max-width:840px">
     <div class="scard"><div class="scard-label">Total Doors</div><div class="scard-value" style="color:var(--accent)">${doorNums.length}</div></div>
     <div class="scard"><div class="scard-label">Occupied</div><div class="scard-value" style="color:var(--accent2)">${occupied}</div></div>
     <div class="scard"><div class="scard-label">Available</div><div class="scard-value" style="color:var(--text2)">${doorNums.length-occupied}</div></div>
+    ${cchip('FFTI','FFTI',fftiCount,'var(--outbound)')}
+    ${cchip('PWD','PWD',pwdCount,'#0891b2')}
   </div>
   <div class="yard-section-title" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
-    <span>Dock Doors — click any door to update</span>
+    <span>Dock Doors — click any door to update ${filterNote}</span>
     <button class="sign-out-btn" onclick="exportYardCheck()" style="background:#1d6f42;color:#fff;border-color:#1d6f42;font-weight:700;letter-spacing:0;text-transform:none">⤓ Yard Check Export</button>
   </div>
   <div class="yard-scroll">
   <div class="yard-layout">
     <div>
       <div class="door-grid-scroll">
-        <div class="door-grid" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">${doorCards}</div>
+        <div class="door-grid" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">${emptyMsg}${doorCards}</div>
       </div>
     </div>
-    <div style="margin-top:18px">
+    ${carrierFilter ? '' : `<div style="margin-top:18px">
       <div class="yard-section-title">Rail Doors</div>
       <div class="rail-grid">${railCards}</div>
-    </div>
+    </div>`}
   </div>
   </div>`;
 }
 
+function toggleYardCarrier(which){
+  state.yardCarrierFilter = (state.yardCarrierFilter===which) ? null : which;
+  renderYard();
+}
+
 // ─── DATE HELPERS ──────────────────────────────────────────────────────
 function shiftDate(type, delta) {
-  const key = type==='ib'?'ibDate':type==='ob'?'obDate':'ffDate';
+  const key = type==='ib'?'ibDate':type==='ob'?'obDate':type==='pwd'?'pwdDate':'ffDate';
   const d = new Date(state[key]+'T00:00:00');
   d.setDate(d.getDate()+delta);
   state[key] = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-  if(type==='ib') renderInbound(); else if(type==='ob') renderOutbound(); else renderFirstFleet();
+  if(type==='ib') renderInbound(); else if(type==='ob') renderOutbound(); else if(type==='pwd') renderPWD(); else renderFirstFleet();
 }
 function setObSearch(v) {
   state.obSearch = v;
@@ -2137,16 +2426,30 @@ function clearObSearch() {
 // ─── PER-COLUMN HEADER FILTERS ─────────────────────────────────────────
 function _colHit(val, q){ return !q || String(val||'').toUpperCase().indexOf(String(q).trim().toUpperCase()) > -1; }
 function refocusFilter(id){ const el=document.getElementById(id); if(el){ el.focus(); const L=el.value.length; try{ el.setSelectionRange(L,L); }catch(e){} } }
+// Board dispatch so the same header filter / sort widgets work across ib, ob, ff, pwd
+function _boardSortKey(board){ return board==='ib'?'ibSort':board==='ob'?'obSort':board==='ff'?'ffSort':'pwdSort'; }
+function _boardFilter(board){ return board==='ib'?state.ibColFilter:board==='ob'?state.obColFilter:board==='ff'?state.ffColFilter:state.pwdColFilter; }
+function _boardRender(board){ if(board==='ib')renderInbound(); else if(board==='ob')renderOutbound(); else if(board==='ff')renderFirstFleet(); else renderPWD(); }
 function ibFiltering(){ const f=state.ibColFilter||{}; return !!((f.customer||'').trim() || (f.loadNum||'').trim()); }
 function ibColMatch(r){ const f=state.ibColFilter||{}; return _colHit(r.customer,f.customer) && _colHit(r.loadNum,f.loadNum); }
 function setIbFilter(field, v){ state.ibColFilter[field]=v; renderInbound(); refocusFilter('ib-filter-'+field); }
 function obFiltering(){ const f=state.obColFilter||{}; return !!((f.customer||'').trim() || (f.orderNum||'').trim() || (f.picker||'').trim() || (f.loader||'').trim() || (f.trailer||'').trim()); }
 function obColMatch(r){ const f=state.obColFilter||{}; return _colHit(r.customer,f.customer) && _colHit(r.orderNum,f.orderNum) && _colHit(r.picker,f.picker) && _colHit(r.loader,f.loader) && _colHit(r.trailer,f.trailer); }
 function setObFilter(field, v){ state.obColFilter[field]=v; renderOutbound(); refocusFilter('ob-filter-'+field); }
+// FF / PWD share the same columns (status, carrier, customer, orig req date, load id, door, trailer, driver, notes)
+function _ffLikeMatch(f, r){ return _colHit(r.status,f.status) && _colHit(r.carrier,f.carrier) && _colHit(r.customer,f.customer) && _colHit((r.origReqDate||r.reqDate||'').slice(0,10),f.origReqDate) && _colHit(r.loadId,f.loadId) && _colHit(r.door,f.door) && _colHit(r.trailer,f.trailer) && _colHit(r.driver,f.driver) && _colHit(r.notes,f.notes); }
+function ffFiltering(){ const f=state.ffColFilter||{}; return Object.keys(f).some(k=>(f[k]||'').trim()); }
+function ffColMatch(r){ return _ffLikeMatch(state.ffColFilter||{}, r); }
+function setFfFilter(field, v){ state.ffColFilter[field]=v; renderFirstFleet(); refocusFilter('ff-filter-'+field); }
+function ffSorting(){ return !!(state.ffSort && state.ffSort.field); }
+function pwdFiltering(){ const f=state.pwdColFilter||{}; return Object.keys(f).some(k=>(f[k]||'').trim()); }
+function pwdColMatch(r){ return _ffLikeMatch(state.pwdColFilter||{}, r); }
+function setPwdFilter(field, v){ state.pwdColFilter[field]=v; renderPWD(); refocusFilter('pwd-filter-'+field); }
+function pwdSorting(){ return !!(state.pwdSort && state.pwdSort.field); }
 // Header cell with a built-in free-type filter input under the label
 function thFilter(label, board, field, width){
-  const val = ((board==='ib'?state.ibColFilter:state.obColFilter)[field]||'').replace(/"/g,'&quot;');
-  const setter = board==='ib'?'setIbFilter':'setObFilter';
+  const val = (_boardFilter(board)[field]||'').replace(/"/g,'&quot;');
+  const setter = board==='ib'?'setIbFilter':board==='ob'?'setObFilter':board==='ff'?'setFfFilter':'setPwdFilter';
   const w = width?` style="vertical-align:top;width:${width}"`:' style="vertical-align:top"';
   return `<th${w}><div class="th-sort" onclick="sortBoard('${board}','${field}')" title="Click to sort by ${label}">${label}${sortArrow(board,field)}</div><input id="${board}-filter-${field}" class="col-filter" type="text" size="4" value="${val}" placeholder="filter" onclick="event.stopPropagation()" oninput="${setter}('${field}',this.value)"></th>`;
 }
@@ -2154,7 +2457,7 @@ function thFilter(label, board, field, width){
 function ibSorting(){ return !!(state.ibSort && state.ibSort.field); }
 function obSorting(){ return !!(state.obSort && state.obSort.field); }
 function sortArrow(board, field){
-  const s = board==='ib' ? state.ibSort : state.obSort;
+  const s = state[_boardSortKey(board)];
   if (!s || s.field !== field) return '';
   return ' <span class="sort-arrow">' + (s.dir===1 ? '\u25B2' : '\u25BC') + '</span>';
 }
@@ -2170,6 +2473,7 @@ function _sortVal(r, field){
     return t ? ('A'+t) : 'ZZZ1';
   }
   if (field==='reqDate') return String(r.reqDate||'');
+  if (field==='origReqDate') return String(r.origReqDate||r.reqDate||'').slice(0,10);
   return String(r[field]||'').toUpperCase();
 }
 function sortRecs(recs, s){
@@ -2180,19 +2484,19 @@ function sortRecs(recs, s){
   });
 }
 function sortBoard(board, field){
-  const key = board==='ib' ? 'ibSort' : 'obSort';
+  const key = _boardSortKey(board);
   const s = state[key] || {field:'',dir:1};
   if (s.field===field) { if (s.dir===1) { s.dir=-1; } else { s.field=''; s.dir=1; } }  // asc -> desc -> off
   else { s.field=field; s.dir=1; }
   state[key]=s;
-  if (board==='ib') renderInbound(); else renderOutbound();
+  _boardRender(board);
 }
 
 function setDate(type, val) {
   if(!val) return;
-  const key = type==='ib'?'ibDate':type==='ob'?'obDate':'ffDate';
+  const key = type==='ib'?'ibDate':type==='ob'?'obDate':type==='pwd'?'pwdDate':'ffDate';
   state[key] = val;
-  if(type==='ib') renderInbound(); else if(type==='ob') renderOutbound(); else renderFirstFleet();
+  if(type==='ib') renderInbound(); else if(type==='ob') renderOutbound(); else if(type==='pwd') renderPWD(); else renderFirstFleet();
 }
 
 // ─── ADD / EDIT LOAD ───────────────────────────────────────────────────
@@ -2332,12 +2636,41 @@ function editLoad(type, id) {
   </div></div>`;
 }
 
+// Find another load (any date) already using this Order #/Load #.
+function findOrderConflict(isIB, orderVal, excludeId) {
+  if (!orderVal) return null;
+  const coll = isIB ? state.inbound : state.outbound;
+  const key  = isIB ? 'loadNum' : 'orderNum';
+  const target = String(orderVal).trim().toUpperCase();
+  for (const [xid, r] of Object.entries(coll||{})) {
+    if (xid === excludeId) continue;
+    if (String(r[key]||'').trim().toUpperCase() === target) return [xid, r];
+  }
+  return null;
+}
+
 function saveLoad(type, id) {
   const isIB = type==='ib';
   const g = id => document.getElementById(id);
   const UP = id => ((g(id)||{}).value||'').toUpperCase();
   const reqDate = (g('f-reqdate')||{}).value||'';
-  let apptTime = (g('f-appttime')||{}).value||'';
+  const rawAppt = (g('f-appttime')||{}).value||'';
+  const orderVal = isIB ? UP('f-loadnum') : UP('f-ordernum');
+  const orderLabel = isIB ? 'Load #' : 'Order #';
+
+  // (#3) New entries must have the key fields filled before they can be saved.
+  if (!id) {
+    const missing = [];
+    if (!UP('f-customer'))            missing.push('Customer');
+    if (!orderVal)                    missing.push(orderLabel);
+    if (!reqDate)                     missing.push('Req Date');
+    if (!rawAppt)                     missing.push('Appt Time');
+    if (!isIB && !UP('f-destination')) missing.push('Destination');
+    if (!UP('f-carrier'))             missing.push('Carrier');
+    if (missing.length) { showAlert('Please complete the following before saving: '+missing.join(', ')+'.','warning'); return; }
+  }
+
+  let apptTime = rawAppt;
   if (apptTime===NOAPPT_VAL) {
     apptTime = '';
   } else if (apptTime===DROPHOOK_VAL) {
@@ -2349,6 +2682,24 @@ function saveLoad(type, id) {
   }
   // Outbound FFTI loads with no appointment go under Drop & Hook, not No Appointment.
   if (!isIB && apptTime==='' && UP('f-carrier')==='FFTI') apptTime = DROPHOOK_VAL;
+
+  // (#1) Duplicate order # on a new entry -> offer to roll the existing one to the new date.
+  if (!id) {
+    const conflict = findOrderConflict(isIB, orderVal, id);
+    if (conflict) {
+      const [cid, crec] = conflict;
+      const cdate = (crec.reqDate||'').slice(0,10);
+      if (cdate === reqDate) { showAlert(orderLabel+orderVal+' is already scheduled on '+cdate+'.','warning'); return; }
+      if (!confirm(orderLabel+orderVal+' already exists on '+cdate+'. Do you want to roll it to '+reqDate+'?')) return;
+      state[isIB?'ibDate':'obDate'] = reqDate;                   // (#2) jump to the date immediately
+      db.ref(ROOT+(isIB?'/inbound/':'/outbound/')+cid).update({ reqDate:reqDate, apptTime:apptTime, updatedAt:Date.now() }).then(()=>{
+        if (isIB) renderInbound(); else renderOutbound();
+        showAlert(orderLabel+orderVal+' rolled to '+reqDate+'.','success'); closeModal();
+      });
+      return;
+    }
+  }
+
   const data = {
     customer:    UP('f-customer'),
     reqDate:     reqDate,
@@ -2373,7 +2724,11 @@ function saveLoad(type, id) {
   }
   const path = ROOT+(isIB?'/inbound/':'/outbound/')+(id||db.ref().push().key);
   if(!id) { data.createdAt = Date.now(); data.origReqDate = data.reqDate; data.source = 'manual'; }
-  db.ref(path).update(data).then(()=>{showAlert('Saved!','success');closeModal();});
+  state[isIB?'ibDate':'obDate'] = data.reqDate;   // (#2) jump to the entered date immediately
+  db.ref(path).update(data).then(()=>{
+    if (isIB) renderInbound(); else renderOutbound();
+    showAlert('Saved!','success'); closeModal();
+  });
 }
 
 function deleteLoad(type, id) {
@@ -2383,6 +2738,24 @@ function deleteLoad(type, id) {
 }
 
 // ─── DOOR EDIT ─────────────────────────────────────────────────────────
+// Click a live door's Load/Order ID → jump to that load on its Inbound/Outbound board.
+function yardNavToLoad(src, id){
+  const coll = src==='ib' ? state.inbound : state.outbound;
+  const r = coll && coll[id];
+  if (!r){ showAlert('That load is no longer on the schedule.','warning'); return; }
+  const date = (r.reqDate||'').slice(0,10);
+  if (src==='ib') state.ibDate = date; else state.obDate = date;
+  switchTab(src);                       // renders the board on that load's date
+  setTimeout(()=>yardFlashRow(id), 90); // then scroll to + flash the row
+}
+function yardFlashRow(id){
+  const el = document.querySelector('[data-lid="'+id+'"]');
+  if (!el) return;
+  try { el.scrollIntoView({behavior:'smooth', block:'center'}); } catch(e){ el.scrollIntoView(); }
+  el.classList.add('row-flash');
+  setTimeout(()=>{ try{ el.classList.remove('row-flash'); }catch(e){} }, 2200);
+}
+
 function editDoor(num) {
   const d = (state.yard.doors||{})[num]||{};
   const type = DOOR_TYPES[num]||'';
@@ -2434,11 +2807,12 @@ function setDoorStatus(val) {
 
 function saveDoor(num) {
   const g = id=>document.getElementById(id);
+  const U = id=>((g(id)||{}).value||'').toUpperCase();
   const data = {
-    trailer:  g('d-trailer').value||'',
-    carrier:  g('d-carrier').value||'',
-    customer: g('d-customer').value||'',
-    order:    g('d-order').value||'',
+    trailer:  U('d-trailer'),
+    carrier:  U('d-carrier'),
+    customer: U('d-customer'),
+    order:    U('d-order'),
     loaded:   window._doorStatus||'EMPTY',
     updatedAt:Date.now()
   };
@@ -2476,7 +2850,8 @@ function editRail(num) {
 }
 
 function saveRail(num) {
-  const data = {customer:document.getElementById('r-customer').value||'',boxCar:document.getElementById('r-boxcar').value||'',updatedAt:Date.now()};
+  const U = id=>((document.getElementById(id)||{}).value||'').toUpperCase();
+  const data = {customer:U('r-customer'),boxCar:U('r-boxcar'),updatedAt:Date.now()};
   db.ref(ROOT+'/yard/rail/'+num).update(data).then(()=>{showAlert('Rail '+num+' updated','success');closeModal();});
 }
 function clearRail(num) {
@@ -3218,6 +3593,422 @@ function exportReportExcel() {
   const a = document.createElement('a'); a.href=url; a.download=`dock-report-${gran}-${from||'all'}_to_${to||'all'}.xlsx`;
   document.body.appendChild(a); a.click(); setTimeout(()=>{ try{document.body.removeChild(a);}catch(e){} URL.revokeObjectURL(url); },0);
   showAlert('Report exported','success');
+}
+
+// ═══ SCORECARD ═════════════════════════════════════════════════════════
+// Recreates the "6021 Piper Warehouse Daily Scorecard": one editable row per day,
+// seven customer groups (5 load metrics each), receiving stats, and manual tons.
+const SC_GROUPS = [
+  {key:'WRK',  label:'SMURFIT WESTROCK'},
+  {key:'CAT',  label:'CATALYST'},
+  {key:'UPM',  label:'UPM'},
+  {key:'TWIN', label:'TWIN RIVERS'},
+  {key:'IPG',  label:'IPG'},
+  {key:'IP',   label:'IP'},
+  {key:'MAX',  label:'MAXXON'}
+];
+// SMURFIT WESTROCK rolls up these customers + anything containing "WRK".
+const SC_WRK_MEMBERS = ['COVINGTON XDK','COV XDK','HBH','HOOD','LITHIA SPRINGS','NORCROSS XDK','NOR XDK','PREGIS','SCI GAMES'];
+function scoreGroup(customer){
+  const c = (customer||'').toUpperCase().trim();
+  if (!c) return null;
+  if (c.indexOf('WRK')>-1 || SC_WRK_MEMBERS.indexOf(c)>-1) return 'WRK';
+  if (c.indexOf('CATALYST')>-1) return 'CAT';
+  if (c.indexOf('MAXXON')>-1)   return 'MAX';
+  if (c.indexOf('TWIN')>-1)     return 'TWIN';
+  if (c.indexOf('IPG')>-1)      return 'IPG';   // check IPG before IP (IPG contains "IP")
+  if (c.indexOf('UPM')>-1)      return 'UPM';
+  if (c==='IP' || c.indexOf('INTERNATIONAL PAPER')>-1) return 'IP';
+  return null;
+}
+function scNum(v){ const n=parseFloat(v); return isNaN(n)?0:n; }
+// Heuristics for classifying loads pulled from the boards.
+const SC_RAIL_RE = /(RAIL|CSX|NORFOLK|BNSF|UNION PACIFIC|BOXCAR|TTGX|GATX|\bNS\b|\bUP\b|\bCN\b)/i;
+function scIsRail(r){ return SC_RAIL_RE.test(r.carrier||'') || !!(r.boxCar||r.railcar); }
+function scIsFFTI(r){ return (r.carrier||'').toUpperCase().indexOf('FFTI')>-1; }
+function scIsPWD(r){ const c=(r.carrier||'').toUpperCase(); return c.indexOf('PWD')>-1||c.indexOf('OWN FLEET')>-1||c.indexOf('PIPER')>-1; }
+function scActive(r){ return (r.status||'').toUpperCase()!=='CANCELLED'; }
+function scMonthStr(d){ return (d||new Date().toISOString().slice(0,10)).slice(0,7); }
+function scDaysInMonth(month){
+  const [y,m] = month.split('-').map(Number);
+  const last = new Date(y, m, 0).getDate();
+  const out = [];
+  for (let d=1; d<=last; d++) out.push(month+'-'+String(d).padStart(2,'0'));
+  return out;
+}
+function scWeekNum(dstr){
+  const date = new Date(dstr+'T00:00:00');
+  const start = new Date(date.getFullYear(),0,1);
+  const days = Math.floor((date-start)/86400000);
+  const jan1 = (start.getDay()+6)%7;   // Mon=0..Sun=6 (WEEKNUM type 2)
+  return Math.floor((days+jan1)/7)+1;
+}
+function scIsWeekend(dstr){ const w=new Date(dstr+'T00:00:00').getDay(); return w===0||w===6; }
+
+// Everything except Tons is derived live from the Inbound / Outbound / Yard boards.
+function scDeriveDay(date){
+  const ob = state.outbound||{}, ib = state.inbound||{};
+  const rec = (state.scorecard||{})[date] || {};
+  const groups = {}; SC_GROUPS.forEach(g=>groups[g.key]={due:0,prior:0,dueToShip:0,shipped:0,balance:0});
+  // Outbound → per-group ledger. Due Today keys off each load's ORIGINAL (created) date;
+  // a departed load's reqDate is its ship date. Prior Pending = loads created earlier and
+  // still unshipped at the start of this day → which is exactly the prior day's Balance.
+  Object.values(ob).forEach(r=>{
+    if (!scActive(r)) return;                              // ignore cancelled
+    const g = scoreGroup(r.customer); if (!g || !groups[g]) return;
+    const orig     = (r.origReqDate||r.reqDate||'').slice(0,10);   // date the load was created for
+    const shipDate = (r.reqDate||'').slice(0,10);                  // for DEPARTED loads = day it shipped
+    const departed = (r.status||'').toUpperCase()==='DEPARTED';
+    if (orig === date) groups[g].due++;                                        // Due Today (created today)
+    if (orig <  date && (!departed || shipDate >= date)) groups[g].prior++;    // rolled in, still pending at start of day
+    if (departed && shipDate === date) groups[g].shipped++;                     // shipped today
+  });
+  // Forward-looking mask: current + arrears (≤ today) carry real numbers. The NEXT
+  // subsequent (business) day shows only the pending carryover rolling in from today;
+  // every day beyond it stays 0 until that day is actually reached. Due Today for any
+  // future date is 0 until the day is applicable.
+  const today = todayStr();
+  if (date > today) {
+    const nbd = nextBusinessDay(today);
+    SC_GROUPS.forEach(gr=>{ const x=groups[gr.key]; x.due=0; x.shipped=0; if (date!==nbd) x.prior=0; });
+  }
+  let totalShipped = 0;
+  SC_GROUPS.forEach(gr=>{ const x=groups[gr.key]; x.dueToShip = x.due + x.prior; x.balance = x.dueToShip - x.shipped; totalShipped += x.shipped; });
+  // Manual free-type fields (entered on the grid, saved per date). FFTI/PWD trailers are a
+  // beginning-of-day availability snapshot — entered by hand, not a count of the day's loads.
+  const trkRecv     = scNum(rec.trkRecv);
+  const railRecv    = scNum(rec.railRecv);
+  const pendRail    = scNum(rec.pendRail);
+  const railTransit = scNum(rec.railTransit);
+  const ffti        = scNum(rec.ffti);
+  const pwd         = scNum(rec.pwd);
+  const railToTruck = railRecv*4;
+  return { date, trkRecv, railRecv, railToTruck, pendRail, railTransit, ffti, pwd,
+    groups, totalShipped, totalLoads: trkRecv+railToTruck+totalShipped };
+}
+
+// Build every day of the month: load metrics derived from the boards, tons from manual entry.
+function scComputeRow(date){
+  const d = scDeriveDay(date);
+  const tRec = ((state.scorecard||{})[date]||{}).t || {};
+  const tons = {}; let tonsTotal = 0;
+  SC_GROUPS.forEach(g=>{ const tv=scNum(tRec[g.key]); tons[g.key]=tv; tonsTotal+=tv; });
+  d.tons = tons; d.tonsTotal = tonsTotal;
+  return d;
+}
+function scComputeMonth(month){
+  return scDaysInMonth(month).map(date => scComputeRow(date));
+}
+
+function saveScore(date, path, value){
+  const v = (value===''||value===null||value===undefined) ? null : scNum(value);
+  db.ref(ROOT+'/scorecard/'+date+'/'+path).set(v).catch(e=>console.warn('scorecard save',e));
+}
+
+// True while the user is typing in a scorecard cell — used to defer re-renders so the
+// cursor isn't dropped mid data-entry (a save fires the Firebase listener → re-render).
+function scGridEditing(){
+  const a = document.activeElement, v = document.getElementById('view-sc');
+  return !!(a && v && v.contains(a) && a.classList && a.classList.contains('sc-in'));
+}
+// Listener-driven re-renders are debounced and skipped while a cell is focused, so saving a
+// value (which fires the Firebase listener) never rebuilds the grid out from under the cursor.
+let _scRenderTimer = null;
+function scDeferRender(){
+  clearTimeout(_scRenderTimer);
+  _scRenderTimer = setTimeout(()=>{ if (state.tab==='sc' && !scGridEditing()) renderScorecard(); }, 250);
+}
+// Tab / Shift+Tab move to the next / previous editable cell: right across the row, then
+// wrap to the next row's first editable cell.
+function scTabNav(e, el){
+  if (e.key !== 'Tab') return;
+  e.preventDefault();
+  const list = Array.from(document.querySelectorAll('#view-sc .sc-in'));
+  const i = list.indexOf(el);
+  if (i < 0) return;
+  const target = list[i + (e.shiftKey ? -1 : 1)];
+  if (target){ target.focus(); if (target.select) target.select(); }
+}
+
+function renderScorecard(){
+  const view = document.getElementById('view-sc');
+  if (!view) return;
+  if (scGridEditing()) return;   // don't rebuild the grid out from under an active cursor
+  keepScroll(view);
+  if (!state.scMonth) state.scMonth = scMonthStr(todayStr());
+  const month = state.scMonth;
+  const rows = scComputeMonth(month);
+  const today = todayStr();
+  const cell = v => Math.round((v||0)*100)/100;    // show 0 for no activity
+  // Manual free-type cell (tons + the four receiving fields). Focus-selects for fast tabbing.
+  const minp = (date,path,val)=>`<input class="sc-in" type="number" step="any" value="${val||0}" onfocus="this.select()" onkeydown="scTabNav(event,this)" onchange="saveScore('${date}','${path}',this.value)">`;
+
+  // ── two-row header (group bands + sub columns) ──
+  const grpBand = SC_GROUPS.map(g=>`<th class="sc-gcol" colspan="5">${g.label}</th>`).join('');
+  const tonsBand = `<th class="sc-tons" colspan="8">Tons (AM of day of)</th>`;
+  const head1 = `<tr class="sc-grp">
+    <th class="sc-date" rowspan="2">Date</th><th rowspan="2">Wk</th>
+    <th colspan="6">Receiving</th>
+    ${grpBand}
+    <th colspan="2">Totals</th>
+    ${tonsBand}
+  </tr>`;
+  const recSub = ['Tot Trk Recv','Tot Rail Recv','Pend Rail Yard','Rail In Transit','FFTI Trlrs','PWD Trlrs'].map(h=>`<th>${h}</th>`).join('');
+  const grpSub = SC_GROUPS.map(()=>['Due Today','Prior Pend','Due to Ship','Shipped','Balance'].map(h=>`<th class="sc-gcol">${h}</th>`).join('')).join('');
+  const tonsSub = ['WRK','CAT','UPM','TWIN','IPG','IP','MAX','Total'].map(h=>`<th class="sc-tons">${h}</th>`).join('');
+  const head2 = `<tr class="sc-sub">${recSub}${grpSub}<th>Tot Shipped</th><th>Tot Loads</th>${tonsSub}</tr>`;
+
+  // ── data rows: Trk Recv / Pend Rail / Rail In Transit + Tons are manual inputs; the rest derived ──
+  const body = rows.map(r=>{
+    const d = r.date;
+    const wknd = scIsWeekend(d) ? ' sc-weekend' : '';
+    const isToday = d===today ? ' style="box-shadow:inset 3px 0 0 var(--accent)"' : '';
+    const grpCells = SC_GROUPS.map(g=>{
+      const gv = r.groups[g.key];
+      return `<td class="sc-gcol">${cell(gv.due)}</td>`+
+             `<td class="sc-gcol sc-calc">${cell(gv.prior)}</td>`+
+             `<td class="sc-gcol sc-calc">${cell(gv.dueToShip)}</td>`+
+             `<td class="sc-gcol">${cell(gv.shipped)}</td>`+
+             `<td class="sc-gcol sc-calc">${cell(gv.balance)}</td>`;
+    }).join('');
+    const tonsCells = SC_GROUPS.map(g=>`<td class="sc-tons">${minp(d,'t/'+g.key,r.tons[g.key])}</td>`).join('')
+      + `<td class="sc-tons sc-tot">${Math.round(r.tonsTotal||0)}</td>`;
+    return `<tr class="${wknd.trim()}"${isToday}>
+      <td class="sc-date">${fmtScDate(d)}</td><td>${scWeekNum(d)}</td>
+      <td>${minp(d,'trkRecv',r.trkRecv)}</td>
+      <td>${minp(d,'railRecv',r.railRecv)}</td>
+      <td>${minp(d,'pendRail',r.pendRail)}</td>
+      <td>${minp(d,'railTransit',r.railTransit)}</td>
+      <td>${minp(d,'ffti',r.ffti)}</td>
+      <td>${minp(d,'pwd',r.pwd)}</td>
+      ${grpCells}
+      <td class="sc-tot">${cell(r.totalShipped)}</td>
+      <td class="sc-tot">${cell(r.totalLoads)}</td>
+      ${tonsCells}
+    </tr>`;
+  }).join('');
+
+  // ── summary rows over CURRENT + ARREARS only (dates ≤ today); future dates excluded so
+  //    pre-booked future loads don't skew the numbers ──
+  const elapsed = rows.filter(r=>r.date <= today);
+  const col = f => elapsed.map(f);
+  const avg = arr => { const nz=arr.filter(v=>v!==0); return nz.length ? Math.round(nz.reduce((a,b)=>a+b,0)/nz.length*10)/10 : 0; };
+  const sum = arr => Math.round(arr.reduce((a,b)=>a+b,0)*100)/100;
+  function summaryRow(label, agg, isTotal){
+    let s = `<tr class="sc-avg"><td class="sc-date">${label}</td><td></td>`;
+    s += `<td>${agg(col(r=>r.trkRecv))}</td><td>${agg(col(r=>r.railRecv))}</td>`;
+    // FFTI / PWD trailers are a beginning-of-day snapshot — a monthly sum would double-count, so blank in the Total row
+    const fftiC = isTotal ? '' : agg(col(r=>r.ffti));
+    const pwdC  = isTotal ? '' : agg(col(r=>r.pwd));
+    s += `<td>${agg(col(r=>r.pendRail))}</td><td>${agg(col(r=>r.railTransit))}</td><td>${fftiC}</td><td>${pwdC}</td>`;
+    SC_GROUPS.forEach(g=>{
+      // Prior Pend / Due to Ship / Balance are running figures — a sum double-counts, so blank them in the Total row
+      const prior   = isTotal ? '' : agg(col(r=>r.groups[g.key].prior));
+      const dueShip = isTotal ? '' : agg(col(r=>r.groups[g.key].dueToShip));
+      const balance = isTotal ? '' : agg(col(r=>r.groups[g.key].balance));
+      s += `<td>${agg(col(r=>r.groups[g.key].due))}</td><td class="sc-calc">${prior}</td><td class="sc-calc">${dueShip}</td><td>${agg(col(r=>r.groups[g.key].shipped))}</td><td class="sc-calc">${balance}</td>`;
+    });
+    s += `<td>${agg(col(r=>r.totalShipped))}</td><td>${agg(col(r=>r.totalLoads))}</td>`;
+    SC_GROUPS.forEach(g=>{ s += `<td>${agg(col(r=>r.tons[g.key]))}</td>`; });
+    s += `<td>${agg(col(r=>r.tonsTotal))}</td></tr>`;
+    return s;
+  }
+  const totalRow = summaryRow('Month Total', sum, true);
+  const avgRow   = summaryRow('Month Avg', avg, false);
+
+  const rptMode  = state.scReportMode || 'day';
+  const rptStart = state.scReportStart || today;
+  const rptEnd   = state.scReportEnd || rptStart;
+  const modeOpts = [['day','Single Day'],['week','Week'],['month','Month'],['range','Custom Range']]
+    .map(([v,l])=>`<option value="${v}" ${rptMode===v?'selected':''}>${l}</option>`).join('');
+  view.innerHTML = `
+  <div class="sc-toolbar">
+    <div style="display:flex;align-items:center;gap:6px">
+      <button class="date-nav-btn" onclick="scShiftMonth(-1)">‹</button>
+      <input type="month" value="${month}" onchange="state.scMonth=this.value;renderScorecard()"
+        style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-family:var(--font);font-size:13px;font-weight:700;color:var(--text)">
+      <button class="date-nav-btn" onclick="scShiftMonth(1)">›</button>
+    </div>
+    <div style="font-size:13px;font-weight:800;color:var(--text);letter-spacing:.5px">6021 · PIPER WAREHOUSE DAILY SCORECARD</div>
+    <div style="flex:1"></div>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+      <span style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;font-weight:700">Report</span>
+      <select onchange="state.scReportMode=this.value;renderScorecard()"
+        style="padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-family:var(--font);font-size:12px;font-weight:700;color:var(--text)">${modeOpts}</select>
+      <input type="date" value="${rptStart}" onchange="state.scReportStart=this.value"
+        style="padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-family:var(--font);font-size:12px" title="${rptMode==='month'?'Any day in the month':rptMode==='week'?'Any day in the week':'Start date'}">
+      ${rptMode==='range'?`<span style="font-size:11px;color:var(--text2)">to</span>
+      <input type="date" value="${rptEnd}" onchange="state.scReportEnd=this.value"
+        style="padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-family:var(--font);font-size:12px" title="End date">`:''}
+      <button class="add-load-btn ob-btn" onclick="scRunReport()">📄 Run Report</button>
+    </div>
+  </div>
+  <div style="font-size:11px;color:var(--text2);margin-bottom:8px">
+    Due Today = loads created for that date · Prior Pend = loads rolled in from earlier days · Due to Ship = Due Today + Prior Pend · Shipped = loads shipped that day · Balance = Due to Ship − Shipped (carries to the next day's Prior Pend). Type into the amber <b>Tons</b> and white receiving cells; press <b>Tab</b> to move to the next field.
+  </div>
+  <div class="sc-wrap">
+    <table class="sc-table">
+      <thead>${head1}${head2}</thead>
+      <tbody>${body}${totalRow}${avgRow}</tbody>
+    </table>
+  </div>`;
+}
+function fmtScDate(d){
+  const dt = new Date(d+'T00:00:00');
+  return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()]+' '+Number(d.slice(8,10));
+}
+function scShiftMonth(delta){
+  const [y,m] = state.scMonth.split('-').map(Number);
+  const nd = new Date(y, m-1+delta, 1);
+  state.scMonth = nd.getFullYear()+'-'+String(nd.getMonth()+1).padStart(2,'0');
+  renderScorecard();
+}
+
+// ── Report: single day, week, month, or custom range → summary + detail-by-day ──
+function scReportDates(){
+  const mode = state.scReportMode||'day';
+  const start = state.scReportStart || todayStr();
+  const add=(ymd,n)=>{const d=new Date(ymd+'T00:00:00');d.setDate(d.getDate()+n);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+  if (mode==='week'){ const d=new Date(start+'T00:00:00'); const mon=add(start,-((d.getDay()+6)%7)); return Array.from({length:7},(_,i)=>add(mon,i)); }
+  if (mode==='month'){ const [y,m]=start.split('-').map(Number); const last=new Date(y,m,0).getDate(); return Array.from({length:last},(_,i)=>`${y}-${String(m).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`); }
+  if (mode==='range'){ const end=state.scReportEnd||start; if(end<start) return [start]; const out=[]; let c=start,g=0; while(c<=end&&g<400){out.push(c);c=add(c,1);g++;} return out; }
+  return [start];
+}
+function scFmtNice(date){ return new Date(date+'T00:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}); }
+function scReportLabel(dates){
+  if (dates.length===1) return new Date(dates[0]+'T00:00:00').toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  const f=d=>new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  return f(dates[0])+' → '+f(dates[dates.length-1])+' · '+dates.length+' days';
+}
+// Aggregate a set of day-rows. Flows sum; snapshots (rail in transit, FFTI, PWD) show the
+// last day; Due to Ship = starting pending + Σ due, so Balance = ending outstanding (reconciles).
+function scReportAgg(rows){
+  const groups={}; SC_GROUPS.forEach(g=>groups[g.key]={due:0,dueToShip:0,shipped:0,balance:0,tons:0});
+  let trkRecv=0,railRecv=0,railToTruck=0,totalShipped=0,totalLoads=0,tonsTotal=0;
+  const first=rows[0], last=rows[rows.length-1];
+  rows.forEach(r=>{
+    trkRecv+=r.trkRecv; railRecv+=r.railRecv; railToTruck+=r.railToTruck;
+    totalShipped+=r.totalShipped; totalLoads+=r.totalLoads; tonsTotal+=r.tonsTotal;
+    SC_GROUPS.forEach(g=>{ groups[g.key].due+=r.groups[g.key].due; groups[g.key].shipped+=r.groups[g.key].shipped; groups[g.key].tons+=(r.tons[g.key]||0); });
+  });
+  SC_GROUPS.forEach(g=>{ const fp=first?first.groups[g.key].prior:0; groups[g.key].dueToShip=fp+groups[g.key].due; groups[g.key].balance=groups[g.key].dueToShip-groups[g.key].shipped; });
+  const totalPending   = SC_GROUPS.reduce((s,g)=>s+groups[g.key].balance,0);
+  const totalDueToShip = SC_GROUPS.reduce((s,g)=>s+groups[g.key].dueToShip,0);
+  const totalDue       = SC_GROUPS.reduce((s,g)=>s+groups[g.key].due,0);
+  return { trkRecv, railRecv, railToTruck, railTransit:last?last.railTransit:0, ffti:last?last.ffti:0, pwd:last?last.pwd:0,
+           groups, totalShipped, totalLoads, tonsTotal, totalPending, totalDueToShip, totalDue };
+}
+function scReportHtml(){
+  const dates = scReportDates();
+  const rows = dates.map(d=>scComputeRow(d));
+  const A = scReportAgg(rows);
+  let logo=''; const img=document.querySelector('img[alt="Piper Warehouse"]'); if(img) logo=img.src;
+  const label = scReportLabel(dates);
+  const topIcons = [['Tot Trk Recv',A.trkRecv],['Tot Rail Recv',A.railRecv],['Rail In Transit',A.railTransit],['FFTI Trailer',A.ffti],['PWD Trailers',A.pwd]]
+    .map(([k,v])=>`<div class="rc"><span>${k}</span><b>${v||0}</b></div>`).join('');
+  const grpRows = SC_GROUPS.map(g=>{ const v=A.groups[g.key];
+    return `<tr><td class="lbl">${g.label}</td><td>${v.due}</td><td>${v.dueToShip}</td><td>${v.shipped}</td><td class="bal">${v.balance}</td><td>${Math.round(v.tons||0)}</td></tr>`;
+  }).join('');
+  const custTotal = `<tr class="tot"><td class="lbl">TOTAL</td><td>${A.totalDue}</td><td>${A.totalDueToShip}</td><td>${A.totalShipped}</td><td class="bal">${A.totalPending}</td><td>${Math.round(A.tonsTotal||0)}</td></tr>`;
+  const botIcons = [['Total Loads Shipped',A.totalShipped],['Total Loads Pending',A.totalPending],['Total Loads',A.totalLoads],['Total Tons',Math.round(A.tonsTotal||0)]]
+    .map(([k,v])=>`<div class="fbox"><span>${k}</span><b>${v||0}</b></div>`).join('');
+  // Detail by day — RUNNING month-to-date totals. Flow columns (Trk Recv, Rail Recv, Due
+  // Today, Due to Ship, Shipped, Total Loads, Tons) accumulate day over day; the snapshot
+  // columns (Rail In Transit, FFTI, PWD) show that day's count; Prior Pend stays hidden.
+  const today = todayStr();
+  const detMonth = scMonthStr(state.scReportStart||today);
+  const _mDays = scDaysInMonth(detMonth);
+  const _elapsed = _mDays.filter(d=>d<=today);
+  const detailRows = (_elapsed.length ? _elapsed : _mDays).map(d=>scComputeRow(d));
+  const firstPrior = detailRows.length ? SC_GROUPS.reduce((s,g)=>s+detailRows[0].groups[g.key].prior,0) : 0;
+  let cTrk=0,cRail=0,cDue=0,cShp=0,cLoads=0,cTons=0;
+  const dayRows = detailRows.map(r=>{
+    cTrk+=r.trkRecv; cRail+=r.railRecv; cLoads+=r.totalLoads; cTons+=r.tonsTotal;
+    cDue += SC_GROUPS.reduce((s,g)=>s+r.groups[g.key].due,0);
+    cShp += SC_GROUPS.reduce((s,g)=>s+r.groups[g.key].shipped,0);
+    const dts = firstPrior + cDue;      // running Due to Ship (month-to-date)
+    const bal = dts - cShp;             // running outstanding Balance
+    const wke = scIsWeekend(r.date)?' class="wke"':'';
+    return `<tr${wke}><td class="lbl">${scFmtNice(r.date)}</td><td>${cTrk}</td><td>${cRail}</td><td>${r.railTransit}</td><td>${r.ffti}</td><td>${r.pwd}</td><td>${cDue}</td><td>${dts}</td><td>${cShp}</td><td class="bal">${bal}</td><td>${cLoads}</td><td>${Math.round(cTons)}</td></tr>`;
+  }).join('');
+  const detTitle = new Date(detMonth+'-01T00:00:00').toLocaleDateString('en-US',{month:'long',year:'numeric'});
+  return `<div id="sc-report">
+    <div class="hd">
+      ${logo?`<img src="${logo}" class="logo">`:''}
+      <div><div class="t1">Warehouse Scorecard</div>
+      <div class="t2">Piper Warehouse &amp; Logistics · Location 6021 — Greensboro</div></div>
+      <div class="dt">${label}</div>
+    </div>
+    <div class="recv">${topIcons}</div>
+    <table class="rt">
+      <thead><tr><th>Customer</th><th>Loads Due Today</th><th>Loads Due to Ship</th><th>Loads Shipped</th><th>Balance Due</th><th>Tons</th></tr></thead>
+      <tbody>${grpRows}${custTotal}</tbody>
+    </table>
+    <div class="foot">${botIcons}</div>
+    <div class="detail">
+      <div class="dttl">Detail by Day — Running ${detTitle} Total</div>
+      <div class="dcap">Cumulative month-to-date; each row is the running total through that day (last row = month total). Rail In Transit, FFTI and PWD show that day's snapshot count.</div>
+      <table class="rt dt-table">
+        <thead><tr><th>Date</th><th>Trk Recv</th><th>Rail Recv</th><th>Rail In Transit</th><th>FFTI</th><th>PWD</th><th>Due Today</th><th>Due to Ship</th><th>Shipped</th><th>Balance</th><th>Total Loads</th><th>Tons</th></tr></thead>
+        <tbody>${dayRows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+const SC_REPORT_CSS = `
+  body{font-family:Arial,Helvetica,sans-serif;color:#1a2035;margin:0;padding:16px;background:#fff}
+  #sc-report{max-width:960px;margin:0 auto}
+  .hd{display:flex;align-items:center;gap:18px;border-bottom:3px solid #1a3a6b;padding-bottom:12px;margin-bottom:16px}
+  .hd .logo{height:104px}
+  .hd .t1{font-size:22px;font-weight:800;color:#1a3a6b}
+  .hd .t2{font-size:11px;color:#556}
+  .hd .dt{margin-left:auto;font-size:13px;font-weight:700;color:#333;text-align:right;max-width:300px}
+  .recv{display:flex;gap:8px;margin-bottom:16px}
+  .recv .rc{flex:1 1 0;min-width:0;border:1px solid #cfd6e4;border-radius:6px;padding:8px;text-align:center;background:#f7f9fc}
+  .recv .rc span{display:block;font-size:9px;letter-spacing:.3px;text-transform:uppercase;color:#667;margin-bottom:2px}
+  .recv .rc b{font-size:20px;color:#1a3a6b}
+  .rt{width:100%;border-collapse:collapse;font-size:12px}
+  .rt th{background:#1a3a6b;color:#fff;padding:7px 6px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;border:1px solid #16305a}
+  .rt td{border:1px solid #cfd6e4;padding:7px 6px;text-align:center}
+  .rt td.lbl{text-align:left;font-weight:700}
+  .rt td.bal{font-weight:800;color:#b23}
+  .rt tr:nth-child(even) td{background:#f7f9fc}
+  .rt tr.tot td{background:#eef2f8;font-weight:800;color:#1a3a6b;border-top:2px solid #1a3a6b}
+  .rt tr.wke td{background:#fbfbf3}
+  .foot{display:flex;gap:10px;margin-top:18px}
+  .foot .fbox{flex:1;border:1px solid #cfd6e4;border-radius:8px;padding:12px;text-align:center;background:#f7f9fc}
+  .foot .fbox span{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.6px;color:#667;margin-bottom:4px}
+  .foot .fbox b{font-size:24px;color:#1a3a6b}
+  .detail{page-break-before:always;margin-top:26px}
+  .detail .dttl{font-size:15px;font-weight:800;color:#1a3a6b;border-bottom:2px solid #1a3a6b;padding-bottom:6px;margin-bottom:6px}
+  .detail .dcap{font-size:10px;color:#667;margin-bottom:10px}
+  .dt-table{font-size:11px}
+  .dt-table th,.dt-table td{padding:5px 4px}
+`;
+function scDownloadWord(html, fname){
+  const doc = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>'+SC_REPORT_CSS+'</style></head><body>'+html+'</body></html>';
+  const blob = new Blob(['\ufeff'+doc], {type:'application/msword'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download='Piper-6021-Scorecard-'+fname+'.doc';
+  document.body.appendChild(a); a.click(); setTimeout(()=>{ try{document.body.removeChild(a);}catch(e){} URL.revokeObjectURL(url); },0);
+}
+function scRunReport(){
+  const dates = scReportDates();
+  if (!dates.length){ showAlert('Pick a valid date range for the report.','warning'); return; }
+  const html = scReportHtml();
+  const fname = dates.length===1 ? dates[0] : (dates[0]+'_to_'+dates[dates.length-1]);
+  const win = window.open('','_blank');
+  if (!win){ showAlert('Allow pop-ups to open the report.','warning'); return; }
+  win.document.write('<html><head><title>Scorecard '+fname+'</title><style>'+SC_REPORT_CSS+
+    '.tb{position:sticky;top:0;display:flex;gap:8px;justify-content:flex-end;padding:10px;background:#eef2f8;border-bottom:1px solid #cfd6e4}'+
+    '.tb button{padding:8px 16px;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-family:Arial}'+
+    '.tb .p{background:#1a3a6b;color:#fff}.tb .w{background:#1d6f42;color:#fff}'+
+    '@media print{.tb{display:none}}</style></head><body>'+
+    '<div class="tb no-print"><button class="p" onclick="window.print()">🖨 Print / Save PDF</button>'+
+    '<button class="w" onclick="dlWord()">⬇ Download Word</button></div>'+html+
+    '<script>function dlWord(){window.opener && window.opener.scDownloadWord('+JSON.stringify(html)+','+JSON.stringify(fname)+');}<\/script>'+
+    '</body></html>');
+  win.document.close();
 }
 
 // ─── YARD CHECK EXPORT (print preview → Word / print) ──────────────────
