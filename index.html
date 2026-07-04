@@ -1227,15 +1227,27 @@ function obApptOptions(date, selected, excludeId){ return apptOptions(state.outb
 function obCustomerOptions(selected){ return customerOptionsFrom('customerOB', selected); }
 // Rebuild the Appt Time dropdown when the Req Date changes inside the Add/Edit modal.
 function refreshApptOptions(type, excludeId) {
-  const sel = document.getElementById('f-appttime'); if (!sel) return;
   const coll = type==='ob' ? state.outbound : state.inbound;
   const date = (document.getElementById('f-reqdate')||{}).value || '';
-  let cur = sel.value;
-  if (cur && cur!==NOAPPT_VAL) {
-    const { taken } = apptSlotsTaken(coll, date, excludeId||undefined);
-    if (taken.has(cur.slice(0,5))) cur = '';   // previously chosen slot is taken on the new date
+  const sel = document.getElementById('f-appttime');
+  if (sel) {
+    let cur = sel.value;
+    if (cur && cur!==NOAPPT_VAL) {
+      const { taken } = apptSlotsTaken(coll, date, excludeId||undefined);
+      if (taken.has(cur.slice(0,5))) cur = '';   // previously chosen slot is taken on the new date
+    }
+    sel.innerHTML = apptOptions(coll, date, cur===''?undefined:cur, excludeId||undefined, type==='ob');
   }
-  sel.innerHTML = apptOptions(coll, date, cur===''?undefined:cur, excludeId||undefined);
+  // keep the multiple-loads appt selector in sync with the date as well
+  const msel = document.getElementById('f-multi-appt');
+  if (msel) {
+    let mcur = msel.value;
+    if (mcur && mcur!==NOAPPT_VAL && mcur!==DROPHOOK_VAL) {
+      const { taken } = apptSlotsTaken(coll, date, excludeId||undefined);
+      if (taken.has(mcur.slice(0,5))) mcur = '';
+    }
+    msel.innerHTML = apptOptions(coll, date, mcur===''?undefined:mcur, excludeId||undefined, type==='ob');
+  }
 }
 
 function cycleIBStatus(id) {
@@ -1292,7 +1304,7 @@ function renderInbound() {
   <div class="roll-bar">
     <span class="roll-count" id="roll-count-ib">${rollSel.size} selected</span>
     <span style="color:var(--text2);font-size:12px">Roll selected loads to:</span>
-    <input type="date" id="roll-date-ib" class="date-input" value="${nextDay(state.ibDate)}">
+    <input type="date" id="roll-date-ib" class="date-input" value="${nextBusinessDay(state.ibDate)}">
     <button class="roll-btn" onclick="rollSelected('ib')">Roll Loads</button>
     <button class="roll-btn ghost" onclick="exitRollMode('ib')">Cancel</button>
   </div>` : '';
@@ -1443,7 +1455,7 @@ function renderOutbound() {
   <div class="roll-bar">
     <span class="roll-count" id="roll-count-ob">${rollSel.size} selected</span>
     <span style="color:var(--text2);font-size:12px">Roll selected loads to:</span>
-    <input type="date" id="roll-date-ob" class="date-input" value="${nextDay(state.obDate)}">
+    <input type="date" id="roll-date-ob" class="date-input" value="${nextBusinessDay(state.obDate)}">
     <button class="roll-btn" onclick="rollSelected('ob')">Roll Loads</button>
     <button class="roll-btn ghost" onclick="exitRollMode('ob')">Cancel</button>
   </div>` : '';
@@ -2412,13 +2424,21 @@ function shiftDate(type, delta) {
   state[key] = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
   if(type==='ib') renderInbound(); else if(type==='ob') renderOutbound(); else if(type==='pwd') renderPWD(); else renderFirstFleet();
 }
+let _obSearchTimer = null;
 function setObSearch(v) {
-  state.obSearch = v;
+  state.obSearch = v;                       // keep state in sync instantly (input stays responsive)
+  clearTimeout(_obSearchTimer);
+  _obSearchTimer = setTimeout(runObSearch, 120);   // coalesce keystrokes into one render, like a paste
+}
+function runObSearch() {
+  const el0 = document.getElementById('ob-search');
+  const pos = el0 ? el0.selectionStart : null;
   renderOutbound();
   const el = document.getElementById('ob-search');
-  if (el) { el.focus(); const L = el.value.length; try { el.setSelectionRange(L,L); } catch(e){} }
+  if (el) { el.focus(); const L = el.value.length; const c = (pos==null?L:Math.min(pos,L)); try { el.setSelectionRange(c,c); } catch(e){} }
 }
 function clearObSearch() {
+  clearTimeout(_obSearchTimer);
   state.obSearch = '';
   renderOutbound();
 }
@@ -2515,20 +2535,15 @@ function showAddLoad(type, prefillAppt) {
         <label>Customer</label>
         <select id="f-customer">${isIB?ibCustomerOptions(''):obCustomerOptions('')}</select>
       </div>
-      ${isIB?`
-      <div class="form-group">
-        <label>Load #</label>
-        <input id="f-loadnum" type="text" placeholder="Load number">
-      </div>`:`
-      <div class="form-group">
-        <label>Order #</label>
-        <input id="f-ordernum" type="text" placeholder="Order number">
-      </div>`}
+      <div class="form-group" id="grp-order">
+        <label>${isIB?'Load #':'Order #'}</label>
+        <input id="${isIB?'f-loadnum':'f-ordernum'}" type="text" placeholder="${isIB?'Load number':'Order number'}">
+      </div>
       <div class="form-group">
         <label>Req Date</label>
         <input id="f-reqdate" type="date" value="${date}" onchange="refreshApptOptions('${type}')">
       </div>
-      <div class="form-group">
+      <div class="form-group" id="grp-appt">
         <label>Appt Time</label>
         <select id="f-appttime">${isIB?ibApptOptions(date, prefillAppt, null):obApptOptions(date, prefillAppt, null)}</select>
       </div>
@@ -2537,17 +2552,40 @@ function showAddLoad(type, prefillAppt) {
         <label>Destination</label>
         <input id="f-destination" type="text" placeholder="City, ST">
       </div>`:''}
-      <div class="form-group">
+      <div class="form-group" id="grp-door">
         <label>Door #</label>
         <input id="f-door" type="text" placeholder="e.g. 22">
       </div>
-      <div class="form-group">
+      <div class="form-group" id="grp-trailer">
         <label>Trailer #</label>
         <input id="f-trailer" type="text">
       </div>
       <div class="form-group">
         <label>Carrier</label>
         <input id="f-carrier" type="text">
+      </div>
+    </div>
+    <div class="form-grid full" style="margin-top:10px">
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+          <input type="checkbox" id="f-multi" onchange="toggleMultiLoad()" style="width:auto;margin:0"> Multiple loads for this customer
+        </label>
+        <div id="multi-wrap" style="display:none;margin-top:8px">
+          <div class="form-group" style="margin-bottom:10px">
+            <label>Appt Time (applies to every load)</label>
+            <select id="f-multi-appt">${isIB?ibApptOptions(date, NOAPPT_VAL, null):obApptOptions(date, DROPHOOK_VAL, null)}</select>
+          </div>
+          <label style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;font-weight:700">Enter each ${isIB?'Load':'Order'} # (up to 10)</label>
+          <div style="display:flex;gap:8px;margin-top:6px">
+            <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+              ${[1,2,3,4,5].map(i=>`<input id="f-multi-${i}" type="text" placeholder="${isIB?'Load':'Order'} #${i}">`).join('')}
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+              ${[6,7,8,9,10].map(i=>`<input id="f-multi-${i}" type="text" placeholder="${isIB?'Load':'Order'} #${i}">`).join('')}
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--text2);margin-top:6px">All loads share the customer, req date, carrier${isIB?'':', destination'} and appt time above. Door and trailer are left blank — assign per load afterward.</div>
+        </div>
       </div>
     </div>
     <div class="form-grid full" style="margin-top:12px">
@@ -2561,6 +2599,13 @@ function showAddLoad(type, prefillAppt) {
       <button class="btn ${isIB?'btn-primary':'btn-ob'}" onclick="saveLoad('${type}',null)">Save Load</button>
     </div>
   </div></div>`;
+}
+
+function toggleMultiLoad(){
+  const cb = document.getElementById('f-multi');
+  const on = cb && cb.checked;
+  ['grp-order','grp-appt','grp-door','grp-trailer'].forEach(gid=>{ const el=document.getElementById(gid); if(el) el.style.display = on?'none':''; });
+  const w = document.getElementById('multi-wrap'); if(w) w.style.display = on?'block':'none';
 }
 
 function editLoad(type, id) {
@@ -2658,6 +2703,47 @@ function saveLoad(type, id) {
   const orderVal = isIB ? UP('f-loadnum') : UP('f-ordernum');
   const orderLabel = isIB ? 'Load #' : 'Order #';
 
+  // (#1) MULTIPLE LOADS for one customer — one load per entered ID (up to 10), all sharing the
+  // customer / req date / carrier / destination / appt time. Door and trailer are left blank.
+  if (!id && g('f-multi') && g('f-multi').checked) {
+    const ids = [];
+    for (let i=1;i<=10;i++){ const v=UP('f-multi-'+i); if(v) ids.push(v); }
+    const uniq = [...new Set(ids)];
+    const miss=[];
+    if(!UP('f-customer')) miss.push('Customer');
+    if(!reqDate) miss.push('Req Date');
+    if(!isIB && !UP('f-destination')) miss.push('Destination');
+    if(!UP('f-carrier')) miss.push('Carrier');
+    if(!uniq.length) miss.push(isIB?'at least one Load #':'at least one Order #');
+    if(miss.length){ showAlert('Please complete: '+miss.join(', ')+' before creating multiple loads.','warning'); return; }
+    const carrier = UP('f-carrier');
+    let mAppt = (g('f-multi-appt')||{}).value || '';
+    if (mAppt===NOAPPT_VAL) mAppt = '';
+    if (!isIB && mAppt==='' && carrier==='FFTI') mAppt = DROPHOOK_VAL;   // FFTI w/ no appt -> drop & hook
+    const coll = isIB ? (state.inbound||(state.inbound={})) : (state.outbound||(state.outbound={}));
+    const base = { customer:UP('f-customer'), reqDate, apptTime:mAppt, door:'', trailer:'', carrier, notes:UP('f-notes'),
+                   createdAt:Date.now(), updatedAt:Date.now(), origReqDate:reqDate, source:'manual', status:isIB?'SCHEDULED':'ORDER RECEIVED' };
+    if(!isIB) base.destination = UP('f-destination');
+    const created=[], skipped=[];
+    uniq.forEach(oid=>{
+      const dup = Object.values(coll).some(r=>((isIB?r.loadNum:r.orderNum)||'').toUpperCase()===oid && (r.reqDate||'').slice(0,10)===reqDate);
+      if(dup){ skipped.push(oid); return; }
+      const key = db.ref().push().key;
+      const rec = Object.assign({}, base, isIB?{loadNum:oid}:{orderNum:oid});
+      coll[key] = rec;                                             // (#2) optimistic — visible immediately
+      db.ref(ROOT+(isIB?'/inbound/':'/outbound/')+key).update(rec).catch(()=>{});
+      created.push(oid);
+    });
+    state[isIB?'ibDate':'obDate'] = reqDate;
+    if(isIB) renderInbound(); else renderOutbound();
+    updateBadges();
+    let msg = 'Created '+created.length+' load'+(created.length===1?'':'s')+' for '+base.customer+' on '+reqDate+'.';
+    if(skipped.length) msg += ' Skipped '+skipped.length+' already scheduled ('+skipped.join(', ')+').';
+    showAlert(msg, created.length?'success':'warning');
+    closeModal();
+    return;
+  }
+
   // (#3) New entries must have the key fields filled before they can be saved.
   if (!id) {
     const missing = [];
@@ -2692,10 +2778,13 @@ function saveLoad(type, id) {
       if (cdate === reqDate) { showAlert(orderLabel+orderVal+' is already scheduled on '+cdate+'.','warning'); return; }
       if (!confirm(orderLabel+orderVal+' already exists on '+cdate+'. Do you want to roll it to '+reqDate+'?')) return;
       state[isIB?'ibDate':'obDate'] = reqDate;                   // (#2) jump to the date immediately
-      db.ref(ROOT+(isIB?'/inbound/':'/outbound/')+cid).update({ reqDate:reqDate, apptTime:apptTime, updatedAt:Date.now() }).then(()=>{
-        if (isIB) renderInbound(); else renderOutbound();
-        showAlert(orderLabel+orderVal+' rolled to '+reqDate+'.','success'); closeModal();
-      });
+      const crll = isIB ? state.inbound : state.outbound;        // optimistic local update so it moves right away
+      if (crll[cid]) { crll[cid].reqDate = reqDate; crll[cid].apptTime = apptTime; crll[cid].updatedAt = Date.now(); }
+      if (isIB) renderInbound(); else renderOutbound();
+      closeModal();
+      db.ref(ROOT+(isIB?'/inbound/':'/outbound/')+cid).update({ reqDate:reqDate, apptTime:apptTime, updatedAt:Date.now() })
+        .then(()=>{ showAlert(orderLabel+orderVal+' rolled to '+reqDate+'.','success'); })
+        .catch(()=>showAlert('Roll failed — check your connection.','warning'));
       return;
     }
   }
@@ -2722,13 +2811,19 @@ function saveLoad(type, id) {
     if(g('f-timeout')) data.timeOut = g('f-timeout').value||'';
     data.status = (id?state.outbound[id]?.status:null)||'ORDER RECEIVED';
   }
-  const path = ROOT+(isIB?'/inbound/':'/outbound/')+(id||db.ref().push().key);
+  const key = id || db.ref().push().key;
+  const path = ROOT+(isIB?'/inbound/':'/outbound/')+key;
   if(!id) { data.createdAt = Date.now(); data.origReqDate = data.reqDate; data.source = 'manual'; }
   state[isIB?'ibDate':'obDate'] = data.reqDate;   // (#2) jump to the entered date immediately
-  db.ref(path).update(data).then(()=>{
-    if (isIB) renderInbound(); else renderOutbound();
-    showAlert('Saved!','success'); closeModal();
-  });
+  // (#2) optimistic local update so the load is visible right away — don't wait on the round-trip
+  const scoll = isIB ? (state.inbound||(state.inbound={})) : (state.outbound||(state.outbound={}));
+  scoll[key] = Object.assign({}, scoll[key]||{}, data);
+  if (isIB) renderInbound(); else renderOutbound();
+  updateBadges();
+  closeModal();
+  db.ref(path).update(data)
+    .then(()=>{ showAlert('Saved!','success'); })
+    .catch(()=>showAlert('Save failed — check your connection and try again.','warning'));
 }
 
 function deleteLoad(type, id) {
