@@ -131,6 +131,8 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .roll-toggle { font-size:11px;font-weight:700;letter-spacing:.5px;padding:8px 14px;border-radius:8px;border:1px solid var(--warning);background:transparent;color:var(--warning);cursor:pointer; }
 .rolled-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#fff;background:var(--warning);padding:1px 5px;border-radius:4px;vertical-align:middle; }
 .pri-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#fff;background:var(--danger);padding:1px 5px;border-radius:4px;vertical-align:middle; }
+.dup-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#fff;background:#b91c1c;padding:1px 5px;border-radius:4px;vertical-align:middle;cursor:pointer;white-space:nowrap; }
+.dup-badge:hover { filter:brightness(1.15);text-decoration:underline; }
 .loaded-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#111;background:#86efac;padding:1px 5px;border-radius:4px;vertical-align:middle; }
 .notexcel-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#111;background:#fde047;padding:1px 5px;border-radius:4px;vertical-align:middle;white-space:nowrap; }
 tr.priority-row > td { background:rgba(220,38,38,0.07) !important; }
@@ -1320,6 +1322,7 @@ function renderInbound() {
   const ibRolled = recs.filter(([,r])=>isRolled(r)).length;
 
   let rows = '';
+  const ibDups = dupNumMap(state.inbound, 'loadNum');   // load #s appearing on 2+ active loads
   const ibBookedRow = (id, r) => {
       const varMin = calcVariance(r.apptTime, r.timeIn);
       const varTxt = varMin===null ? '—' : varMin===0 ? 'On Time' : varMin>0 ? `+${varMin}m` : `${varMin}m`;
@@ -1338,7 +1341,7 @@ function renderInbound() {
           </select>
         </td>
         <td style="font-weight:600;min-width:110px">${cellSelect('ib',id,'customer',r.customer,refOpts('customerIB'),'110px','font-weight:700')}${ibIsRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
-        <td style="min-width:80px">${cellInput('ib',id,'loadNum',r.loadNum,'80px','Load #','font-weight:700')}</td>
+        <td style="min-width:80px">${cellInput('ib',id,'loadNum',r.loadNum,'80px','Load #','font-weight:700')}${dupBadge('ib', ibDups, r.loadNum, id)}</td>
         <td style="min-width:70px"><span class="ib-appt-label">${fmtApptLabel(r.apptTime)}</span></td>
         <td>
           <input class="time-input" type="text" inputmode="numeric" placeholder="HH:MM"
@@ -1481,6 +1484,7 @@ function renderOutbound() {
   const rolled  = recs.filter(([,r])=>isRolled(r)).length;
 
   let rows = '';
+  const obDups = dupNumMap(state.outbound, 'orderNum');   // order #s appearing on 2+ active loads
   const obBookedRow = (id, r) => {
       const dur = calcDuration(r.timeIn, r.timeOut);
       const isPF = r.sourceType==='pickflow';
@@ -1504,7 +1508,7 @@ function renderOutbound() {
           </select>
         </td>
         <td style="min-width:155px">${cellSelect('ob',id,'customer',r.customer,refOpts('customerOB'),'150px','font-weight:700')}${obPri?'<span class="pri-badge">★ PRIORITY</span>':''}${isPF?'<span style="font-size:8px;background:rgba(26,58,107,0.12);color:var(--inbound);padding:1px 5px;border-radius:4px;margin-left:4px;font-weight:700">PF</span>':''}${obIsRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
-        <td style="min-width:150px">${cellInput('ob',id,'orderNum',r.orderNum,'115px','Order #','font-weight:700')}${obManual?'<span class="notexcel-badge">NOT ON EXCEL</span>':''}</td>
+        <td style="min-width:150px">${cellInput('ob',id,'orderNum',r.orderNum,'115px','Order #','font-weight:700')}${obManual?'<span class="notexcel-badge">NOT ON EXCEL</span>':''}${dupBadge('ob', obDups, r.orderNum, id)}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${obIsRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${obOrig}" onchange="saveField('ob','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
         <td style="min-width:150px">${cellInput('ob',id,'destination',r.destination,'140px','Destination')}</td>
         <td style="min-width:70px"><span class="ib-appt-label">${effApptLabel(r)}</span></td>
@@ -2530,6 +2534,7 @@ function showAddLoad(type, prefillAppt) {
   <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
     <h3 style="color:${color}">${title}</h3>
+    <div id="dup-warn" style="display:none;background:#b91c1c;color:#fff;border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:13px;font-weight:600"></div>
     <div class="form-grid">
       <div class="form-group">
         <label>Customer</label>
@@ -2537,7 +2542,7 @@ function showAddLoad(type, prefillAppt) {
       </div>
       <div class="form-group" id="grp-order">
         <label>${isIB?'Load #':'Order #'}</label>
-        <input id="${isIB?'f-loadnum':'f-ordernum'}" type="text" placeholder="${isIB?'Load number':'Order number'}">
+        <input id="${isIB?'f-loadnum':'f-ordernum'}" type="text" placeholder="${isIB?'Load number':'Order number'}" oninput="checkDupWarn('${type}')">
       </div>
       <div class="form-group">
         <label>Req Date</label>
@@ -2688,10 +2693,48 @@ function findOrderConflict(isIB, orderVal, excludeId) {
   const key  = isIB ? 'loadNum' : 'orderNum';
   const target = String(orderVal).trim().toUpperCase();
   for (const [xid, r] of Object.entries(coll||{})) {
-    if (xid === excludeId) continue;
+    if (xid === excludeId || !r) continue;
+    if ((r.status||'').toUpperCase()==='CANCELLED') continue;   // cancelled loads don't count as duplicates
     if (String(r[key]||'').trim().toUpperCase() === target) return [xid, r];
   }
   return null;
+}
+// Numbers (loadNum / orderNum) that appear on 2+ active loads → used to tag duplicates on the board.
+function dupNumMap(coll, field){
+  const by = {};
+  Object.entries(coll||{}).forEach(([k,r])=>{
+    if(!r || (r.status||'').toUpperCase()==='CANCELLED') return;
+    const n = String(r[field]||'').trim().toUpperCase();
+    if(!n) return;
+    (by[n]=by[n]||[]).push(k);
+  });
+  const dups = {};
+  Object.keys(by).forEach(n=>{ if(by[n].length>1) dups[n]=by[n]; });
+  return dups;
+}
+// Duplicate badge for a row (links to the other occurrence of the same number).
+function dupBadge(board, dups, num, selfKey){
+  const others = (dups[String(num||'').trim().toUpperCase()]||[]).filter(k=>k!==selfKey);
+  if(!others.length) return '';
+  return `<span class="dup-badge" onclick="event.stopPropagation();yardNavToLoad('${board}','${others[0]}')" title="Duplicate ${board==='ib'?'Load':'Order'} # — click to view the other load">⚠ DUPLICATE</span>`;
+}
+// Live warning as an order/load # is typed in the Add modal.
+function checkDupWarn(type){
+  const isIB = type==='ib';
+  const el = document.getElementById(isIB?'f-loadnum':'f-ordernum');
+  const warn = document.getElementById('dup-warn');
+  if(!el || !warn) return;
+  const num = (el.value||'').trim();
+  const hit = num ? findOrderConflict(isIB, num, null) : null;
+  if(hit){
+    const [k,r] = hit;
+    const d = (r.reqDate||'').slice(0,10);
+    warn.style.display = 'block';
+    warn.innerHTML = '⚠ '+(isIB?'Load #':'Order #')+num.toUpperCase()+' already exists'+(d?(' on '+fmtDateLabel(d)):'')+
+      (r.customer?(' — '+r.customer):'')+'. <a href="#" onclick="closeModal();yardNavToLoad(\''+type+'\',\''+k+'\');return false;" style="color:#fff;font-weight:800;text-decoration:underline">View it</a>';
+  } else {
+    warn.style.display = 'none'; warn.innerHTML = '';
+  }
 }
 
 function saveLoad(type, id) {
