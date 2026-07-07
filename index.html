@@ -2278,7 +2278,46 @@ const TYPE_CLASS = {'DO NOT USE':'do-not-use','IB LIVE LOAD':'ib-live','OB LIVE 
 const TYPE_COLOR = {'DO NOT USE':'var(--danger)','IB LIVE LOAD':'var(--inbound)','OB LIVE LOAD':'var(--outbound)','FIRST FLEET':'var(--warning)','PWD ONLY':'#7c3aed'};
 const RAIL_DOORS = [1,2,3,4,5,6,7];
 
+// Clear manual /yard/doors residue whose load has already left the building.
+// Manual door entries persist independently of the schedule, so once their trailer
+// or order appears on a DEPARTED/CANCELLED (OB) or COMPLETED (IB) load — and no live
+// load currently holds that door — the saved record is stale. We purge it at the
+// source (Firebase + local state) so every surface that reads it (door card, edit
+// window, and yard-check sheet) reflects empty consistently. Manual drop-trailer
+// entries that never matched a schedule load are never touched.
+function pruneStaleDoors() {
+  const doors = state.yard.doors;
+  if (!doors) return;
+  const liveDoorNums = new Set();
+  Object.values(state.inbound||{}).forEach(r => { if (r.door && r.trailer && r.status!=='COMPLETED') liveDoorNums.add(String(r.door).trim()); });
+  Object.values(state.outbound||{}).forEach(r => { if (r.door && r.trailer && r.status!=='DEPARTED')  liveDoorNums.add(String(r.door).trim()); });
+  const doneTrailers = new Set(), doneOrders = new Set();
+  Object.values(state.outbound||{}).forEach(r => {
+    if (r.status==='DEPARTED' || r.status==='CANCELLED') {
+      if (r.trailer)  doneTrailers.add(String(r.trailer).trim().toUpperCase());
+      if (r.orderNum) doneOrders.add(String(r.orderNum).trim().toUpperCase());
+    }
+  });
+  Object.values(state.inbound||{}).forEach(r => {
+    if (r.status==='COMPLETED') {
+      if (r.trailer) doneTrailers.add(String(r.trailer).trim().toUpperCase());
+      if (r.loadNum) doneOrders.add(String(r.loadNum).trim().toUpperCase());
+    }
+  });
+  Object.keys(doors).forEach(num => {
+    const d = doors[num]; if (!d || !d.trailer) return;
+    if (liveDoorNums.has(String(num).trim())) return;          // a live load owns this door — leave it
+    const t = String(d.trailer).trim().toUpperCase();
+    const o = String(d.order||'').trim().toUpperCase();
+    if (doneTrailers.has(t) || (o && doneOrders.has(o))) {
+      delete doors[num];                                        // optimistic local clear
+      try { db.ref(ROOT+'/yard/doors/'+num).remove(); } catch(e){}
+    }
+  });
+}
+
 function renderYard() {
+  pruneStaleDoors();
   const view = document.getElementById('view-yd');
   keepScroll(view);
   const doors = state.yard.doors||{};
@@ -2896,6 +2935,7 @@ function yardFlashRow(id){
 }
 
 function editDoor(num) {
+  pruneStaleDoors();
   const d = (state.yard.doors||{})[num]||{};
   const type = DOOR_TYPES[num]||'';
   if(type==='DO NOT USE') { showAlert('Door '+num+' is designated DO NOT USE','warning'); return; }
@@ -4157,6 +4197,7 @@ function scRunReport(){
 const YARD_SPECIAL = { 15:'DO NOT USE', 25:'TRASH COMPACTOR', 39:'RAMP', 48:'RECYCLE' };
 
 function buildYardSheetRows() {
+  pruneStaleDoors();
   const doors = state.yard.doors||{};
   const liveDoors = {};
   Object.values(state.inbound||{}).forEach(r => { if (r.door && r.trailer && r.status!=='COMPLETED') liveDoors[String(r.door).trim()] = { trailer:r.trailer||'', order:r.loadNum||'' }; });
