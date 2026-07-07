@@ -1509,7 +1509,7 @@ function renderOutbound() {
           </select>
         </td>
         <td style="min-width:155px">${cellSelect('ob',id,'customer',r.customer,refOpts('customerOB'),'150px','font-weight:700')}${obPri?'<span class="pri-badge">★ PRIORITY</span>':''}${isPF?'<span style="font-size:8px;background:rgba(26,58,107,0.12);color:var(--inbound);padding:1px 5px;border-radius:4px;margin-left:4px;font-weight:700">PF</span>':''}${obIsRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
-        <td style="min-width:150px">${cellInput('ob',id,'orderNum',r.orderNum,'115px','Order #','font-weight:700')}${obManual?'<span class="notexcel-badge">NOT ON EXCEL</span>':''}${dupBadge('ob', obDups, r.orderNum, id)}</td>
+        <td style="min-width:150px">${cellInput('ob',id,'orderNum',r.orderNum,'115px','Order #','font-weight:700')}${(obManual && !obIsRolled)?'<span class="notexcel-badge">NEW ORDER</span>':''}${dupBadge('ob', obDups, r.orderNum, id)}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${obIsRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${obOrig}" onchange="saveField('ob','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
         <td style="min-width:150px">${cellInput('ob',id,'destination',r.destination,'140px','Destination')}</td>
         <td style="min-width:70px"><span class="ib-appt-label">${effApptLabel(r)}</span></td>
