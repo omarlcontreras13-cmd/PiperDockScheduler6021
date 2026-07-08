@@ -420,8 +420,8 @@ const state = {
   obSearch: '',
   ibColFilter: { customer:'', loadNum:'' },
   obColFilter: { customer:'', orderNum:'', picker:'', loader:'', trailer:'' },
-  ffColFilter: { status:'', carrier:'', customer:'', origReqDate:'', loadId:'', door:'', trailer:'', driver:'', notes:'' },
-  pwdColFilter: { status:'', carrier:'', customer:'', origReqDate:'', loadId:'', door:'', trailer:'', driver:'', notes:'' },
+  ffColFilter: { status:'', carrier:'', customer:'', origReqDate:'', loadId:'', door:'', trailer:'', driver:'', phone:'', notes:'' },
+  pwdColFilter: { status:'', carrier:'', customer:'', origReqDate:'', loadId:'', door:'', trailer:'', driver:'', phone:'', notes:'' },
   ibSort: { field:'', dir:1 },
   obSort: { field:'', dir:1 },
   ffSort: { field:'', dir:1 },
@@ -1362,6 +1362,7 @@ function renderInbound() {
         <td style="min-width:52px">${cellSelect('ib',id,'door',r.door,refOpts('door'),'58px')}</td>
         <td style="min-width:80px">${cellInput('ib',id,'trailer',r.trailer,'80px','Trailer')}</td>
         <td style="min-width:80px">${cellInput('ib',id,'carrier',r.carrier,'80px','Carrier')}</td>
+        <td style="min-width:110px">${cellInput('ib',id,'phone',r.phone,'110px','Phone')}</td>
         <td style="min-width:140px">${cellInput('ib',id,'notes',r.notes,'140px','Notes')}</td>
         <td>
           <button class="btn" style="font-size:10px;padding:4px 10px" onclick="editLoad('ib','${id}')">✎</button>
@@ -1369,7 +1370,7 @@ function renderInbound() {
         </td>
       </tr>`;
   };
-  const ibCols = (state.rollMode.ib?1:0) + 14;
+  const ibCols = (state.rollMode.ib?1:0) + 15;
   const ibOpenRow = (label, bookArg) => `<tr class="ib-open-row">${state.rollMode.ib?'<td></td>':''}
         <td><span class="ib-open-badge">OPEN</span></td>
         <td><a class="book-link" onclick="showAddLoad('ib','${bookArg}')">+ Book</a></td>
@@ -1442,6 +1443,7 @@ function renderInbound() {
         ${thS('Door','ib','door')}
         ${thS('Trailer','ib','trailer')}
         ${thS('Carrier','ib','carrier')}
+        ${thS('Phone','ib','phone')}
         ${thS('Notes','ib','notes')}
         <th style="width:80px"></th>
       </tr></thead>
@@ -1533,6 +1535,7 @@ function renderOutbound() {
         <td style="min-width:52px">${cellSelect('ob',id,'door',r.door,refOpts('door'),'58px')}</td>
         <td style="min-width:80px">${cellInput('ob',id,'trailer',r.trailer,'80px','Trailer')}</td>
         <td style="min-width:80px">${cellInput('ob',id,'carrier',r.carrier,'80px','Carrier')}</td>
+        <td style="min-width:100px">${cellInput('ob',id,'phone',r.phone,'100px','Phone')}</td>
         <td style="min-width:110px">${cellInput('ob',id,'notes',r.notes,'110px','Notes')}</td>
         <td>
           <button class="btn" style="font-size:10px;padding:4px 10px" onclick="editLoad('ob','${id}')">✎</button>
@@ -1540,7 +1543,7 @@ function renderOutbound() {
         </td>
       </tr>`;
   };
-  const obCols = (state.rollMode.ob?1:0) + 19;
+  const obCols = (state.rollMode.ob?1:0) + 20;
   const obOpenRow = (label, bookArg) => `<tr class="ib-open-row">${state.rollMode.ob?'<td></td>':''}
         <td></td>
         <td><span class="ib-open-badge">OPEN</span></td>
@@ -1636,6 +1639,7 @@ function renderOutbound() {
         ${thS('Door','ob','door')}
         ${thFilter('Trailer','ob','trailer')}
         ${thS('Carrier','ob','carrier')}
+        ${thS('Phone','ob','phone')}
         ${thS('Notes','ob','notes')}
         <th style="width:80px"></th>
       </tr></thead>
@@ -1926,6 +1930,7 @@ function renderFirstFleet() {
       status:       (r.status === 'DEPARTED') ? 'LOAD PICKED UP' : (r.status === 'CANCELLED') ? 'LOAD CANCELLED' : (r.ffStatus || obToFF(r.status)),
       obStatus:     r.status,
       priority:     !!r.priority,
+      phone:        r.phone||'',
       notes:        r.notes||''
     }]));
 
@@ -1978,14 +1983,14 @@ function renderFirstFleet() {
 
   let rows = '';
   if (!recs.length) {
-    rows = `<tr><td colspan="10" class="empty-row">No First Fleet loads for this date.</td></tr>`;
+    rows = `<tr><td colspan="11" class="empty-row">No First Fleet loads for this date.</td></tr>`;
   } else {
     let lastGroup = null;
     recs.forEach(([id,r]) => {
       const grp = r._ffti ? 'FFTI' : 'OTHER';
       if (grp !== lastGroup) {
         const cnt = recs.filter(([,x])=>(x._ffti?'FFTI':'OTHER')===grp).length;
-        rows += `<tr><td colspan="10" style="background:var(--surface2);padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--text2)">${grp==='FFTI'?'FIRST FLEET (FFTI)':'OTHER CARRIERS'} &nbsp;&middot;&nbsp; ${cnt}</td></tr>`;
+        rows += `<tr><td colspan="11" style="background:var(--surface2);padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--text2)">${grp==='FFTI'?'FIRST FLEET (FFTI)':'OTHER CARRIERS'} &nbsp;&middot;&nbsp; ${cnt}</td></tr>`;
         lastGroup = grp;
       }
       const ffOpts = FF_STATUSES.map(s=>`<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('');
@@ -2009,6 +2014,7 @@ function renderFirstFleet() {
         <td style="min-width:52px">${cellInput(saveType,id,'door',r.door,'52px','Door #')}</td>
         <td style="min-width:90px">${cellInput(saveType,id,'trailer',r.trailer,'90px','Trailer #')}</td>
         <td style="min-width:130px">${cellInput(saveType,id,'driver',r.driver,'130px','Assigned Driver')}</td>
+        <td style="min-width:120px">${cellInput(saveType,id,'phone',r.phone,'120px','Phone')}</td>
         <td style="min-width:160px">${cellInput(saveType,id,'notes',r.notes,'160px','Notes')}</td>
         <td></td>
       </tr>`;
@@ -2048,6 +2054,7 @@ function renderFirstFleet() {
         ${thFilter('Door #','ff','door','60px')}
         ${thFilter('Trailer #','ff','trailer')}
         ${thFilter('Assigned Driver','ff','driver')}
+        ${thFilter('Phone','ff','phone')}
         ${thFilter('Notes','ff','notes')}
         <th style="width:50px;vertical-align:top"></th>
       </tr></thead>
@@ -2092,6 +2099,7 @@ function renderPWD(){
       status:      (r.status==='DEPARTED') ? 'LOAD PICKED UP' : (r.status==='CANCELLED') ? 'LOAD CANCELLED' : (r.ffStatus || obToFF(r.status)),
       obStatus:    r.status,
       priority:    !!r.priority,
+      phone:       r.phone||'',
       notes:       r.notes||''
     }]));
   recsAll.forEach(([,r])=>{ r._pwd = isPWDCarrier(r.carrier); });
@@ -2141,14 +2149,14 @@ function renderPWD(){
 
   let rows = '';
   if (!recs.length) {
-    rows = `<tr><td colspan="10" class="empty-row">No PWD-customer loads for this date.</td></tr>`;
+    rows = `<tr><td colspan="11" class="empty-row">No PWD-customer loads for this date.</td></tr>`;
   } else {
     let lastGroup = null;
     recs.forEach(([id,r]) => {
       const grp = r._pwd ? 'PWD' : 'OTHER';
       if (grp !== lastGroup) {
         const cnt = recs.filter(([,x])=>(x._pwd?'PWD':'OTHER')===grp).length;
-        rows += `<tr><td colspan="10" style="background:var(--surface2);padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--text2)">${grp==='PWD'?'PWD (PIPER FLEET)':'OTHER CARRIERS'} &nbsp;&middot;&nbsp; ${cnt}</td></tr>`;
+        rows += `<tr><td colspan="11" style="background:var(--surface2);padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--text2)">${grp==='PWD'?'PWD (PIPER FLEET)':'OTHER CARRIERS'} &nbsp;&middot;&nbsp; ${cnt}</td></tr>`;
         lastGroup = grp;
       }
       const ffOpts = FF_STATUSES.map(s=>`<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('');
@@ -2170,6 +2178,7 @@ function renderPWD(){
         <td style="min-width:52px">${cellInput('outbound',id,'door',r.door,'52px','Door #')}</td>
         <td style="min-width:90px">${cellInput('outbound',id,'trailer',r.trailer,'90px','Trailer #')}</td>
         <td style="min-width:130px">${cellInput('outbound',id,'driver',r.driver,'130px','Assigned Driver')}</td>
+        <td style="min-width:120px">${cellInput('outbound',id,'phone',r.phone,'120px','Phone')}</td>
         <td style="min-width:160px">${cellInput('outbound',id,'notes',r.notes,'160px','Notes')}</td>
         <td></td>
       </tr>`;
@@ -2209,6 +2218,7 @@ function renderPWD(){
         ${thFilter('Door #','pwd','door','60px')}
         ${thFilter('Trailer #','pwd','trailer')}
         ${thFilter('Assigned Driver','pwd','driver')}
+        ${thFilter('Phone','pwd','phone')}
         ${thFilter('Notes','pwd','notes')}
         <th style="width:50px;vertical-align:top"></th>
       </tr></thead>
@@ -2235,6 +2245,7 @@ function showAddFF() {
         </select>
       </div>
     </div>
+    <div class="form-group" style="margin-top:12px"><label>Phone #</label><input id="ff-phone" type="text" placeholder="Contact phone #"></div>
     <div class="form-group" style="margin-top:12px"><label>Notes</label><textarea id="ff-notes" placeholder="Notes..."></textarea></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
@@ -2252,6 +2263,7 @@ function saveFF(id) {
     trailer:      g('ff-trailer').value||'',
     driver:       g('ff-driver').value||'',
     status:       g('ff-status').value||'ORDER RECEIVED',
+    phone:        g('ff-phone').value||'',
     notes:        g('ff-notes').value||'',
     createdAt:    Date.now()
   };
@@ -2501,7 +2513,7 @@ function obFiltering(){ const f=state.obColFilter||{}; return !!((f.customer||''
 function obColMatch(r){ const f=state.obColFilter||{}; return _colHit(r.customer,f.customer) && _colHit(r.orderNum,f.orderNum) && _colHit(r.picker,f.picker) && _colHit(r.loader,f.loader) && _colHit(r.trailer,f.trailer); }
 function setObFilter(field, v){ state.obColFilter[field]=v; renderOutbound(); refocusFilter('ob-filter-'+field); }
 // FF / PWD share the same columns (status, carrier, customer, orig req date, load id, door, trailer, driver, notes)
-function _ffLikeMatch(f, r){ return _colHit(r.status,f.status) && _colHit(r.carrier,f.carrier) && _colHit(r.customer,f.customer) && _colHit((r.origReqDate||r.reqDate||'').slice(0,10),f.origReqDate) && _colHit(r.loadId,f.loadId) && _colHit(r.door,f.door) && _colHit(r.trailer,f.trailer) && _colHit(r.driver,f.driver) && _colHit(r.notes,f.notes); }
+function _ffLikeMatch(f, r){ return _colHit(r.status,f.status) && _colHit(r.carrier,f.carrier) && _colHit(r.customer,f.customer) && _colHit((r.origReqDate||r.reqDate||'').slice(0,10),f.origReqDate) && _colHit(r.loadId,f.loadId) && _colHit(r.door,f.door) && _colHit(r.trailer,f.trailer) && _colHit(r.driver,f.driver) && _colHit(r.phone,f.phone) && _colHit(r.notes,f.notes); }
 function ffFiltering(){ const f=state.ffColFilter||{}; return Object.keys(f).some(k=>(f[k]||'').trim()); }
 function ffColMatch(r){ return _ffLikeMatch(state.ffColFilter||{}, r); }
 function setFfFilter(field, v){ state.ffColFilter[field]=v; renderFirstFleet(); refocusFilter('ff-filter-'+field); }
@@ -2635,6 +2647,12 @@ function showAddLoad(type, prefillAppt) {
     </div>
     <div class="form-grid full" style="margin-top:12px">
       <div class="form-group">
+        <label>Phone #</label>
+        <input id="f-phone" type="text" placeholder="Contact phone #">
+      </div>
+    </div>
+    <div class="form-grid full" style="margin-top:12px">
+      <div class="form-group">
         <label>Notes</label>
         <textarea id="f-notes" placeholder="Additional notes..."></textarea>
       </div>
@@ -2710,6 +2728,12 @@ function editLoad(type, id) {
       <div class="form-group">
         <label>Carrier</label>
         <input id="f-carrier" type="text" value="${rec.carrier||''}">
+      </div>
+    </div>
+    <div class="form-grid full" style="margin-top:12px">
+      <div class="form-group">
+        <label>Phone #</label>
+        <input id="f-phone" type="text" value="${rec.phone||''}">
       </div>
     </div>
     <div class="form-grid full" style="margin-top:12px">
@@ -2804,7 +2828,7 @@ function saveLoad(type, id) {
     if (mAppt===NOAPPT_VAL) mAppt = '';
     if (!isIB && mAppt==='' && carrier==='FFTI') mAppt = DROPHOOK_VAL;   // FFTI w/ no appt -> drop & hook
     const coll = isIB ? (state.inbound||(state.inbound={})) : (state.outbound||(state.outbound={}));
-    const base = { customer:UP('f-customer'), reqDate, apptTime:mAppt, door:'', trailer:'', carrier, notes:UP('f-notes'),
+    const base = { customer:UP('f-customer'), reqDate, apptTime:mAppt, door:'', trailer:'', carrier, phone:UP('f-phone'), notes:UP('f-notes'),
                    createdAt:Date.now(), updatedAt:Date.now(), origReqDate:reqDate, source:'manual', status:isIB?'SCHEDULED':'ORDER RECEIVED' };
     if(!isIB) base.destination = UP('f-destination');
     const created=[], skipped=[];
@@ -2879,6 +2903,7 @@ function saveLoad(type, id) {
     door:        UP('f-door'),
     trailer:     UP('f-trailer'),
     carrier:     UP('f-carrier'),
+    phone:       UP('f-phone'),
     notes:       UP('f-notes'),
     updatedAt:   Date.now(),
   };
