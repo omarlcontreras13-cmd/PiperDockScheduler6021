@@ -1512,7 +1512,7 @@ function renderOutbound() {
         </td>
         <td style="min-width:155px">${cellSelect('ob',id,'customer',r.customer,refOpts('customerOB'),'150px','font-weight:700')}${obPri?'<span class="pri-badge">★ PRIORITY</span>':''}${isPF?'<span style="font-size:8px;background:rgba(26,58,107,0.12);color:var(--inbound);padding:1px 5px;border-radius:4px;margin-left:4px;font-weight:700">PF</span>':''}${obIsRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:150px">${cellInput('ob',id,'orderNum',r.orderNum,'115px','Order #','font-weight:700')}${(obManual && !obIsRolled)?'<span class="notexcel-badge">NEW ORDER</span>':''}${dupBadge('ob', obDups, r.orderNum, id)}</td>
-        <td style="min-width:120px"><input type="date" class="date-input ${obIsRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${obOrig}" onchange="saveField('ob','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
+        <td style="min-width:120px"><input type="date" class="date-input ${obIsRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${obOrig}" onchange="saveRowDate('ob','${id}',this.value)" title="Original requested date (does not move when rolled)"></td>
         <td style="min-width:150px">${cellInput('ob',id,'destination',r.destination,'140px','Destination')}</td>
         <td style="min-width:70px"><span class="ib-appt-label">${effApptLabel(r)}</span></td>
         <td>
@@ -2793,12 +2793,41 @@ function checkDupWarn(type){
   if(hit){
     const [k,r] = hit;
     const d = (r.reqDate||'').slice(0,10);
+    const st = (r.status||'').toUpperCase();
+    const done = isIB ? (st==='COMPLETED') : (st==='DEPARTED');   // completed/departed → no Roll it
+    const _lnk = 'color:#fff;font-weight:800;text-decoration:underline';
+    const viewLink = '<a href="#" onclick="closeModal();yardNavToLoad(\''+type+'\',\''+k+'\');return false;" style="'+_lnk+'">View it</a>';
+    const rollLink = done ? '' : ' &nbsp;·&nbsp; <a href="#" onclick="rollExistingFromDup(\''+type+'\',\''+k+'\');return false;" style="'+_lnk+'">Roll it</a>';
     warn.style.display = 'block';
     warn.innerHTML = '⚠ '+(isIB?'Load #':'Order #')+num.toUpperCase()+' already exists'+(d?(' on '+fmtDateLabel(d)):'')+
-      (r.customer?(' — '+r.customer):'')+'. <a href="#" onclick="closeModal();yardNavToLoad(\''+type+'\',\''+k+'\');return false;" style="color:#fff;font-weight:800;text-decoration:underline">View it</a>';
+      (r.customer?(' — '+r.customer):'')+'. '+viewLink+rollLink;
   } else {
     warn.style.display = 'none'; warn.innerHTML = '';
   }
+}
+
+// From the "already exists" banner while creating an order: roll the existing (non-completed)
+// load to the Req Date currently on the form, then jump to it. Completed/Departed loads get no
+// Roll it link; this status check is a belt-and-suspenders guard.
+function rollExistingFromDup(type, id){
+  const isIB = type==='ib';
+  const coll = isIB ? state.inbound : state.outbound;
+  const r = coll && coll[id];
+  if(!r){ showAlert('That load is no longer on the schedule.','warning'); return; }
+  const st = (r.status||'').toUpperCase();
+  if(isIB ? st==='COMPLETED' : st==='DEPARTED'){ showAlert('That load is already '+(isIB?'completed':'departed')+" — it can't be rolled.",'warning'); return; }
+  const to = ((document.getElementById('f-reqdate')||{}).value||'').slice(0,10);
+  if(!to){ showAlert('Set a Req Date on the form first, then Roll it.','warning'); return; }
+  const from  = (r.reqDate||'').slice(0,10);
+  const label = (isIB?'Load #':'Order #')+String(r[isIB?'loadNum':'orderNum']||'').toUpperCase();
+  if(from===to){ showAlert(label+' is already scheduled on '+fmtDateLabel(to)+'.','warning'); return; }
+  if(!confirm('Roll '+label+' from '+(from?fmtDateLabel(from):'its date')+' to '+fmtDateLabel(to)+'?')) return;
+  r.reqDate = to; r.apptTime = ''; r.updatedAt = Date.now();   // optimistic; origReqDate untouched so it shows as ROLLED
+  db.ref(ROOT+(isIB?'/inbound/':'/outbound/')+id).update({ reqDate:to, apptTime:'', updatedAt:Date.now() })
+    .then(()=>showAlert(label+' rolled to '+fmtDateLabel(to)+'.','success'))
+    .catch(()=>showAlert('Roll failed — check your connection and try again.','warning'));
+  closeModal();
+  yardNavToLoad(type, id);
 }
 
 function saveLoad(type, id) {
@@ -2879,7 +2908,9 @@ function saveLoad(type, id) {
   // (#1) Duplicate order # on a new entry -> offer to roll the existing one to the new date.
   if (!id) {
     const conflict = findOrderConflict(isIB, orderVal, id);
-    if (conflict) {
+    const _cst = conflict ? (conflict[1].status||'').toUpperCase() : '';
+    const _cTerminal = conflict && (isIB ? _cst==='COMPLETED' : _cst==='DEPARTED');   // don't roll a done load
+    if (conflict && !_cTerminal) {
       const [cid, crec] = conflict;
       const cdate = (crec.reqDate||'').slice(0,10);
       if (cdate === reqDate) { showAlert(orderLabel+orderVal+' is already scheduled on '+cdate+'.','warning'); return; }
@@ -2922,6 +2953,12 @@ function saveLoad(type, id) {
   const key = id || db.ref().push().key;
   const path = ROOT+(isIB?'/inbound/':'/outbound/')+key;
   if(!id) { data.createdAt = Date.now(); data.origReqDate = data.reqDate; data.source = 'manual'; }
+  else {
+    // Keep the original requested date in step with the board date on a non-rolled load, so
+    // editing the date in the modal doesn't spuriously flag it ROLLED and the line stays in sync.
+    const _existing = (isIB ? state.inbound : state.outbound)[id] || {};
+    if (!isRolled(_existing)) data.origReqDate = data.reqDate;
+  }
   state[isIB?'ibDate':'obDate'] = data.reqDate;   // (#2) jump to the entered date immediately
   // (#2) optimistic local update so the load is visible right away — don't wait on the round-trip
   const scoll = isIB ? (state.inbound||(state.inbound={})) : (state.outbound||(state.outbound={}));
@@ -3102,6 +3139,21 @@ function saveField(type, id, field, value) {
   db.ref(ROOT+'/'+path+'/'+id+'/'+field).set(value)
     .catch(e=>console.warn('Field save error',e));
   if (path==='outbound' && (field==='door' || field==='trailer')) checkDupAssignment(field, id, value);
+}
+
+// Editing the requested date on a row is a full date change: the order moves to that day
+// (board + modal follow), and its original requested date moves with it — unless the load
+// has already been rolled to a later day, in which case only the original date is adjusted
+// so the roll is preserved.
+function saveRowDate(type, id, value){
+  const coll = type==='ib' ? state.inbound : state.outbound;
+  const rec  = coll && coll[id];
+  const upd  = { origReqDate: value, updatedAt: Date.now() };
+  if (!(rec && isRolled(rec))) { upd.reqDate = value; state[type==='ib'?'ibDate':'obDate'] = value; }
+  if (rec) Object.assign(rec, upd);
+  db.ref(ROOT+'/'+(type==='ib'?'inbound':'outbound')+'/'+id).update(upd)
+    .catch(e=>console.warn('Row date save error', e));
+  if (type==='ib') renderInbound(); else renderOutbound();
 }
 // Warn if a door or trailer entered in Outbound collides with another active load
 // (a door can hold one trailer; a trailer can't be in two places).
@@ -3547,9 +3599,16 @@ async function commitImport(data, clearFirst) {
       if (p.priority) r.priority = true;
     }
   });
+  const writeBatch = async (path, records) => {
+    const ref = db.ref(ROOT+'/'+path);
+    const payload = {};
+    records.forEach(r => { payload[ref.push().key] = r; });
+    if (Object.keys(payload).length) await ref.update(payload);
+  };
+
   if (clearFirst) {
-    // Only clear loads that came from Excel — leave app-added (manual) and
-    // PickFlow loads in place so a refresh can't delete them.
+    // Explicit clean seed (admin ticks "Clear existing first"): clear Excel-sourced loads
+    // — leave app-added (manual) and PickFlow loads in place — then reseed from the sheet.
     const wipeImported = async (path) => {
       const cur = (path==='inbound' ? state.inbound : state.outbound) || {};
       const updates = {};
@@ -3558,15 +3617,44 @@ async function commitImport(data, clearFirst) {
     };
     await wipeImported('inbound');
     await wipeImported('outbound');
+    await writeBatch('inbound',  data.inbound);
+    await writeBatch('outbound', data.outbound);
+    return;
   }
-  const writeBatch = async (path, records) => {
-    const ref = db.ref(ROOT+'/'+path);
-    const payload = {};
-    records.forEach(r => { payload[ref.push().key] = r; });
-    if (Object.keys(payload).length) await ref.update(payload);
+
+  // Default + Refresh: MERGE the sheet into what's already on the board without clobbering
+  // anything. Match by order/load number; for a matched load, fill ONLY empty fields, so
+  // manual edits (doors, phone, dates, carrier, load details) always win. Orders not yet on
+  // the board are added; matching orders whose data already agrees change nothing.
+  const isEmpty = v => v===undefined || v===null || (typeof v==='string' && v.trim()==='');
+  const mergeBatch = async (path, records, numField) => {
+    const coll = (path==='inbound' ? state.inbound : state.outbound) || {};
+    const ref  = db.ref(ROOT+'/'+path);
+    const idx  = {};
+    Object.entries(coll).forEach(([k,r]) => {
+      if (!r) return;
+      const nk = (r[numField]||'').toString().trim().toUpperCase();
+      if (nk && !idx[nk]) idx[nk] = k;           // match by order/load number (first wins)
+    });
+    const fills = {}, adds = {};
+    records.forEach(r => {
+      const nk = (r[numField]||'').toString().trim().toUpperCase();
+      const fkey = nk && idx[nk];
+      if (fkey) {
+        const existing = coll[fkey] || {};
+        Object.keys(r).forEach(f => {
+          if (f==='createdAt' || f==='updatedAt') return;
+          if (isEmpty(existing[f]) && !isEmpty(r[f])) fills[fkey+'/'+f] = r[f];   // fill blanks only
+        });
+      } else {
+        adds[ref.push().key] = r;                // brand-new order — add it
+      }
+    });
+    if (Object.keys(fills).length) await ref.update(fills);
+    if (Object.keys(adds).length)  await ref.update(adds);
   };
-  await writeBatch('inbound',  data.inbound);
-  await writeBatch('outbound', data.outbound);
+  await mergeBatch('inbound',  data.inbound,  'loadNum');
+  await mergeBatch('outbound', data.outbound, 'orderNum');
 }
 
 async function runImport() {
@@ -3607,7 +3695,7 @@ function runQuickImport(ev) {
       const data = extractWorkbook(wb);
       if (!data.inbound.length && !data.outbound.length)
         throw new Error('No loads found — is this the 6021 Greensboro workbook?');
-      await commitImport(data, true);   // refresh = clean reseed (preserves driver/priority/FFTI status)
+      await commitImport(data, false);   // refresh = merge: fill blanks + add new orders, never overwrite manual edits
       showAlert(`Refreshed — ${data.inbound.length} inbound + ${data.outbound.length} outbound loads`,'success');
     } catch (err) {
       showAlert('Refresh failed: '+err.message,'danger');
