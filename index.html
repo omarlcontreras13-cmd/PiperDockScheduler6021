@@ -2298,34 +2298,11 @@ const RAIL_DOORS = [1,2,3,4,5,6,7];
 // window, and yard-check sheet) reflects empty consistently. Manual drop-trailer
 // entries that never matched a schedule load are never touched.
 function pruneStaleDoors() {
-  const doors = state.yard.doors;
-  if (!doors) return;
-  const liveDoorNums = new Set();
-  Object.values(state.inbound||{}).forEach(r => { if (r.door && r.trailer && r.status!=='COMPLETED') liveDoorNums.add(String(r.door).trim()); });
-  Object.values(state.outbound||{}).forEach(r => { if (r.door && r.trailer && r.status!=='DEPARTED')  liveDoorNums.add(String(r.door).trim()); });
-  const doneTrailers = new Set(), doneOrders = new Set();
-  Object.values(state.outbound||{}).forEach(r => {
-    if (r.status==='DEPARTED' || r.status==='CANCELLED') {
-      if (r.trailer)  doneTrailers.add(String(r.trailer).trim().toUpperCase());
-      if (r.orderNum) doneOrders.add(String(r.orderNum).trim().toUpperCase());
-    }
-  });
-  Object.values(state.inbound||{}).forEach(r => {
-    if (r.status==='COMPLETED') {
-      if (r.trailer) doneTrailers.add(String(r.trailer).trim().toUpperCase());
-      if (r.loadNum) doneOrders.add(String(r.loadNum).trim().toUpperCase());
-    }
-  });
-  Object.keys(doors).forEach(num => {
-    const d = doors[num]; if (!d || !d.trailer) return;
-    if (liveDoorNums.has(String(num).trim())) return;          // a live load owns this door — leave it
-    const t = String(d.trailer).trim().toUpperCase();
-    const o = String(d.order||'').trim().toUpperCase();
-    if (doneTrailers.has(t) || (o && doneOrders.has(o))) {
-      delete doors[num];                                        // optimistic local clear
-      try { db.ref(ROOT+'/yard/doors/'+num).remove(); } catch(e){}
-    }
-  });
+  // Manual door entries now persist until the user clears them (Clear Door). A scheduled
+  // Inbound/Outbound load still overrides the door's display in renderYard (eff = live), so a
+  // door "updates" when data is applied — but a hand-keyed trailer is no longer auto-removed
+  // just because a past load with the same trailer/order has departed or completed.
+  return;
 }
 
 function renderYard() {
@@ -2371,7 +2348,7 @@ function renderYard() {
   }
 
   const doorNums = Object.keys(DOOR_TYPES).map(Number).sort((a,b)=>a-b);
-  const occupied = doorNums.filter(n => liveDoors[String(n)] || (doors[n] && doors[n].trailer && !manualStale(doors[n]))).length;
+  const occupied = doorNums.filter(n => liveDoors[String(n)] || (doors[n] && doors[n].trailer)).length;
 
   const carrierFilter = state.yardCarrierFilter || null;   // null | 'FFTI' | 'PWD'
   let fftiCount = 0, pwdCount = 0;
@@ -2379,7 +2356,7 @@ function renderYard() {
   doorNums.forEach(n => {
     const live = liveDoors[String(n)];
     const dRaw = doors[n]||{};
-    const d = (!live && manualStale(dRaw)) ? {} : dRaw;   // hide stale departed/completed residue
+    const d = dRaw;   // manual entries persist; a live scheduled load overrides the display below
     const type = DOOR_TYPES[n]||'';
     const cls = TYPE_CLASS[type]||'';
     const typColor = TYPE_COLOR[type]||'var(--text2)';
