@@ -587,7 +587,7 @@ function submitLogin() {
     err.textContent = 'Incorrect password'; err.style.display = 'block'; pwEl.value = ''; pwEl.focus(); return;
   }
   acquireSession(sessionKey(email), email,
-    () => loginGroup(user.group === 'piper' ? 'piper' : 'ffti', !!user.isAdmin),
+    () => { loginGroup(user.group === 'piper' ? 'piper' : 'ffti', !!user.isAdmin); state.user.label = user.name || user.email; },
     () => { err.textContent = 'This email is already signed in elsewhere'; err.style.display = 'block'; }
   );
 }
@@ -609,6 +609,7 @@ function submitAdmin() {
   }
   ensureAdminAccount();          // best-effort: repair the roster account + password
   loginGroup('piper', true);     // log in directly as admin, roster-independent
+  state.user.label = ADMIN_SEED_EMAIL;
 }
 
 function loginGroup(group, isAdmin) {
@@ -2298,11 +2299,28 @@ const RAIL_DOORS = [1,2,3,4,5,6,7];
 // window, and yard-check sheet) reflects empty consistently. Manual drop-trailer
 // entries that never matched a schedule load are never touched.
 function pruneStaleDoors() {
-  // Manual door entries now persist until the user clears them (Clear Door). A scheduled
-  // Inbound/Outbound load still overrides the door's display in renderYard (eff = live), so a
-  // door "updates" when data is applied — but a hand-keyed trailer is no longer auto-removed
-  // just because a past load with the same trailer/order has departed or completed.
-  return;
+  const doors = state.yard.doors;
+  if (!doors) return;
+  // Once Inbound/Outbound has a load for a door, the schedule owns that door and any hand-keyed
+  // manual placeholder is dropped, so the door is driven by the load (a live load shows through;
+  // a departed/completed load leaves the door empty). A manual entry is superseded when EITHER
+  //   (a) a live (not COMPLETED/DEPARTED) load currently occupies that door, OR
+  //   (b) any load — live or departed/completed — matches that door AND trailer.
+  // Matching (b) on door+trailer (not trailer alone) leaves a reused trailer keyed onto a
+  // different empty door alone until its own load lands.
+  const liveDoors = new Set();
+  const claimedDT = new Set();
+  const claim = r => { if (r.door && r.trailer) claimedDT.add(String(r.door).trim()+'|'+String(r.trailer).trim().toUpperCase()); };
+  Object.values(state.inbound||{}).forEach(r => { claim(r); if (r.door && r.trailer && r.status!=='COMPLETED') liveDoors.add(String(r.door).trim()); });
+  Object.values(state.outbound||{}).forEach(r => { claim(r); if (r.door && r.trailer && r.status!=='DEPARTED')  liveDoors.add(String(r.door).trim()); });
+  Object.keys(doors).forEach(num => {
+    const d = doors[num]; if (!d || !d.trailer) return;
+    const door = String(num).trim();
+    if (liveDoors.has(door) || claimedDT.has(door+'|'+String(d.trailer).trim().toUpperCase())) {
+      delete doors[num];                                     // schedule owns this door — drop the manual placeholder
+      try { db.ref(ROOT+'/yard/doors/'+num).remove(); } catch(e){}
+    }
+  });
 }
 
 function renderYard() {
@@ -2385,6 +2403,7 @@ function renderYard() {
         <div class="door-trailer">${eff.trailer||'<span style="color:var(--text2);font-weight:400;font-size:11px">Empty</span>'}</div>
         ${eff.carrier||eff.customer?`<div class="door-meta">${[eff.carrier,eff.customer].filter(Boolean).join(' · ')}</div>`:''}
         ${eff.order?`<div class="door-meta" style="color:var(--accent)">${live?(live.src==='ib'?'Load: ':'Order: '):'Order: '}${live?`<a class="door-loadlink" title="Go to this load on the ${live.src==='ib'?'Inbound':'Outbound'} schedule" onclick="event.stopPropagation();yardNavToLoad('${live.src}','${live.id}')">${eff.order}</a>`:eff.order}</div>`:''}
+        ${isManual && eff.enteredAt?`<div class="door-meta" style="font-size:9px;opacity:.7">✎ ${(eff.enteredBy||'manual')} · ${fmtStamp(eff.enteredAt)}</div>`:''}
       </div>
       ${badge}
     </div>`;
@@ -3032,6 +3051,8 @@ function saveDoor(num) {
     customer: U('d-customer'),
     order:    U('d-order'),
     loaded:   window._doorStatus||'EMPTY',
+    enteredBy: (state.user && state.user.label) || 'PIPER',
+    enteredAt: Date.now(),
     updatedAt:Date.now()
   };
   db.ref(ROOT+'/yard/doors/'+num).update(data).then(()=>{showAlert('Door '+num+' updated','success');closeModal();});
@@ -4286,6 +4307,12 @@ function scRunReport(){
 // then opens a print preview that can print or download a Word (.doc) file.
 const YARD_SPECIAL = { 15:'DO NOT USE', 25:'TRASH COMPACTOR', 39:'RAMP', 48:'RECYCLE' };
 
+function fmtStamp(ts){
+  if(!ts) return '';
+  try { return new Date(ts).toLocaleString('en-US',{month:'numeric',day:'numeric',year:'2-digit',hour:'numeric',minute:'2-digit'}); }
+  catch(e){ return ''; }
+}
+
 function buildYardSheetRows() {
   pruneStaleDoors();
   const doors = state.yard.doors||{};
@@ -4296,7 +4323,8 @@ function buildYardSheetRows() {
   for (let n=15; n<=51; n++) {
     if (YARD_SPECIAL[n]) { rows.push({ door:n, special:YARD_SPECIAL[n] }); continue; }
     const d = doors[n]||{}; const live = liveDoors[String(n)];
-    rows.push({ door:n, trailer:(live?live.trailer:(d.trailer||'')), order:(live?live.order:(d.order||'')) });
+    const man = !live && !!d.trailer;
+    rows.push({ door:n, trailer:(live?live.trailer:(d.trailer||'')), order:(live?live.order:(d.order||'')), manual:man, by:(man?(d.enteredBy||''):''), at:(man?(d.enteredAt||0):0) });
   }
   return rows;
 }
@@ -4315,6 +4343,7 @@ const YARD_SHEET_CSS =
 + '.grid th{background:#1a3a6b;color:#fff;text-align:left;}'
 + '.cdoor{width:48px;text-align:center;font-weight:bold;background:#eef1f7;}'
 + '.special{text-align:center;font-weight:bold;color:#b91c1c;letter-spacing:1px;}'
++ '.ment{font-size:10px;color:#555;white-space:nowrap;}'
 + 'thead{display:table-header-group;} tr{page-break-inside:avoid;}';
 
 function yardSheetHtml() {
@@ -4322,8 +4351,8 @@ function yardSheetHtml() {
   const logo = logoEl ? logoEl.src : '';
   const today = new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
   const body = buildYardSheetRows().map(r => r.special
-    ? '<tr><td class="cdoor">'+r.door+'</td><td class="special" colspan="2">'+r.special+'</td></tr>'
-    : '<tr><td class="cdoor">'+r.door+'</td><td>'+(r.trailer||'')+'</td><td>'+(r.order||'')+'</td></tr>'
+    ? '<tr><td class="cdoor">'+r.door+'</td><td class="special" colspan="3">'+r.special+'</td></tr>'
+    : '<tr><td class="cdoor">'+r.door+'</td><td>'+(r.trailer||'')+'</td><td>'+(r.order||'')+'</td><td class="ment">'+(r.manual?((r.by?String(r.by).replace(/</g,'&lt;'):'')+(r.at?((r.by?' · ':'')+fmtStamp(r.at)):'')):'')+'</td></tr>'
   ).join('');
   const logoImg = logo ? '<img src="'+logo+'" class="logo" alt="Piper Warehouse">' : '';
   return '<div id="sheet">'
@@ -4334,7 +4363,7 @@ function yardSheetHtml() {
     + '<td class="hdr-date">'+today+'</td>'
     + '</tr></table>'
     + '<div class="meta">Shift: ____________ &nbsp;&nbsp; Completed by: ____________________ &nbsp;&nbsp; Reviewed by: ____________</div>'
-    + '<table class="grid"><thead><tr><th class="cdoor">Door</th><th>Trailer #</th><th>IB / OB Order #</th></tr></thead>'
+    + '<table class="grid"><thead><tr><th class="cdoor">Door</th><th>Trailer #</th><th>IB / OB Order #</th><th>Manually Entered</th></tr></thead>'
     + '<tbody>'+body+'</tbody></table></div>';
 }
 
