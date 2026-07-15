@@ -4296,6 +4296,7 @@ function renderScorecard(){
       <span style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;font-weight:700">Report</span>
       <select onchange="state.scReportOut=this.value;renderScorecard()" title="Summary Report = the formatted recap. Scorecard Extract = the grid itself in Excel, minus any collapsed columns."
         style="padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-family:var(--font);font-size:12px;font-weight:700;color:var(--text)">${outOpts}</select>
+      ${rptOut==='extract' ? `<span style="font-size:11px;color:var(--text2);font-weight:700;letter-spacing:.3px" title="The extract always covers the month shown on the grid, up to today">DISPLAYED MONTH \u00b7 THROUGH TODAY</span>` : `
       <select onchange="state.scReportMode=this.value;renderScorecard()"
         style="padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-family:var(--font);font-size:12px;font-weight:700;color:var(--text)">${modeOpts}</select>
       <input type="date" value="${rptStart}" onchange="state.scReportStart=this.value"
@@ -4303,6 +4304,7 @@ function renderScorecard(){
       ${rptMode==='range'?`<span style="font-size:11px;color:var(--text2)">to</span>
       <input type="date" value="${rptEnd}" onchange="state.scReportEnd=this.value"
         style="padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-family:var(--font);font-size:12px" title="End date">`:''}
+      `}
       <button class="add-load-btn ob-btn" onclick="scRunReport()">${rptOut==='extract'?'\u2913 Extract to Excel':'📄 Run Report'}</button>
     </div>
   </div>
@@ -4703,10 +4705,19 @@ function scExportExtract(dates){
   } catch(e){ showAlert('Could not build the extract: '+e.message,'warning'); }
 }
 
+// The extract mirrors the grid on screen: the month being displayed, through today. Future
+// days are left out (they carry no data yet); a month wholly in the future extracts in full so
+// the file is never empty. Deliberately independent of the Summary Report's date-mode pick.
+function scExtractDates(){
+  const days   = scDaysInMonth(state.scMonth || scMonthStr(todayStr()));
+  const toDate = days.filter(d => d <= todayStr());
+  return toDate.length ? toDate : days;
+}
+
 function scRunReport(){
   const dates = scReportDates();
   if (!dates.length){ showAlert('Pick a valid date range for the report.','warning'); return; }
-  if ((state.scReportOut||'report')==='extract'){ scExportExtract(dates); return; }
+  if ((state.scReportOut||'report')==='extract'){ scExportExtract(scExtractDates()); return; }
   const html = scReportHtml();
   const fname = dates.length===1 ? dates[0] : (dates[0]+'_to_'+dates[dates.length-1]);
   const win = window.open('','_blank');
