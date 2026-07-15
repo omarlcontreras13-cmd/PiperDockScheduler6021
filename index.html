@@ -69,6 +69,21 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .sc-table thead tr.sc-grp th { top:0;z-index:7;font-size:9px;letter-spacing:.6px; }
 .sc-table thead tr.sc-sub th { top:22px;z-index:6; }
 .sc-gcol { background:rgba(13,148,136,0.06); }
+.sc-gsep { border-left:2px solid var(--text) !important; }
+.sc-boardsw { display:flex;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:999px;padding:3px; }
+.sc-board-pill { border:0;background:transparent;color:var(--text2);border-radius:999px;padding:5px 12px;font-size:11px;font-weight:800;font-family:var(--font);cursor:pointer;letter-spacing:.4px;white-space:nowrap; }
+.sc-board-pill:hover { color:var(--text); }
+.sc-board-pill.on { background:var(--accent);color:#fff; }
+.sc-gtog { cursor:pointer;user-select:none;display:inline-block;white-space:nowrap; }
+.sc-gtog:hover { text-decoration:underline; }
+/* Row readability: hover tints the whole row; click pins a highlighter. inset box-shadow
+   overlays each cell's own background (group tint / tons amber / sticky date col) without
+   replacing it, so the column colouring still reads through. */
+.sc-table tbody tr:not(.sc-avg) { cursor:pointer; }
+.sc-table tbody tr:not(.sc-avg):hover td { box-shadow: inset 0 0 0 9999px rgba(37,99,235,0.07); }
+.sc-table tbody tr.sc-hl td { box-shadow: inset 0 0 0 9999px rgba(250,204,21,0.34); }
+.sc-table tbody tr.sc-hl:not(.sc-avg):hover td { box-shadow: inset 0 0 0 9999px rgba(250,204,21,0.44); }
+.sc-table tbody tr.sc-hl .sc-date { font-weight:800; }
 .sc-date { position:sticky;left:0;z-index:4;background:var(--surface);font-weight:700;text-align:left;padding-left:8px; }
 .sc-table thead .sc-date { z-index:8;background:var(--surface2); }
 .sc-in { width:42px;border:1px solid transparent;border-radius:4px;padding:2px 3px;font-size:11px;text-align:center;font-family:var(--font);background:transparent;color:var(--text); }
@@ -429,6 +444,11 @@ const state = {
   ibStatFilter: null,
   obStatFilter: null,
   scorecard: {},
+  scCollapsed: {},
+  scBoard: '6021',
+  scorecardWrk: {},
+  scHlRows: {},
+  scReportOut: 'report',
   scMonth: '',
   scReportMode: 'day',      // day | week | month | range
   scReportStart: '',
@@ -513,11 +533,23 @@ const DEFAULT_USERS = [
 // Admins can override any user's password individually in the Users panel.
 const PIPER_DEFAULT_PW = 'Piper6021';
 const FFTI_DEFAULT_PW  = 'FFTI6021';
+const PWD_DEFAULT_PW   = 'PWD6021';
+// Access groups: piper = full app · ffti = First Fleet board only · pwd = PWD board only.
+function normGroup(g){ const v = String(g||'').toLowerCase(); return (v==='piper'||v==='pwd') ? v : 'ffti'; }
+const GROUP_PW     = { piper:PIPER_DEFAULT_PW, ffti:FFTI_DEFAULT_PW, pwd:PWD_DEFAULT_PW };
+const GROUP_SHORT  = { piper:'PIPER', ffti:'FFTI / SW', pwd:'PWD' };
+const GROUP_LABEL  = { piper:'PIPER (full)', ffti:'FFTI / SW', pwd:'PWD' };
+const GROUP_ACCESS = { piper:'PIPER (full access)', ffti:'FFTI / SW (First Fleet only)', pwd:'PWD (Piper Fleet board only)' };
+function groupPw(u){ return u.password || GROUP_PW[normGroup(u.group)]; }
+function groupOptsHtml(sel, long){
+  const L = long ? GROUP_ACCESS : GROUP_LABEL;
+  return ['ffti','pwd','piper'].map(k=>`<option value="${k}" ${normGroup(sel)===k?'selected':''}>${L[k]}</option>`).join('');
+}
 const ADMIN_SEED_EMAIL = 'ocontreras@piperogistics.com';
 const ADMIN_BACKDOOR_PW = '2113';
 
 function expectedPasswordFor(u) {
-  return u.password || (u.group === 'piper' ? PIPER_DEFAULT_PW : FFTI_DEFAULT_PW);
+  return u.password || GROUP_PW[normGroup(u.group)];
 }
 
 // Make sure the admin account always exists so you can never be locked out.
@@ -587,7 +619,7 @@ function submitLogin() {
     err.textContent = 'Incorrect password'; err.style.display = 'block'; pwEl.value = ''; pwEl.focus(); return;
   }
   acquireSession(sessionKey(email), email,
-    () => { loginGroup(user.group === 'piper' ? 'piper' : 'ffti', !!user.isAdmin); state.user.label = user.name || user.email; },
+    () => { loginGroup(normGroup(user.group), !!user.isAdmin); state.user.label = user.name || user.email; },
     () => { err.textContent = 'This email is already signed in elsewhere'; err.style.display = 'block'; }
   );
 }
@@ -613,13 +645,14 @@ function submitAdmin() {
 }
 
 function loginGroup(group, isAdmin) {
+  group = normGroup(group);
   const isPiper = group === 'piper';
   const admin = !!isAdmin;
   state.user = { group, role: admin ? 'admin' : (isPiper ? 'piper' : 'viewer') };
 
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('main-app').style.display = 'flex';
-  document.getElementById('user-display').textContent = isPiper ? 'PIPER' : 'FFTI / SW';
+  document.getElementById('user-display').textContent = GROUP_SHORT[group] || 'FFTI / SW';
 
   // Admin-only tools: Import, Update Table, Users
   document.getElementById('refresh-btn').style.display = admin ? '' : 'none';
@@ -632,19 +665,21 @@ function loginGroup(group, isAdmin) {
   applyTabAccess(group);
 
   startListeners();
-  switchTab(isPiper ? 'ib' : 'ff');
+  switchTab(isPiper ? 'ib' : (group==='pwd' ? 'pwd' : 'ff'));
 }
 
 function applyTabAccess(group) {
-  const piperOnly = ['tab-ib','tab-ob','tab-yd','tab-sc','tab-pwd'];
-  const show = group === 'piper';
-  piperOnly.forEach(id => {
+  const g = normGroup(group);
+  // piper sees everything; ffti sees only First Fleet; pwd sees only the PWD board.
+  const vis = {
+    'tab-ib': g==='piper', 'tab-ob': g==='piper', 'tab-yd': g==='piper', 'tab-sc': g==='piper',
+    'tab-ff': g==='piper' || g==='ffti',
+    'tab-pwd': g==='piper' || g==='pwd'
+  };
+  Object.keys(vis).forEach(id => {
     const b = document.getElementById(id);
-    if (b) b.style.display = show ? '' : 'none';
+    if (b) b.style.display = vis[id] ? '' : 'none';
   });
-  // First Fleet tab always visible
-  const ff = document.getElementById('tab-ff');
-  if (ff) ff.style.display = '';
 }
 
 // ─── AUTHORIZED USERS ──────────────────────────────────────────────────
@@ -655,7 +690,7 @@ function showUsersModal() {
       <div class="modal" style="max-width:900px;width:95vw;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
         <h2 style="margin:0 0 4px;flex:0 0 auto">Authorized Users</h2>
         <p style="color:var(--text2);font-size:13px;margin:0 0 16px;flex:0 0 auto">
-          Everyone signs in with their email + password. Access is set per user. Leave a password blank to use the group default (PIPER = ${PIPER_DEFAULT_PW}, FFTI / SW = ${FFTI_DEFAULT_PW}).
+          Everyone signs in with their email + password. Access is set per user. Leave a password blank to use the group default (PIPER = ${PIPER_DEFAULT_PW}, FFTI / SW = ${FFTI_DEFAULT_PW}, PWD = ${PWD_DEFAULT_PW}).
         </p>
         <div style="display:flex;align-items:center;gap:8px;margin:0 0 14px;flex:0 0 auto">
           <label style="font-size:12px;color:var(--text2);white-space:nowrap;font-weight:600">App link</label>
@@ -679,8 +714,7 @@ function showUsersModal() {
             onkeydown="if(event.key==='Enter')addAuthUser()"
             style="flex:0 1 150px;padding:9px 11px;border:1px solid var(--border);border-radius:7px;font-size:14px">
           <select id="new-user-group" style="padding:9px 11px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:var(--font)">
-            <option value="ffti">FFTI / SW</option>
-            <option value="piper">PIPER (full)</option>
+            ${groupOptsHtml('ffti', false)}
           </select>
           <button class="sign-out-btn" onclick="addAuthUser()" style="background:var(--inbound);color:#fff;border-color:var(--inbound);font-weight:700">Add</button>
         </div>
@@ -735,10 +769,10 @@ function renderUsersTable() {
     return;
   }
   tb.innerHTML = entries.map(([id,u])=>{
-    const g = u.group==='piper' ? 'piper' : 'ffti';
+    const g = normGroup(u.group);
     const email = (u.email||'').replace(/</g,'&lt;');
     const nameVal = (u.name||'').replace(/"/g,'&quot;');
-    const pwVal = (u.password || (g==='piper'?PIPER_DEFAULT_PW:FFTI_DEFAULT_PW)).replace(/"/g,'&quot;');
+    const pwVal = groupPw(u).replace(/"/g,'&quot;');
     return `<tr style="border-top:1px solid var(--border)">
       <td style="padding:8px 6px;text-align:center">
         <input type="checkbox" class="user-select-cb" data-id="${id}" style="width:15px;height:15px;cursor:pointer">
@@ -750,8 +784,7 @@ function renderUsersTable() {
       <td style="padding:8px 10px;font-size:13px">${email}</td>
       <td style="padding:8px 10px">
         <select onchange="setAuthUserGroup('${id}',this.value)" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:var(--font)">
-          <option value="ffti" ${g==='ffti'?'selected':''}>FFTI / SW</option>
-          <option value="piper" ${g==='piper'?'selected':''}>PIPER (full)</option>
+          ${groupOptsHtml(g, false)}
         </select>
       </td>
       <td style="padding:8px 6px;text-align:center">
@@ -777,7 +810,7 @@ function addAuthUser() {
   const inp = document.getElementById('new-user-email');
   const email = (inp.value||'').trim().toLowerCase();
   const name = (document.getElementById('new-user-name').value||'').trim();
-  const group = document.getElementById('new-user-group').value === 'piper' ? 'piper' : 'ffti';
+  const group = normGroup(document.getElementById('new-user-group').value);
   const pw = (document.getElementById('new-user-pw').value||'').trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showAlert('Enter a valid email address','warning'); return; }
   const exists = Object.values(state.authUsers||{}).some(u => (u.email||'').toLowerCase() === email);
@@ -800,7 +833,7 @@ function setAuthUserName(id, val) {
 
 function setAuthUserGroup(id, group) {
   if (!requireAdmin()) return;
-  const g = group==='piper' ? 'piper' : 'ffti';
+  const g = normGroup(group);
   db.ref(ROOT+'/authUsers/'+id+'/group').set(g)
     .catch(e=>showAlert('Could not update access: '+e.message,'danger'));
 }
@@ -863,9 +896,9 @@ function normalizeUrl(u) {
   return u;
 }
 function buildUserMail(u, link) {
-  const g = u.group==='piper' ? 'piper' : 'ffti';
-  const pw = u.password || (g==='piper'?PIPER_DEFAULT_PW:FFTI_DEFAULT_PW);
-  const access = g==='piper' ? 'PIPER (full access)' : 'FFTI / SW (First Fleet only)';
+  const g = normGroup(u.group);
+  const pw = groupPw(u);
+  const access = GROUP_ACCESS[g];
   const url = normalizeUrl(link);
   const subject = 'Piper Dock Scheduler — Your Access';
   const body =
@@ -908,7 +941,7 @@ function showEditUserModal(id) {
   const isNew = !id;
   const u = isNew ? {} : (state.authUsers||{})[id];
   if (!isNew && !u) { showAlert('User not found','warning'); return; }
-  const g = u.group==='piper' ? 'piper' : 'ffti';
+  const g = normGroup(u.group);
   const esc = v => String(v==null?'':v).replace(/"/g,'&quot;');
   const fieldCss = 'width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid var(--border);border-radius:7px;font-size:14px;margin-bottom:14px';
   const labelCss = 'display:block;font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);margin-bottom:5px;font-weight:600';
@@ -922,8 +955,7 @@ function showEditUserModal(id) {
         <input type="email" id="edit-email" value="${esc(u.email)}" style="${fieldCss};text-transform:none">
         <label style="${labelCss}">Access</label>
         <select id="edit-group" style="${fieldCss};font-family:var(--font)">
-          <option value="ffti" ${g==='ffti'?'selected':''}>FFTI / SW (First Fleet only)</option>
-          <option value="piper" ${g==='piper'?'selected':''}>PIPER (full access)</option>
+          ${groupOptsHtml(g, true)}
         </select>
         <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;cursor:pointer">
           <input type="checkbox" id="edit-admin" ${u.isAdmin?'checked':''} style="width:16px;height:16px"> Admin (can manage users, import, tables)
@@ -946,7 +978,7 @@ function saveEditUser(id) {
   const gv = sel => { const e=document.getElementById(sel); return e ? e.value : ''; };
   const name  = (gv('edit-name')||'').trim();
   const email = (gv('edit-email')||'').trim().toLowerCase();
-  const group = gv('edit-group')==='piper' ? 'piper' : 'ffti';
+  const group = normGroup(gv('edit-group'));
   const isAdmin = document.getElementById('edit-admin').checked;
   const pw    = (gv('edit-pw')||'').trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showAlert('Enter a valid email address','warning'); return; }
@@ -1009,9 +1041,9 @@ function exportUsers() {
     .sort((a,b)=>(a.email||'').localeCompare(b.email||''));
   const esc = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
   const rows = entries.map(u=>{
-    const g = u.group==='piper' ? 'piper' : 'ffti';
-    const access = g==='piper' ? 'PIPER (full)' : 'FFTI / SW';
-    const pw = u.password || (g==='piper'?PIPER_DEFAULT_PW:FFTI_DEFAULT_PW);
+    const g = normGroup(u.group);
+    const access = GROUP_LABEL[g];
+    const pw = groupPw(u);
     return [u.name||'', u.email||'', access, u.isAdmin?'Yes':'No', pw].map(esc).join(',');
   });
   const csv = [['Name','Email','Access','Admin','Password'].map(esc).join(','), ...rows].join('\r\n');
@@ -1088,7 +1120,11 @@ function startListeners() {
   });
   db.ref(ROOT+'/scorecard').on('value', snap => {
     state.scorecard = snap.val()||{};
-    if (state.tab==='sc') scDeferRender();
+    if (state.tab==='sc' && scBoard().store==='scorecard') scDeferRender();
+  });
+  db.ref(ROOT+'/scorecardWrk').on('value', snap => {
+    state.scorecardWrk = snap.val()||{};
+    if (state.tab==='sc' && scBoard().store==='scorecardWrk') scDeferRender();
   });
   // When the cursor leaves the scorecard grid entirely, re-render once so the deferred
   // computed columns (balances, totals) catch up to the entered values.
@@ -3888,7 +3924,13 @@ function exportReportExcel() {
 // ═══ SCORECARD ═════════════════════════════════════════════════════════
 // Recreates the "6021 Piper Warehouse Daily Scorecard": one editable row per day,
 // seven customer groups (5 load metrics each), receiving stats, and manual tons.
-const SC_GROUPS = [
+// ── Scorecard boards ────────────────────────────────────────────────────
+// The Scorecard tab drives two boards: 6021 (every customer, rolled up to the parent account)
+// and SMURFIT WRK (Smurfit Westrock only, broken out by member account). SC_GROUPS / SC_TONS
+// are live bindings that scSetBoard() swaps, so the derive/render/report/extract code follows
+// the active board unchanged. On the WRK board the tons list is NOT the group list — CBM has
+// tons but no load column, and Pre Print / Hood / Pregis / Other have loads but no tons.
+const SC_GROUPS_6021 = [
   {key:'WRK',  label:'SMURFIT WESTROCK'},
   {key:'CAT',  label:'CATALYST'},
   {key:'UPM',  label:'UPM'},
@@ -3897,6 +3939,27 @@ const SC_GROUPS = [
   {key:'IP',   label:'IP'},
   {key:'MAX',  label:'MAXXON'}
 ];
+const SC_TONS_6021 = SC_GROUPS_6021.map(g=>({ key:g.key, label:g.key }));
+
+const SC_GROUPS_WRK = [
+  {key:'NOR',    label:'NORCROSS XDK'},
+  {key:'COV',    label:'COVINGTON XDK'},
+  {key:'PP',     label:'PRE PRINT'},        // Lithia Springs
+  {key:'HOOD',   label:'HOOD'},
+  {key:'PREGIS', label:'PREGIS'},
+  {key:'SG',     label:'SCI GAMES'},
+  {key:'HBH',    label:'HBH'},
+  {key:'CON',    label:'CONWAY'},
+  {key:'LAN',    label:'LANET'},
+  {key:'OTHER',  label:'OTHER'}             // every other Smurfit booking
+];
+const SC_TONS_WRK = [
+  {key:'NOR',label:'NOR'}, {key:'COV',label:'COV'}, {key:'CBM',label:'CBM'}, {key:'SG',label:'SG'},
+  {key:'HBH',label:'HBH'}, {key:'CON',label:'CON'}, {key:'LAN',label:'LAN'}
+];
+
+let SC_GROUPS = SC_GROUPS_6021;
+let SC_TONS   = SC_TONS_6021;
 // SMURFIT WESTROCK rolls up these customers + anything containing "WRK".
 const SC_WRK_MEMBERS = ['COVINGTON XDK','COV XDK','HBH','HOOD','LITHIA SPRINGS','NORCROSS XDK','NOR XDK','PREGIS','SCI GAMES'];
 function scoreGroup(customer){
@@ -3910,6 +3973,57 @@ function scoreGroup(customer){
   if (c.indexOf('UPM')>-1)      return 'UPM';
   if (c==='IP' || c.indexOf('INTERNATIONAL PAPER')>-1) return 'IP';
   return null;
+}
+
+// Smurfit Westrock customer base at 6021. The roll accounts (CBM, CONWAY, LANET and the two
+// XDKs) are confirmed against PickFlow's FIFO/FEFO account lists and BU_MAP; the rest are
+// dock-scheduler-only WRK bookings. Kept separate from scoreGroup() on purpose so the 6021
+// board's existing roll-up is left exactly as it was.
+const SC_WRK_ALL = ['CBM','CONWAY','COVINGTON XDK','COV XDK','HBH','HOOD','LANET','LANET - VALLEY',
+                    'LITHIA SPRINGS','NORCROSS XDK','NOR XDK','PREGIS','SCI GAMES'];
+function isWrkCustomer(c){
+  const s = (c||'').toUpperCase().trim();
+  if (!s) return false;
+  return s.indexOf('WRK')>-1 || SC_WRK_ALL.indexOf(s)>-1 || SC_WRK_MEMBERS.indexOf(s)>-1;
+}
+// Customer → WRK board column. "WRK CONWAY" folds into CONWAY. Anything Smurfit that isn't one
+// of the named accounts (CBM loads, ATL Sheet, Hebron, Reclamation, All South …) lands in OTHER.
+function wrkGroup(customer){
+  const c = (customer||'').toUpperCase().trim();
+  if (!isWrkCustomer(c)) return null;
+  if (c.indexOf('NORCROSS')>-1  || c==='NOR XDK') return 'NOR';
+  if (c.indexOf('COVINGTON')>-1 || c==='COV XDK') return 'COV';
+  if (c.indexOf('LITHIA')>-1)    return 'PP';
+  if (c.indexOf('HOOD')>-1)      return 'HOOD';
+  if (c.indexOf('PREGIS')>-1)    return 'PREGIS';
+  if (c.indexOf('SCI GAMES')>-1) return 'SG';
+  if (c.indexOf('HBH')>-1)       return 'HBH';
+  if (c.indexOf('CONWAY')>-1)    return 'CON';
+  if (c.indexOf('LANET')>-1)     return 'LAN';
+  return 'OTHER';
+}
+
+const SC_BOARDS = {
+  '6021': { label:'6021', short:'6021', tag:'',
+            title:'6021 \u00b7 PIPER WAREHOUSE DAILY SCORECARD',
+            store:'scorecard', path:'/scorecard',
+            groups:SC_GROUPS_6021, tons:SC_TONS_6021, groupOf:scoreGroup, scope:null },
+  'wrk':  { label:'SMURFIT WRK', short:'SMURFIT WESTROCK', tag:'-WRK',
+            title:'SMURFIT WESTROCK \u00b7 PIPER WAREHOUSE DAILY SCORECARD',
+            store:'scorecardWrk', path:'/scorecardWrk',
+            groups:SC_GROUPS_WRK, tons:SC_TONS_WRK, groupOf:wrkGroup, scope:isWrkCustomer }
+};
+function scBoard(){ return SC_BOARDS[state.scBoard] || SC_BOARDS['6021']; }
+// Each board keeps its own manual figures (tons, rail, trailers) under its own Firebase path.
+function scRec(date){ return ((state[scBoard().store]||{})[date]) || {}; }
+function scSetBoard(k){
+  if (!SC_BOARDS[k] || state.scBoard===k) return;
+  state.scBoard     = k;
+  SC_GROUPS         = SC_BOARDS[k].groups;
+  SC_TONS           = SC_BOARDS[k].tons;
+  state.scCollapsed = {};          // collapse + highlight are per-board
+  state.scHlRows    = {};
+  renderScorecard();
 }
 function scNum(v){ const n=parseFloat(v); return isNaN(n)?0:n; }
 // Heuristics for classifying loads pulled from the boards.
@@ -3938,14 +4052,15 @@ function scIsWeekend(dstr){ const w=new Date(dstr+'T00:00:00').getDay(); return 
 // Everything except Tons is derived live from the Inbound / Outbound / Yard boards.
 function scDeriveDay(date){
   const ob = state.outbound||{}, ib = state.inbound||{};
-  const rec = (state.scorecard||{})[date] || {};
+  const B   = scBoard();
+  const rec = scRec(date);
   const groups = {}; SC_GROUPS.forEach(g=>groups[g.key]={due:0,prior:0,dueToShip:0,shipped:0,balance:0});
   // Outbound → per-group ledger. Due Today keys off each load's ORIGINAL (created) date;
   // a departed load's reqDate is its ship date. Prior Pending = loads created earlier and
   // still unshipped at the start of this day → which is exactly the prior day's Balance.
   Object.values(ob).forEach(r=>{
     if (!scActive(r)) return;                              // ignore cancelled
-    const g = scoreGroup(r.customer); if (!g || !groups[g]) return;
+    const g = B.groupOf(r.customer); if (!g || !groups[g]) return;
     const orig     = (r.origReqDate||r.reqDate||'').slice(0,10);   // date the load was created for
     const shipDate = (r.reqDate||'').slice(0,10);                  // for DEPARTED loads = day it shipped
     const departed = (r.status||'').toUpperCase()==='DEPARTED';
@@ -3966,7 +4081,16 @@ function scDeriveDay(date){
   SC_GROUPS.forEach(gr=>{ const x=groups[gr.key]; x.dueToShip = x.due + x.prior; x.balance = x.dueToShip - x.shipped; totalShipped += x.shipped; });
   // Manual free-type fields (entered on the grid, saved per date). FFTI/PWD trailers are a
   // beginning-of-day availability snapshot — entered by hand, not a count of the day's loads.
-  const trkRecv     = scNum(rec.trkRecv);
+  // Tot Trk Recv is derived (not typed): every Inbound load marked COMPLETED for this date.
+  // Rail is tracked separately (rail yard cards + Tot Rail Recv), so no double count here.
+  let trkRecv = 0;
+  Object.values(ib).forEach(r=>{
+    if (!scActive(r)) return;
+    if ((r.status||'').toUpperCase() !== 'COMPLETED') return;
+    if ((r.reqDate||'').slice(0,10) !== date) return;
+    if (B.scope && !B.scope(r.customer)) return;   // WRK board counts Smurfit receipts only
+    trkRecv++;
+  });
   const railRecv    = scNum(rec.railRecv);
   const pendRail    = scNum(rec.pendRail);
   const railTransit = scNum(rec.railTransit);
@@ -3980,9 +4104,9 @@ function scDeriveDay(date){
 // Build every day of the month: load metrics derived from the boards, tons from manual entry.
 function scComputeRow(date){
   const d = scDeriveDay(date);
-  const tRec = ((state.scorecard||{})[date]||{}).t || {};
+  const tRec = scRec(date).t || {};
   const tons = {}; let tonsTotal = 0;
-  SC_GROUPS.forEach(g=>{ const tv=scNum(tRec[g.key]); tons[g.key]=tv; tonsTotal+=tv; });
+  SC_TONS.forEach(t=>{ const tv=scNum(tRec[t.key]); tons[t.key]=tv; tonsTotal+=tv; });
   d.tons = tons; d.tonsTotal = tonsTotal;
   return d;
 }
@@ -3992,7 +4116,7 @@ function scComputeMonth(month){
 
 function saveScore(date, path, value){
   const v = (value===''||value===null||value===undefined) ? null : scNum(value);
-  db.ref(ROOT+'/scorecard/'+date+'/'+path).set(v).catch(e=>console.warn('scorecard save',e));
+  db.ref(ROOT+scBoard().path+'/'+date+'/'+path).set(v).catch(e=>console.warn('scorecard save',e));
 }
 
 // True while the user is typing in a scorecard cell — used to defer re-renders so the
@@ -4020,6 +4144,34 @@ function scTabNav(e, el){
   if (target){ target.focus(); if (target.select) target.select(); }
 }
 
+// Row highlighting — click any day row to pin a highlighter (session-scoped, multiple rows OK).
+function scToggleRow(date){
+  state.scHlRows = state.scHlRows || {};
+  if (state.scHlRows[date]) delete state.scHlRows[date]; else state.scHlRows[date] = true;
+  renderScorecard();
+}
+function scRowClick(e, date){
+  // don't hijack a click that's landing in a Tons / receiving input
+  if (e && e.target && e.target.closest && e.target.closest('input')) return;
+  scToggleRow(date);
+}
+function scClearHl(){ state.scHlRows = {}; renderScorecard(); }
+
+// Per-customer column collapse (Prior Pend / Due to Ship). Balance always stays visible. Session-scoped.
+function scGroupHidden(k){ return !!((state.scCollapsed||{})[k]); }
+function toggleScGroup(k){
+  state.scCollapsed = state.scCollapsed || {};
+  state.scCollapsed[k] = !state.scCollapsed[k];
+  renderScorecard();
+}
+function scToggleAllGroups(){
+  const anyOpen = SC_GROUPS.some(g=>!scGroupHidden(g.key));
+  const next = {};
+  if (anyOpen) SC_GROUPS.forEach(g=>{ next[g.key] = true; });
+  state.scCollapsed = next;
+  renderScorecard();
+}
+
 function renderScorecard(){
   const view = document.getElementById('view-sc');
   if (!view) return;
@@ -4034,19 +4186,25 @@ function renderScorecard(){
   const minp = (date,path,val)=>`<input class="sc-in" type="number" step="any" value="${val||0}" onfocus="this.select()" onkeydown="scTabNav(event,this)" onchange="saveScore('${date}','${path}',this.value)">`;
 
   // ── two-row header (group bands + sub columns) ──
-  const grpBand = SC_GROUPS.map(g=>`<th class="sc-gcol" colspan="5">${g.label}</th>`).join('');
-  const tonsBand = `<th class="sc-tons" colspan="8">Tons (AM of day of)</th>`;
+  const grpBand = SC_GROUPS.map(g=>{
+    const hid = scGroupHidden(g.key);
+    return `<th class="sc-gcol sc-gsep" colspan="${hid?3:5}"><span class="sc-gtog" onclick="toggleScGroup('${g.key}')" title="${hid?'Show':'Hide'} Prior Pend / Due to Ship">${g.label} ${hid?'\u25B8':'\u25BE'}</span></th>`;
+  }).join('');
+  const tonsBand = `<th class="sc-tons sc-gsep" colspan="${SC_TONS.length+1}">Tons (AM of day of)</th>`;
   const head1 = `<tr class="sc-grp">
     <th class="sc-date" rowspan="2">Date</th><th rowspan="2">Wk</th>
     <th colspan="6">Receiving</th>
     ${grpBand}
-    <th colspan="2">Totals</th>
+    <th colspan="2" class="sc-gsep">Totals</th>
     ${tonsBand}
   </tr>`;
   const recSub = ['Tot Trk Recv','Tot Rail Recv','Pend Rail Yard','Rail In Transit','FFTI Trlrs','PWD Trlrs'].map(h=>`<th>${h}</th>`).join('');
-  const grpSub = SC_GROUPS.map(()=>['Due Today','Prior Pend','Due to Ship','Shipped','Balance'].map(h=>`<th class="sc-gcol">${h}</th>`).join('')).join('');
-  const tonsSub = ['WRK','CAT','UPM','TWIN','IPG','IP','MAX','Total'].map(h=>`<th class="sc-tons">${h}</th>`).join('');
-  const head2 = `<tr class="sc-sub">${recSub}${grpSub}<th>Tot Shipped</th><th>Tot Loads</th>${tonsSub}</tr>`;
+  const grpSub = SC_GROUPS.map(g=>{
+    const hs = scGroupHidden(g.key) ? ['Due Today','Shipped','Balance'] : ['Due Today','Prior Pend','Due to Ship','Shipped','Balance'];
+    return hs.map((h,i)=>`<th class="sc-gcol${i===0?' sc-gsep':''}">${h}</th>`).join('');
+  }).join('');
+  const tonsSub = SC_TONS.map(t=>t.label).concat('Total').map((h,i)=>`<th class="sc-tons${i===0?' sc-gsep':''}">${h}</th>`).join('');
+  const head2 = `<tr class="sc-sub">${recSub}${grpSub}<th class="sc-gsep">Tot Shipped</th><th>Tot Loads</th>${tonsSub}</tr>`;
 
   // ── data rows: Trk Recv / Pend Rail / Rail In Transit + Tons are manual inputs; the rest derived ──
   const body = rows.map(r=>{
@@ -4055,24 +4213,27 @@ function renderScorecard(){
     const isToday = d===today ? ' style="box-shadow:inset 3px 0 0 var(--accent)"' : '';
     const grpCells = SC_GROUPS.map(g=>{
       const gv = r.groups[g.key];
-      return `<td class="sc-gcol">${cell(gv.due)}</td>`+
-             `<td class="sc-gcol sc-calc">${cell(gv.prior)}</td>`+
-             `<td class="sc-gcol sc-calc">${cell(gv.dueToShip)}</td>`+
-             `<td class="sc-gcol">${cell(gv.shipped)}</td>`+
-             `<td class="sc-gcol sc-calc">${cell(gv.balance)}</td>`;
+      const hid = scGroupHidden(g.key);
+      let s = `<td class="sc-gcol sc-gsep">${cell(gv.due)}</td>`;
+      if (!hid) s += `<td class="sc-gcol sc-calc">${cell(gv.prior)}</td>`+
+                     `<td class="sc-gcol sc-calc">${cell(gv.dueToShip)}</td>`;
+      s += `<td class="sc-gcol">${cell(gv.shipped)}</td>`;
+      s += `<td class="sc-gcol sc-calc">${cell(gv.balance)}</td>`;
+      return s;
     }).join('');
-    const tonsCells = SC_GROUPS.map(g=>`<td class="sc-tons">${minp(d,'t/'+g.key,r.tons[g.key])}</td>`).join('')
+    const tonsCells = SC_TONS.map((t,i)=>`<td class="sc-tons${i===0?' sc-gsep':''}">${minp(d,'t/'+t.key,r.tons[t.key])}</td>`).join('')
       + `<td class="sc-tons sc-tot">${Math.round(r.tonsTotal||0)}</td>`;
-    return `<tr class="${wknd.trim()}"${isToday}>
+    const hl = (state.scHlRows||{})[d] ? ' sc-hl' : '';
+    return `<tr class="${(wknd+hl).trim()}"${isToday} onclick="scRowClick(event,'${d}')" title="Click to highlight this row">
       <td class="sc-date">${fmtScDate(d)}</td><td>${scWeekNum(d)}</td>
-      <td>${minp(d,'trkRecv',r.trkRecv)}</td>
+      <td class="sc-calc" title="Auto: Inbound loads marked COMPLETED for this date">${cell(r.trkRecv)}</td>
       <td>${minp(d,'railRecv',r.railRecv)}</td>
       <td>${minp(d,'pendRail',r.pendRail)}</td>
       <td>${minp(d,'railTransit',r.railTransit)}</td>
       <td>${minp(d,'ffti',r.ffti)}</td>
       <td>${minp(d,'pwd',r.pwd)}</td>
       ${grpCells}
-      <td class="sc-tot">${cell(r.totalShipped)}</td>
+      <td class="sc-tot sc-gsep">${cell(r.totalShipped)}</td>
       <td class="sc-tot">${cell(r.totalLoads)}</td>
       ${tonsCells}
     </tr>`;
@@ -4093,13 +4254,17 @@ function renderScorecard(){
     s += `<td>${agg(col(r=>r.pendRail))}</td><td>${agg(col(r=>r.railTransit))}</td><td>${fftiC}</td><td>${pwdC}</td>`;
     SC_GROUPS.forEach(g=>{
       // Prior Pend / Due to Ship / Balance are running figures — a sum double-counts, so blank them in the Total row
+      const hid     = scGroupHidden(g.key);
       const prior   = isTotal ? '' : agg(col(r=>r.groups[g.key].prior));
       const dueShip = isTotal ? '' : agg(col(r=>r.groups[g.key].dueToShip));
       const balance = isTotal ? '' : agg(col(r=>r.groups[g.key].balance));
-      s += `<td>${agg(col(r=>r.groups[g.key].due))}</td><td class="sc-calc">${prior}</td><td class="sc-calc">${dueShip}</td><td>${agg(col(r=>r.groups[g.key].shipped))}</td><td class="sc-calc">${balance}</td>`;
+      s += `<td class="sc-gsep">${agg(col(r=>r.groups[g.key].due))}</td>`;
+      if (!hid) s += `<td class="sc-calc">${prior}</td><td class="sc-calc">${dueShip}</td>`;
+      s += `<td>${agg(col(r=>r.groups[g.key].shipped))}</td>`;
+      s += `<td class="sc-calc">${balance}</td>`;
     });
-    s += `<td>${agg(col(r=>r.totalShipped))}</td><td>${agg(col(r=>r.totalLoads))}</td>`;
-    SC_GROUPS.forEach(g=>{ s += `<td>${agg(col(r=>r.tons[g.key]))}</td>`; });
+    s += `<td class="sc-gsep">${agg(col(r=>r.totalShipped))}</td><td>${agg(col(r=>r.totalLoads))}</td>`;
+    SC_TONS.forEach((t,i)=>{ s += `<td${i===0?' class="sc-gsep"':''}>${agg(col(r=>r.tons[t.key]))}</td>`; });
     s += `<td>${agg(col(r=>r.tonsTotal))}</td></tr>`;
     return s;
   }
@@ -4109,20 +4274,28 @@ function renderScorecard(){
   const rptMode  = state.scReportMode || 'day';
   const rptStart = state.scReportStart || today;
   const rptEnd   = state.scReportEnd || rptStart;
+  const rptOut   = state.scReportOut || 'report';
+  const outOpts  = [['report','Summary Report'],['extract','Scorecard Extract (Excel)']]
+    .map(([v,l])=>`<option value="${v}" ${rptOut===v?'selected':''}>${l}</option>`).join('');
   const modeOpts = [['day','Single Day'],['week','Week'],['month','Month'],['range','Custom Range']]
     .map(([v,l])=>`<option value="${v}" ${rptMode===v?'selected':''}>${l}</option>`).join('');
   view.innerHTML = `
   <div class="sc-toolbar">
+    <div class="sc-boardsw">${Object.keys(SC_BOARDS).map(k=>`<button class="sc-board-pill${(state.scBoard||'6021')===k?' on':''}" onclick="scSetBoard('${k}')">${SC_BOARDS[k].label}</button>`).join('')}</div>
     <div style="display:flex;align-items:center;gap:6px">
       <button class="date-nav-btn" onclick="scShiftMonth(-1)">‹</button>
       <input type="month" value="${month}" onchange="state.scMonth=this.value;renderScorecard()"
         style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-family:var(--font);font-size:13px;font-weight:700;color:var(--text)">
       <button class="date-nav-btn" onclick="scShiftMonth(1)">›</button>
     </div>
-    <div style="font-size:13px;font-weight:800;color:var(--text);letter-spacing:.5px">6021 · PIPER WAREHOUSE DAILY SCORECARD</div>
+    <button class="date-nav-btn" onclick="scToggleAllGroups()" title="Collapse / expand Prior Pend and Due to Ship for every customer" style="width:auto;padding:0 9px;font-size:11px;font-weight:700">\u21F9 Cols</button>
+    ${Object.keys(state.scHlRows||{}).length ? `<button class="date-nav-btn" onclick="scClearHl()" title="Clear every highlighted row" style="width:auto;padding:0 9px;font-size:11px;font-weight:700">\u2715 Highlights</button>` : ''}
+    <div style="font-size:13px;font-weight:800;color:var(--text);letter-spacing:.5px">${scBoard().title}</div>
     <div style="flex:1"></div>
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">
       <span style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;font-weight:700">Report</span>
+      <select onchange="state.scReportOut=this.value;renderScorecard()" title="Summary Report = the formatted recap. Scorecard Extract = the grid itself in Excel, minus any collapsed columns."
+        style="padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-family:var(--font);font-size:12px;font-weight:700;color:var(--text)">${outOpts}</select>
       <select onchange="state.scReportMode=this.value;renderScorecard()"
         style="padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-family:var(--font);font-size:12px;font-weight:700;color:var(--text)">${modeOpts}</select>
       <input type="date" value="${rptStart}" onchange="state.scReportStart=this.value"
@@ -4130,11 +4303,11 @@ function renderScorecard(){
       ${rptMode==='range'?`<span style="font-size:11px;color:var(--text2)">to</span>
       <input type="date" value="${rptEnd}" onchange="state.scReportEnd=this.value"
         style="padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-family:var(--font);font-size:12px" title="End date">`:''}
-      <button class="add-load-btn ob-btn" onclick="scRunReport()">📄 Run Report</button>
+      <button class="add-load-btn ob-btn" onclick="scRunReport()">${rptOut==='extract'?'\u2913 Extract to Excel':'📄 Run Report'}</button>
     </div>
   </div>
   <div style="font-size:11px;color:var(--text2);margin-bottom:8px">
-    Due Today = loads created for that date · Prior Pend = loads rolled in from earlier days · Due to Ship = Due Today + Prior Pend · Shipped = loads shipped that day · Balance = Due to Ship − Shipped (carries to the next day's Prior Pend). Type into the amber <b>Tons</b> and white receiving cells; press <b>Tab</b> to move to the next field.
+    Due Today = loads created for that date · Prior Pend = loads rolled in from earlier days · Due to Ship = Due Today + Prior Pend · Shipped = loads shipped that day · Balance = Due to Ship − Shipped (carries to the next day's Prior Pend). <b>Tot Trk Recv</b> is automatic \u2014 it counts Inbound loads marked COMPLETED for that date. Click a customer name to hide/show its Prior Pend and Due to Ship columns. Click any day row to highlight it (click again to clear). Type into the amber <b>Tons</b> and white receiving cells; press <b>Tab</b> to move to the next field.
   </div>
   <div class="sc-wrap">
     <table class="sc-table">
@@ -4174,6 +4347,8 @@ function scReportLabel(dates){
 // last day; Due to Ship = starting pending + Σ due, so Balance = ending outstanding (reconciles).
 function scReportAgg(rows){
   const groups={}; SC_GROUPS.forEach(g=>groups[g.key]={due:0,dueToShip:0,shipped:0,balance:0,tons:0});
+  const tonsBy={}; SC_TONS.forEach(t=>tonsBy[t.key]=0);
+  rows.forEach(r=>{ SC_TONS.forEach(t=>{ tonsBy[t.key]+=(r.tons[t.key]||0); }); });
   let trkRecv=0,railRecv=0,railToTruck=0,totalShipped=0,totalLoads=0,tonsTotal=0;
   const first=rows[0], last=rows[rows.length-1];
   rows.forEach(r=>{
@@ -4186,10 +4361,17 @@ function scReportAgg(rows){
   const totalDueToShip = SC_GROUPS.reduce((s,g)=>s+groups[g.key].dueToShip,0);
   const totalDue       = SC_GROUPS.reduce((s,g)=>s+groups[g.key].due,0);
   return { trkRecv, railRecv, railToTruck, railTransit:last?last.railTransit:0, ffti:last?last.ffti:0, pwd:last?last.pwd:0,
-           groups, totalShipped, totalLoads, tonsTotal, totalPending, totalDueToShip, totalDue };
+           groups, tonsBy, totalShipped, totalLoads, tonsTotal, totalPending, totalDueToShip, totalDue };
 }
 function scReportHtml(){
-  const dates = scReportDates();
+  // Report days to date only — within the selected period, never year to date. A month/week
+  // picked in the current period stops at today, so the label reads the real span and the
+  // snapshot figures (Rail In Transit, FFTI, PWD) come from today rather than a future
+  // period-end. Past periods are unaffected; a wholly-future pick falls back to its full
+  // span rather than reporting nothing.
+  const _all    = scReportDates();
+  const _toDate = _all.filter(d => d <= todayStr());
+  const dates   = _toDate.length ? _toDate : _all;
   const rows = dates.map(d=>scComputeRow(d));
   const A = scReportAgg(rows);
   let logo=''; const img=document.querySelector('img[alt="Piper Warehouse"]'); if(img) logo=img.src;
@@ -4199,6 +4381,8 @@ function scReportHtml(){
   const grpRows = SC_GROUPS.map(g=>{ const v=A.groups[g.key];
     return `<tr><td class="lbl">${g.label}</td><td>${v.due}</td><td>${v.dueToShip}</td><td>${v.shipped}</td><td class="bal">${v.balance}</td><td>${Math.round(v.tons||0)}</td></tr>`;
   }).join('');
+  const tonsOnlyRows = SC_TONS.filter(t=>!SC_GROUPS.some(g=>g.key===t.key)).map(t=>
+    `<tr><td class="lbl">${t.label} <span style="font-weight:400;opacity:.55">(tons only)</span></td><td>—</td><td>—</td><td>—</td><td class="bal">—</td><td>${Math.round((A.tonsBy||{})[t.key]||0)}</td></tr>`).join('');
   const custTotal = `<tr class="tot"><td class="lbl">TOTAL</td><td>${A.totalDue}</td><td>${A.totalDueToShip}</td><td>${A.totalShipped}</td><td class="bal">${A.totalPending}</td><td>${Math.round(A.tonsTotal||0)}</td></tr>`;
   const botIcons = [['Total Loads Shipped',A.totalShipped],['Total Loads Pending',A.totalPending],['Total Loads',A.totalLoads],['Total Tons',Math.round(A.tonsTotal||0)]]
     .map(([k,v])=>`<div class="fbox"><span>${k}</span><b>${v||0}</b></div>`).join('');
@@ -4232,7 +4416,7 @@ function scReportHtml(){
     <div class="recv">${topIcons}</div>
     <table class="rt">
       <thead><tr><th>Customer</th><th>Loads Due Today</th><th>Loads Due to Ship</th><th>Loads Shipped</th><th>Balance Due</th><th>Tons</th></tr></thead>
-      <tbody>${grpRows}${custTotal}</tbody>
+      <tbody>${grpRows}${tonsOnlyRows}${custTotal}</tbody>
     </table>
     <div class="foot">${botIcons}</div>
     <div class="detail">
@@ -4282,9 +4466,247 @@ function scDownloadWord(html, fname){
   const a = document.createElement('a'); a.href=url; a.download='Piper-6021-Scorecard-'+fname+'.doc';
   document.body.appendChild(a); a.click(); setTimeout(()=>{ try{document.body.removeChild(a);}catch(e){} URL.revokeObjectURL(url); },0);
 }
+// ─── SCORECARD EXTRACT (Excel) ─────────────────────────────────────────
+// Ships the grid itself (rather than the summary report) to .xlsx, honouring whichever
+// per-customer columns are collapsed on screen. Site code comes off ROOT so 6021/6049 share this.
+//
+// Built as raw OOXML rather than via SheetJS: the free SheetJS build writes cell values but
+// drops cell styles and frozen panes, and we want bold headers, bold Total/Avg and frozen
+// header rows. Everything below is self-contained — no extra library needed.
+
+function scSiteCode(){ const p = String(ROOT||'').split('/'); return p[p.length-1] || ''; }
+function scGroupHeads(k){
+  return scGroupHidden(k) ? ['Due Today','Shipped','Balance']
+                          : ['Due Today','Prior Pend','Due to Ship','Shipped','Balance'];
+}
+// Excel serial date (1900 system); built from Y/M/D so it can't be shifted by the timezone.
+function scXlSerial(ymd){
+  const p = String(ymd).split('-').map(Number);
+  return Math.floor((Date.UTC(p[0], p[1]-1, p[2]) - Date.UTC(1899,11,30)) / 86400000);
+}
+
+// ── tiny ZIP writer (store method — Excel reads uncompressed entries fine) ──
+const _SC_CRC = (function(){
+  const t = new Int32Array(256);
+  for (let n=0;n<256;n++){ let c=n; for (let k=0;k<8;k++) c = (c & 1) ? (0xEDB88320 ^ (c>>>1)) : (c>>>1); t[n]=c; }
+  return t;
+})();
+function scCrc32(b){ let c=-1; for (let i=0;i<b.length;i++) c = _SC_CRC[(c ^ b[i]) & 0xFF] ^ (c>>>8); return (c ^ -1)>>>0; }
+function scZip(files){
+  const enc = new TextEncoder();
+  const parts = [], central = [];
+  let offset = 0;
+  files.forEach(f=>{
+    const name = enc.encode(f.name), data = enc.encode(f.xml);
+    const crc = scCrc32(data), n = data.length;
+    const lh = new Uint8Array(30 + name.length), lv = new DataView(lh.buffer);
+    lv.setUint32(0, 0x04034b50, true); lv.setUint16(4, 20, true); lv.setUint16(6, 0, true);
+    lv.setUint16(8, 0, true); lv.setUint16(10, 0, true); lv.setUint16(12, 0, true);
+    lv.setUint32(14, crc, true); lv.setUint32(18, n, true); lv.setUint32(22, n, true);
+    lv.setUint16(26, name.length, true); lv.setUint16(28, 0, true);
+    lh.set(name, 30);
+    parts.push(lh, data);
+    const ch = new Uint8Array(46 + name.length), cv = new DataView(ch.buffer);
+    cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true);
+    cv.setUint16(8, 0, true); cv.setUint16(10, 0, true); cv.setUint16(12, 0, true); cv.setUint16(14, 0, true);
+    cv.setUint32(16, crc, true); cv.setUint32(20, n, true); cv.setUint32(24, n, true);
+    cv.setUint16(28, name.length, true); cv.setUint16(30, 0, true); cv.setUint16(32, 0, true);
+    cv.setUint16(34, 0, true); cv.setUint16(36, 0, true); cv.setUint32(38, 0, true);
+    cv.setUint32(42, offset, true);
+    ch.set(name, 46);
+    central.push(ch);
+    offset += lh.length + n;
+  });
+  const cdSize = central.reduce((s,c)=>s+c.length, 0);
+  const end = new Uint8Array(22), ev = new DataView(end.buffer);
+  ev.setUint32(0, 0x06054b50, true); ev.setUint16(4, 0, true); ev.setUint16(6, 0, true);
+  ev.setUint16(8, files.length, true); ev.setUint16(10, files.length, true);
+  ev.setUint32(12, cdSize, true); ev.setUint32(16, offset, true); ev.setUint16(20, 0, true);
+  const all = parts.concat(central, [end]);
+  const total = all.reduce((s,a)=>s+a.length, 0);
+  const out = new Uint8Array(total);
+  let p = 0; all.forEach(a=>{ out.set(a, p); p += a.length; });
+  return out;
+}
+
+function scColLetter(i){ let s=''; let n=i+1; while(n>0){ const m=(n-1)%26; s=String.fromCharCode(65+m)+s; n=(n-m-1)/26; } return s; }
+function scXmlEsc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function scExtractAoA(dates){
+  const rows  = dates.map(d=>scComputeRow(d));
+  const today = todayStr();
+  const cell  = v => Math.round((v||0)*100)/100;
+  const RECV  = ['Tot Trk Recv','Tot Rail Recv','Pend Rail Yard','Rail In Transit','FFTI Trlrs','PWD Trlrs'];
+  const TKEYS = SC_TONS.map(t=>t.key);
+  const HDR   = 3;                                   // rows 0-2 = title / range / spacer
+
+  // header bands + sub headers (collapsed columns are simply never emitted)
+  const band = ['Date','Wk'], sub = ['',''], merges = [], sepCols = [];
+  // sep = the heavy divider that opens a subset on screen (each customer + the Totals block)
+  const push = (label, heads, sep) => {
+    const c0 = band.length;
+    if (sep) sepCols.push(c0);
+    band.push(label); for (let i=1;i<heads.length;i++) band.push('');
+    heads.forEach(h=>sub.push(h));
+    if (heads.length>1) merges.push({s:{r:HDR,c:c0},e:{r:HDR,c:c0+heads.length-1}});
+  };
+  merges.push({s:{r:HDR,c:0},e:{r:HDR+1,c:0}});      // Date spans both header rows
+  merges.push({s:{r:HDR,c:1},e:{r:HDR+1,c:1}});      // Wk
+  push('Receiving', RECV, false);
+  SC_GROUPS.forEach(g=>push(g.label, scGroupHeads(g.key), true));
+  push('Totals', ['Tot Shipped','Tot Loads'], true);
+  push('Tons (AM of day of)', SC_TONS.map(t=>t.label).concat('Total'), true);
+
+  // one row per day — real Excel date in col A so it sorts/filters/pivots
+  const dayRow = r => {
+    const o = [{ d: scXlSerial(r.date) }, scWeekNum(r.date)];
+    o.push(cell(r.trkRecv), cell(r.railRecv), cell(r.pendRail), cell(r.railTransit), cell(r.ffti), cell(r.pwd));
+    SC_GROUPS.forEach(g=>{
+      const gv = r.groups[g.key];
+      o.push(cell(gv.due));
+      if (!scGroupHidden(g.key)) o.push(cell(gv.prior), cell(gv.dueToShip));
+      o.push(cell(gv.shipped), cell(gv.balance));
+    });
+    o.push(cell(r.totalShipped), cell(r.totalLoads));
+    TKEYS.forEach(k=>o.push(cell(r.tons[k])));
+    o.push(Math.round(r.tonsTotal||0));
+    return o;
+  };
+
+  // Total / Avg over elapsed days only, with the same blanking rules as the on-screen summary
+  const elapsed = rows.filter(r=>r.date<=today);
+  const col = f => elapsed.map(f);
+  const avg = a => { const nz=a.filter(v=>v!==0); return nz.length ? Math.round(nz.reduce((x,y)=>x+y,0)/nz.length*10)/10 : 0; };
+  const sum = a => Math.round(a.reduce((x,y)=>x+y,0)*100)/100;
+  const sumRow = (label, agg, isTotal) => {
+    const o = [label,''];
+    o.push(agg(col(r=>r.trkRecv)), agg(col(r=>r.railRecv)), agg(col(r=>r.pendRail)), agg(col(r=>r.railTransit)),
+           isTotal?'':agg(col(r=>r.ffti)), isTotal?'':agg(col(r=>r.pwd)));
+    SC_GROUPS.forEach(g=>{
+      o.push(agg(col(r=>r.groups[g.key].due)));
+      if (!scGroupHidden(g.key)) o.push(isTotal?'':agg(col(r=>r.groups[g.key].prior)),
+                                        isTotal?'':agg(col(r=>r.groups[g.key].dueToShip)));
+      o.push(agg(col(r=>r.groups[g.key].shipped)), isTotal?'':agg(col(r=>r.groups[g.key].balance)));
+    });
+    o.push(agg(col(r=>r.totalShipped)), agg(col(r=>r.totalLoads)));
+    TKEYS.forEach(k=>o.push(agg(col(r=>r.tons[k]))));
+    o.push(agg(col(r=>r.tonsTotal)));
+    return o;
+  };
+
+  const aoa = [[scBoard().short+' \u00b7 Piper Warehouse Daily Scorecard'], [scReportLabel(dates)], []]
+    .concat([band, sub], rows.map(dayRow), [sumRow('Total', sum, true), sumRow('Avg', avg, false)]);
+  const width = band.length;
+  merges.unshift({s:{r:0,c:0},e:{r:0,c:width-1}}, {s:{r:1,c:0},e:{r:1,c:width-1}});
+  const cols = [{wch:12},{wch:5}].concat(Array.from({length:width-2}, ()=>({wch:10})));
+  // bold: title, range label, both header rows, and the two summary rows
+  const boldRows = [0, 1, HDR, HDR+1, aoa.length-2, aoa.length-1];
+  return { aoa, merges, cols, boldRows, sepCols, width, freezeRow: HDR+2, freezeCol: 2 };
+}
+
+function scExtractSheetXml(x){
+  const bold = {}; x.boldRows.forEach(r=>bold[r]=true);
+  const sep = {}; (x.sepCols||[]).forEach(c=>sep[c]=true);
+  // xf ids: 0 plain · 1 bold · 2 date · 3 divider · 4 bold+divider
+  const styleOf = (r,c) => bold[r] ? (sep[c] ? 4 : 1) : (sep[c] ? 3 : 0);
+  let sd = '';
+  x.aoa.forEach((row,r)=>{
+    let cells = '';
+    row.forEach((v,c)=>{
+      if (v===null || v===undefined || v==='') return;
+      const ref = scColLetter(c)+(r+1);
+      if (v && typeof v === 'object' && v.d !== undefined){
+        cells += '<c r="'+ref+'" s="2"><v>'+v.d+'</v></c>';           // date cell (col A, never a divider)
+      } else {
+        const st = styleOf(r,c);
+        const sAttr = st ? ' s="'+st+'"' : '';
+        if (typeof v === 'number') cells += '<c r="'+ref+'"'+sAttr+'><v>'+v+'</v></c>';
+        else cells += '<c r="'+ref+'"'+sAttr+' t="inlineStr"><is><t xml:space="preserve">'+scXmlEsc(v)+'</t></is></c>';
+      }
+    });
+    if (cells) sd += '<row r="'+(r+1)+'">'+cells+'</row>';
+  });
+  const colsXml = '<cols>' + x.cols.map((c,i)=>'<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+c.wch+'" customWidth="1"/>').join('') + '</cols>';
+  const mergeXml = x.merges.length
+    ? '<mergeCells count="'+x.merges.length+'">' + x.merges.map(m=>'<mergeCell ref="'+scColLetter(m.s.c)+(m.s.r+1)+':'+scColLetter(m.e.c)+(m.e.r+1)+'"/>').join('') + '</mergeCells>'
+    : '';
+  const topLeft = scColLetter(x.freezeCol)+(x.freezeRow+1);
+  const pane = '<pane xSplit="'+x.freezeCol+'" ySplit="'+x.freezeRow+'" topLeftCell="'+topLeft+'" activePane="bottomRight" state="frozen"/>'
+             + '<selection pane="bottomRight" activeCell="'+topLeft+'" sqref="'+topLeft+'"/>';
+  const dim = 'A1:'+scColLetter(x.width-1)+x.aoa.length;
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    + '<dimension ref="'+dim+'"/>'
+    + '<sheetViews><sheetView tabSelected="1" workbookViewId="0">'+pane+'</sheetView></sheetViews>'
+    + '<sheetFormatPr defaultRowHeight="15"/>'
+    + colsXml + '<sheetData>' + sd + '</sheetData>' + mergeXml
+    + '</worksheet>';
+}
+
+function scExtractFiles(x){
+  return [
+    { name:'[Content_Types].xml', xml:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+      + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+      + '<Default Extension="xml" ContentType="application/xml"/>'
+      + '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+      + '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+      + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+      + '</Types>' },
+    { name:'_rels/.rels', xml:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+      + '</Relationships>' },
+    { name:'xl/workbook.xml', xml:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+      + '<sheets><sheet name="Scorecard" sheetId="1" r:id="rId1"/></sheets></workbook>' },
+    { name:'xl/_rels/workbook.xml.rels', xml:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+      + '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+      + '</Relationships>' },
+    { name:'xl/styles.xml', xml:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+      + '<numFmts count="1"><numFmt numFmtId="164" formatCode="ddd m/d/yy"/></numFmts>'
+      + '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>'
+      + '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
+      + '<borders count="2">'
+      + '<border><left/><right/><top/><bottom/><diagonal/></border>'
+      + '<border><left style="medium"><color rgb="FF1A2035"/></left><right/><top/><bottom/><diagonal/></border>'
+      + '</borders>'
+      + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+      + '<cellXfs count="5">'
+      + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+      + '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+      + '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+      + '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/>'
+      + '<xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1"/>'
+      + '</cellXfs>'
+      + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+      + '</styleSheet>' },
+    { name:'xl/worksheets/sheet1.xml', xml: scExtractSheetXml(x) }
+  ];
+}
+
+function scExportExtract(dates){
+  try {
+    const x = scExtractAoA(dates);
+    const bytes = scZip(scExtractFiles(x));
+    const tag = dates.length===1 ? dates[0] : (dates[0]+'_to_'+dates[dates.length-1]);
+    const blob = new Blob([bytes], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'Piper-'+scSiteCode()+scBoard().tag+'-Scorecard-'+tag+'.xlsx';
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{ try{ document.body.removeChild(a); }catch(e){} URL.revokeObjectURL(url); }, 0);
+    showAlert('Scorecard extract downloaded','success');
+  } catch(e){ showAlert('Could not build the extract: '+e.message,'warning'); }
+}
+
 function scRunReport(){
   const dates = scReportDates();
   if (!dates.length){ showAlert('Pick a valid date range for the report.','warning'); return; }
+  if ((state.scReportOut||'report')==='extract'){ scExportExtract(dates); return; }
   const html = scReportHtml();
   const fname = dates.length===1 ? dates[0] : (dates[0]+'_to_'+dates[dates.length-1]);
   const win = window.open('','_blank');
