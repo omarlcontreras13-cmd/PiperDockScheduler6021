@@ -150,6 +150,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .dup-badge:hover { filter:brightness(1.15);text-decoration:underline; }
 .loaded-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#111;background:#86efac;padding:1px 5px;border-radius:4px;vertical-align:middle; }
 .notexcel-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#111;background:#fde047;padding:1px 5px;border-radius:4px;vertical-align:middle;white-space:nowrap; }
+.night-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#e8ecf7;background:#1e2a4a;border:1px solid #3b4c7a;padding:1px 5px;border-radius:4px;vertical-align:middle;white-space:nowrap; }
 .pw-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#0b2a5b;background:#bfdbfe;border:1px solid #60a5fa;padding:1px 5px;border-radius:4px;vertical-align:middle;white-space:nowrap; }
 tr.priority-row > td { background:rgba(220,38,38,0.07) !important; }
 tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
@@ -872,6 +873,14 @@ function setPaperwork(id, on) {
 }
 function pwBadge(on){ return on ? '<span class="pw-badge" title="Paperwork is in the trailer">\u{1F4C4} PAPERWORK IN TRAILER</span>' : ''; }
 
+// Night pick-up — the trailer goes out after hours. Stored on the outbound record so the
+// First Fleet / PWD boards, which project outbound loads, show the same flag.
+function setNightPU(id, on) {
+  db.ref(ROOT+'/outbound/'+id+'/nightPU').set(!!on)
+    .catch(e=>showAlert('Could not update night pick-up flag: '+e.message,'danger'));
+}
+function nightBadge(on){ return on ? '<span class="night-badge" title="Night pick-up">\u{1F319} NIGHT PU</span>' : ''; }
+
 function setPriority(id, on) {
   db.ref(ROOT+'/outbound/'+id+'/priority').set(!!on)
     .catch(e=>showAlert('Could not update priority: '+e.message,'danger'));
@@ -1476,7 +1485,7 @@ function renderInbound() {
   <div class="schedule-wrap">
     <table class="schedule-table">
       <thead><tr>
-        ${state.rollMode.ib?'<th style="width:34px;text-align:center"></th>':''}
+        ${state.rollMode.ib?'<th style="width:40px;text-align:center">Roll</th>':''}
         ${thS('Status','ib','status','style="width:110px"')}
         ${thFilter('Customer','ib','customer')}
         ${thFilter('Load #','ib','loadNum')}
@@ -1544,6 +1553,7 @@ function renderOutbound() {
       const obIsRolled = isRolled(r);
       const obOrig = (r.origReqDate||r.reqDate||'').slice(0,10);
       const obPri = !!r.priority;
+      const obNight = !!r.nightPU;
       const obPW  = !!r.paperwork;
       const obManual = r.source !== 'excel-import' && r.sourceType !== 'pickflow';
       const obTrCls = obPri ? ' class="priority-row"' : '';
@@ -1551,6 +1561,7 @@ function renderOutbound() {
       return `<tr data-lid="${id}"${obTrCls}${obTrStyle}>${obRollCell}
         <td style="text-align:center"><input type="checkbox" ${obPri?'checked':''} onchange="setPriority('${id}',this.checked)" title="Mark load as priority" style="width:16px;height:16px;cursor:pointer;accent-color:var(--danger)"></td>
         <td style="text-align:center"><input type="checkbox" ${obPW?'checked':''} onchange="setPaperwork('${id}',this.checked)" title="Paperwork in trailer" style="width:16px;height:16px;cursor:pointer;accent-color:var(--inbound)"></td>
+        <td style="text-align:center"><input type="checkbox" ${obNight?'checked':''} onchange="setNightPU('${id}',this.checked)" title="Night pick-up" style="width:16px;height:16px;cursor:pointer;accent-color:#1e2a4a"></td>
         <td>
           <select class="status-select ${OB_CLASSES[r.status]||'s-order-recv'}"
             onchange="saveField('ob','${id}','status',this.value);if(this.value==='DEPARTED'||this.value==='CANCELLED')saveField('ob','${id}','ffStatus',null);this.className='status-select '+(OB_CLASSES[this.value]||'s-order-recv')"
@@ -1559,7 +1570,7 @@ function renderOutbound() {
           </select>
         </td>
         <td style="min-width:155px">${cellSelect('ob',id,'customer',r.customer,refOpts('customerOB'),'150px','font-weight:700')}${obPri?'<span class="pri-badge">★ PRIORITY</span>':''}${isPF?'<span style="font-size:8px;background:rgba(26,58,107,0.12);color:var(--inbound);padding:1px 5px;border-radius:4px;margin-left:4px;font-weight:700">PF</span>':''}${obIsRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
-        <td style="min-width:150px">${cellInput('ob',id,'orderNum',r.orderNum,'115px','Order #','font-weight:700')}${(obManual && !obIsRolled)?'<span class="notexcel-badge">NEW ORDER</span>':''}${dupBadge('ob', obDups, r.orderNum, id)}${pwBadge(obPW)}</td>
+        <td style="min-width:150px">${cellInput('ob',id,'orderNum',r.orderNum,'115px','Order #','font-weight:700')}${(obManual && !obIsRolled)?'<span class="notexcel-badge">NEW ORDER</span>':''}${dupBadge('ob', obDups, r.orderNum, id)}${pwBadge(obPW)}${nightBadge(obNight)}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${obIsRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${obOrig}" onchange="saveRowDate('ob','${id}',this.value)" title="Original requested date (does not move when rolled)"></td>
         <td style="min-width:150px">${cellInput('ob',id,'destination',r.destination,'140px','Destination')}</td>
         <td style="min-width:70px"><span class="ib-appt-label">${effApptLabel(r)}</span></td>
@@ -1591,12 +1602,14 @@ function renderOutbound() {
         </td>
       </tr>`;
   };
-  const obCols = (state.rollMode.ob?1:0) + 21;
+  const obCols = (state.rollMode.ob?1:0) + 22;
   const obOpenRow = (label, bookArg) => `<tr class="ib-open-row">${state.rollMode.ob?'<td></td>':''}
+        <td></td>
+        <td></td>
         <td></td>
         <td><span class="ib-open-badge">OPEN</span></td>
         <td><a class="book-link" onclick="showAddLoad('ob','${bookArg}')">+ Book</a></td>
-        <td></td><td></td><td></td><td></td>
+        <td></td><td></td><td></td>
         <td style="min-width:70px"><span class="ib-open-appt">${label}</span></td>
         <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
       </tr>`;
@@ -1669,9 +1682,10 @@ function renderOutbound() {
   <div class="schedule-wrap">
     <table class="schedule-table">
       <thead><tr>
-        ${state.rollMode.ob?'<th style="width:34px;text-align:center"></th>':''}
+        ${state.rollMode.ob?'<th style="width:40px;text-align:center">Roll</th>':''}
         ${thS('Pri','ob','priority','style="width:40px;text-align:center"')}
         ${thS('Paper','ob','paperwork','style="width:46px;text-align:center"')}
+        ${thS('Night','ob','nightPU','style="width:46px;text-align:center"')}
         ${thS('Status','ob','status','style="width:130px"')}
         ${thFilter('Customer','ob','customer')}
         ${thFilter('Order #','ob','orderNum')}
@@ -1979,6 +1993,7 @@ function renderFirstFleet() {
       status:       (r.status === 'DEPARTED') ? 'LOAD PICKED UP' : (r.status === 'CANCELLED') ? 'LOAD CANCELLED' : (r.ffStatus || obToFF(r.status)),
       obStatus:     r.status,
       priority:     !!r.priority,
+      nightPU:      !!r.nightPU,
       paperwork:    !!r.paperwork,
       phone:        r.phone||'',
       notes:        r.notes||''
@@ -2060,7 +2075,7 @@ function renderFirstFleet() {
         <td style="min-width:90px">${cellInput(saveType,id,'carrier',r.carrier,'90px','Carrier')}</td>
         <td style="min-width:100px;font-weight:600">${r.customer||''}${ffPri?'<span class="pri-badge">★ PRIORITY</span>':''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${ffRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${ffOrig}" onchange="saveField('${isOBSource?'ob':'firstfleet'}','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
-        <td style="min-width:120px">${cellInput(saveType,id,'loadId',r.loadId,'90px','Load ID')}${r.obStatus==='LOADED'?'<span class="loaded-badge">LOADED</span>':''}${pwBadge(!!r.paperwork)}</td>
+        <td style="min-width:120px">${cellInput(saveType,id,'loadId',r.loadId,'90px','Load ID')}${r.obStatus==='LOADED'?'<span class="loaded-badge">LOADED</span>':''}${nightBadge(!!r.nightPU)}${pwBadge(!!r.paperwork)}</td>
         <td style="min-width:52px">${cellInput(saveType,id,'door',r.door,'52px','Door #')}</td>
         <td style="min-width:90px">${cellInput(saveType,id,'trailer',r.trailer,'90px','Trailer #')}</td>
         <td style="min-width:130px">${cellInput(saveType,id,'driver',r.driver,'130px','Assigned Driver')}</td>
@@ -2149,6 +2164,7 @@ function renderPWD(){
       status:      (r.status==='DEPARTED') ? 'LOAD PICKED UP' : (r.status==='CANCELLED') ? 'LOAD CANCELLED' : (r.ffStatus || obToFF(r.status)),
       obStatus:    r.status,
       priority:    !!r.priority,
+      nightPU:     !!r.nightPU,
       paperwork:   !!r.paperwork,
       phone:       r.phone||'',
       notes:       r.notes||''
@@ -2225,7 +2241,7 @@ function renderPWD(){
         <td style="min-width:90px">${cellInput('outbound',id,'carrier',r.carrier,'90px','Carrier')}</td>
         <td style="min-width:100px;font-weight:600">${r.customer||''}${ffPri?'<span class="pri-badge">★ PRIORITY</span>':''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${ffRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${ffOrig}" onchange="saveField('ob','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
-        <td style="min-width:120px">${cellInput('outbound',id,'loadId',r.loadId,'90px','Load ID')}${r.obStatus==='LOADED'?'<span class="loaded-badge">LOADED</span>':''}${pwBadge(!!r.paperwork)}</td>
+        <td style="min-width:120px">${cellInput('outbound',id,'loadId',r.loadId,'90px','Load ID')}${r.obStatus==='LOADED'?'<span class="loaded-badge">LOADED</span>':''}${nightBadge(!!r.nightPU)}${pwBadge(!!r.paperwork)}</td>
         <td style="min-width:52px">${cellInput('outbound',id,'door',r.door,'52px','Door #')}</td>
         <td style="min-width:90px">${cellInput('outbound',id,'trailer',r.trailer,'90px','Trailer #')}</td>
         <td style="min-width:130px">${cellInput('outbound',id,'driver',r.driver,'130px','Assigned Driver')}</td>
