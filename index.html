@@ -4388,24 +4388,23 @@ function scReportHtml(){
   const custTotal = `<tr class="tot"><td class="lbl">TOTAL</td><td>${A.totalDue}</td><td>${A.totalDueToShip}</td><td>${A.totalShipped}</td><td class="bal">${A.totalPending}</td><td>${Math.round(A.tonsTotal||0)}</td></tr>`;
   const botIcons = [['Total Loads Shipped',A.totalShipped],['Total Loads Pending',A.totalPending],['Total Loads',A.totalLoads],['Total Tons',Math.round(A.tonsTotal||0)]]
     .map(([k,v])=>`<div class="fbox"><span>${k}</span><b>${v||0}</b></div>`).join('');
-  // Detail by day — RUNNING month-to-date totals. Flow columns (Trk Recv, Rail Recv, Due
-  // Today, Due to Ship, Shipped, Total Loads, Tons) accumulate day over day; the snapshot
-  // columns (Rail In Transit, FFTI, PWD) show that day's count; Prior Pend stays hidden.
+  // Detail by day — each row is THAT DAY on its own, nothing accumulates. Due to Ship is the
+  // day's Due Today + Prior Pend; Balance is what was still outstanding when the day closed
+  // (both already computed per group in scDeriveDay). Rail In Transit, FFTI, PWD and Tons are
+  // point-in-time counts, so they show the day's own figure. Prior Pend stays hidden.
   const today = todayStr();
   const detMonth = scMonthStr(state.scReportStart||today);
   const _mDays = scDaysInMonth(detMonth);
   const _elapsed = _mDays.filter(d=>d<=today);
   const detailRows = (_elapsed.length ? _elapsed : _mDays).map(d=>scComputeRow(d));
-  const firstPrior = detailRows.length ? SC_GROUPS.reduce((s,g)=>s+detailRows[0].groups[g.key].prior,0) : 0;
-  let cTrk=0,cRail=0,cDue=0,cShp=0,cLoads=0,cTons=0;
+  const _sumG = (r, f) => SC_GROUPS.reduce((s,g)=>s+f(r.groups[g.key]), 0);
   const dayRows = detailRows.map(r=>{
-    cTrk+=r.trkRecv; cRail+=r.railRecv; cLoads+=r.totalLoads; cTons+=r.tonsTotal;
-    cDue += SC_GROUPS.reduce((s,g)=>s+r.groups[g.key].due,0);
-    cShp += SC_GROUPS.reduce((s,g)=>s+r.groups[g.key].shipped,0);
-    const dts = firstPrior + cDue;      // running Due to Ship (month-to-date)
-    const bal = dts - cShp;             // running outstanding Balance
+    const due = _sumG(r, v=>v.due);
+    const dts = _sumG(r, v=>v.dueToShip);   // that day's Due Today + Prior Pend
+    const shp = _sumG(r, v=>v.shipped);
+    const bal = _sumG(r, v=>v.balance);     // dueToShip - shipped, end of that day
     const wke = scIsWeekend(r.date)?' class="wke"':'';
-    return `<tr${wke}><td class="lbl">${scFmtNice(r.date)}</td><td>${cTrk}</td><td>${cRail}</td><td>${r.railTransit}</td><td>${r.ffti}</td><td>${r.pwd}</td><td>${cDue}</td><td>${dts}</td><td>${cShp}</td><td class="bal">${bal}</td><td>${cLoads}</td><td>${Math.round(cTons)}</td></tr>`;
+    return `<tr${wke}><td class="lbl">${scFmtNice(r.date)}</td><td>${r.trkRecv}</td><td>${r.railRecv}</td><td>${r.railTransit}</td><td>${r.ffti}</td><td>${r.pwd}</td><td>${due}</td><td>${dts}</td><td>${shp}</td><td class="bal">${bal}</td><td>${r.totalLoads}</td><td>${Math.round(r.tonsTotal)}</td></tr>`;
   }).join('');
   const detTitle = new Date(detMonth+'-01T00:00:00').toLocaleDateString('en-US',{month:'long',year:'numeric'});
   return `<div id="sc-report">
@@ -4422,8 +4421,8 @@ function scReportHtml(){
     </table>
     <div class="foot">${botIcons}</div>
     <div class="detail">
-      <div class="dttl">Detail by Day — Running ${detTitle} Total</div>
-      <div class="dcap">Cumulative month-to-date; each row is the running total through that day (last row = month total). Rail In Transit, FFTI and PWD show that day's snapshot count.</div>
+      <div class="dttl">Detail by Day — ${detTitle}</div>
+      <div class="dcap">Each row is that day on its own — nothing carries forward. Due to Ship = that day's Due Today + Prior Pend; Balance = still outstanding at end of day. Rail In Transit, FFTI, PWD and Tons are that day's point-in-time counts.</div>
       <table class="rt dt-table">
         <thead><tr><th>Date</th><th>Trk Recv</th><th>Rail Recv</th><th>Rail In Transit</th><th>FFTI</th><th>PWD</th><th>Due Today</th><th>Due to Ship</th><th>Shipped</th><th>Balance</th><th>Total Loads</th><th>Tons</th></tr></thead>
         <tbody>${dayRows}</tbody>
