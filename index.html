@@ -2375,23 +2375,22 @@ const RAIL_DOORS = [1,2,3,4,5,6,7];
 function pruneStaleDoors() {
   const doors = state.yard.doors;
   if (!doors) return;
-  // Once Inbound/Outbound has a load for a door, the schedule owns that door and any hand-keyed
-  // manual placeholder is dropped, so the door is driven by the load (a live load shows through;
-  // a departed/completed load leaves the door empty). A manual entry is superseded when EITHER
-  //   (a) a live (not COMPLETED/DEPARTED) load currently occupies that door, OR
-  //   (b) any load — live or departed/completed — matches that door AND trailer.
-  // Matching (b) on door+trailer (not trailer alone) leaves a reused trailer keyed onto a
-  // different empty door alone until its own load lands.
+  // While a load is LIVE on a door (door + trailer assigned, not yet COMPLETED/DEPARTED) the
+  // schedule owns that door, so a hand-keyed placeholder there is dropped and the card is driven by
+  // the load instead. The claim is deliberately scoped to live loads only: as soon as the load
+  // departs or completes it releases the door, the card falls back to Empty, and the yard is free to
+  // key a new trailer in — including the same trailer number that just left.
   const liveDoors = new Set();
-  const claimedDT = new Set();
-  const claim = r => { if (r.door && r.trailer) claimedDT.add(String(r.door).trim()+'|'+String(r.trailer).trim().toUpperCase()); };
-  Object.values(state.inbound||{}).forEach(r => { claim(r); if (r.door && r.trailer && r.status!=='COMPLETED') liveDoors.add(String(r.door).trim()); });
-  Object.values(state.outbound||{}).forEach(r => { claim(r); if (r.door && r.trailer && r.status!=='DEPARTED')  liveDoors.add(String(r.door).trim()); });
+  Object.values(state.inbound||{}).forEach(r => {
+    if (r.door && r.trailer && r.status!=='COMPLETED') liveDoors.add(String(r.door).trim());
+  });
+  Object.values(state.outbound||{}).forEach(r => {
+    if (r.door && r.trailer && r.status!=='DEPARTED')  liveDoors.add(String(r.door).trim());
+  });
   Object.keys(doors).forEach(num => {
     const d = doors[num]; if (!d || !d.trailer) return;
-    const door = String(num).trim();
-    if (liveDoors.has(door) || claimedDT.has(door+'|'+String(d.trailer).trim().toUpperCase())) {
-      delete doors[num];                                     // schedule owns this door — drop the manual placeholder
+    if (liveDoors.has(String(num).trim())) {
+      delete doors[num];                                   // a live load owns this door
       try { db.ref(ROOT+'/yard/doors/'+num).remove(); } catch(e){}
     }
   });
