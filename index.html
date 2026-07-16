@@ -2365,13 +2365,38 @@ const TYPE_CLASS = {'DO NOT USE':'do-not-use','IB LIVE LOAD':'ib-live','OB LIVE 
 const TYPE_COLOR = {'DO NOT USE':'var(--danger)','IB LIVE LOAD':'var(--inbound)','OB LIVE LOAD':'var(--outbound)','FIRST FLEET':'var(--warning)','PWD ONLY':'#7c3aed'};
 const RAIL_DOORS = [1,2,3,4,5,6,7];
 
-// Clear manual /yard/doors residue whose load has already left the building.
-// Manual door entries persist independently of the schedule, so once their trailer
-// or order appears on a DEPARTED/CANCELLED (OB) or COMPLETED (IB) load — and no live
-// load currently holds that door — the saved record is stale. We purge it at the
-// source (Firebase + local state) so every surface that reads it (door card, edit
-// window, and yard-check sheet) reflects empty consistently. Manual drop-trailer
-// entries that never matched a schedule load are never touched.
+// Hand-keyed /yard/doors records are independent of the schedule. While a load is actually working
+// a door, the schedule owns it and the manual record is purged at the source (Firebase + local
+// state) so every surface — door card, editor, yard-check sheet — agrees. Once the load finishes the
+// door is released and the yard is free to key any trailer back in, including the one that left.
+// A load holds its door while it is still working: door + trailer assigned, and not finished.
+// DEPARTED (outbound) / COMPLETED (inbound) release it. CANCELLED never holds a door — the rest of
+// the app already treats cancelled loads as inactive (scActive, duplicate checks, rolls, the yard's
+// own doneTrailers set), and the door check used to be the one place that didn't, which pinned doors
+// forever. Shared by pruneStaleDoors and renderYard so the two can never disagree.
+function yardHoldsDoor(r, isIB){
+  if (!r || !r.door || !r.trailer) return false;
+  const s = (r.status||'').toUpperCase();
+  if (s === 'CANCELLED') return false;
+  return isIB ? s !== 'COMPLETED' : s !== 'DEPARTED';
+}
+
+// Which load is holding a door, if any — so the door editor can explain itself instead of quietly
+// dropping what was typed. Outbound wins, matching the order renderYard builds its live map in.
+function yardDoorHolder(num){
+  const door = String(num).trim();
+  let hit = null;
+  Object.values(state.inbound||{}).forEach(r => {
+    if (!hit && yardHoldsDoor(r, true) && String(r.door).trim()===door)
+      hit = { src:'Inbound', order:r.loadNum||'(no load #)', status:r.status||'', trailer:r.trailer||'', done:'COMPLETED' };
+  });
+  Object.values(state.outbound||{}).forEach(r => {
+    if (yardHoldsDoor(r, false) && String(r.door).trim()===door)
+      hit = { src:'Outbound', order:r.orderNum||'(no order #)', status:r.status||'', trailer:r.trailer||'', done:'DEPARTED' };
+  });
+  return hit;
+}
+
 function pruneStaleDoors() {
   const doors = state.yard.doors;
   if (!doors) return;
@@ -2382,10 +2407,10 @@ function pruneStaleDoors() {
   // key a new trailer in — including the same trailer number that just left.
   const liveDoors = new Set();
   Object.values(state.inbound||{}).forEach(r => {
-    if (r.door && r.trailer && r.status!=='COMPLETED') liveDoors.add(String(r.door).trim());
+    if (yardHoldsDoor(r, true))  liveDoors.add(String(r.door).trim());
   });
   Object.values(state.outbound||{}).forEach(r => {
-    if (r.door && r.trailer && r.status!=='DEPARTED')  liveDoors.add(String(r.door).trim());
+    if (yardHoldsDoor(r, false)) liveDoors.add(String(r.door).trim());
   });
   Object.keys(doors).forEach(num => {
     const d = doors[num]; if (!d || !d.trailer) return;
@@ -2408,11 +2433,11 @@ function renderYard() {
   //    assigned (any day), until it departs (outbound) or completes (inbound).
   const liveDoors = {};
   Object.entries(state.inbound||{}).forEach(([id,r]) => {
-    if (r.door && r.trailer && r.status!=='COMPLETED')
+    if (yardHoldsDoor(r, true))
       liveDoors[String(r.door).trim()] = { id, reqDate:r.reqDate||'', src:'ib', status:r.status||'INBOUND', trailer:r.trailer||'', customer:r.customer||'', order:r.loadNum||'', carrier:r.carrier||'' };
   });
   Object.entries(state.outbound||{}).forEach(([id,r]) => {
-    if (r.door && r.trailer && r.status!=='DEPARTED')
+    if (yardHoldsDoor(r, false))
       liveDoors[String(r.door).trim()] = { id, reqDate:r.reqDate||'', src:'ob', status:r.status||'OUTBOUND', trailer:r.trailer||'', customer:r.customer||'', order:r.orderNum||'', carrier:r.carrier||'' };
   });
 
@@ -3040,10 +3065,68 @@ function saveLoad(type, id) {
     .catch(()=>showAlert('Save failed — check your connection and try again.','warning'));
 }
 
+// Deleting a load must not silently evict its trailer from the yard: the load record going away
+// doesn't mean the trailer rolled out of the door. If the load is still parked on a door with a
+// trailer, ask what happened to it; anything already departed/completed/cancelled has released its
+// door and deletes straight away.
 function deleteLoad(type, id) {
+  const rec = ((type==='ib' ? state.inbound : state.outbound)||{})[id] || {};
+  if (yardHoldsDoor(rec, type==='ib')) { showDeleteDoorPrompt(type, id, rec); return; }
   if(!confirm('Delete this load?')) return;
-  const path = ROOT+(type==='ib'?'/inbound/':'/outbound/')+id;
-  db.ref(path).remove().then(()=>{showAlert('Deleted','warning');closeModal();});
+  finishDeleteLoad(type, id, false);
+}
+
+function showDeleteDoorPrompt(type, id, rec) {
+  const door = String(rec.door||'').trim();
+  const trailer = String(rec.trailer||'').trim();
+  const who = (rec.orderNum || rec.loadNum || '').toString();
+  document.getElementById('modal-container').innerHTML = `
+  <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal" style="max-width:480px">
+      <h3 style="margin:0 0 6px">Delete load${who?' '+who.replace(/</g,'&lt;'):''}?</h3>
+      <p style="font-size:13px;color:var(--text2);line-height:1.6;margin:0 0 8px">
+        Trailer <strong style="color:var(--text)">${trailer.replace(/</g,'&lt;')}</strong> is assigned to
+        <strong style="color:var(--text)">door ${door.replace(/</g,'&lt;')}</strong> on this load.
+      </p>
+      <p style="font-size:13px;color:var(--text2);line-height:1.6;margin:0 0 18px">
+        Deleting the load removes it from the schedule. If the trailer is still physically in the door,
+        keep it in the Yard Manager &mdash; it'll show as a manual entry marked <strong>Empty</strong>.
+      </p>
+      <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
+        <button class="sign-out-btn" onclick="closeModal()">Cancel</button>
+        <button class="sign-out-btn" onclick="finishDeleteLoad('${type}','${id}',false)">Clear door ${door}</button>
+        <button class="sign-out-btn" style="background:var(--accent);color:#fff;border-color:var(--accent)"
+          onclick="finishDeleteLoad('${type}','${id}',true)">Keep trailer in door ${door}</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+// keep=true re-keys the trailer into the yard as a manual entry before the load is removed, so the
+// door still shows what's physically in it. keep=false leaves the door empty (the old behaviour).
+function finishDeleteLoad(type, id, keep) {
+  const rec = ((type==='ib' ? state.inbound : state.outbound)||{})[id] || {};
+  const door = String(rec.door||'').trim();
+  const trailer = String(rec.trailer||'').trim();
+  const drop = () => db.ref(ROOT+(type==='ib'?'/inbound/':'/outbound/')+id).remove()
+    .then(()=>{
+      showAlert(keep && door && trailer ? `Deleted \u2014 trailer ${trailer} kept in door ${door}` : 'Deleted','warning');
+      closeModal();
+    });
+  if (keep && door && trailer) {
+    db.ref(ROOT+'/yard/doors/'+door).update({
+      trailer,
+      carrier:  rec.carrier||'',
+      customer: rec.customer||'',
+      order:    '',                       // the load is going away, so the order # goes with it
+      loaded:   'EMPTY',                  // its load is gone — the trailer is sitting empty
+      enteredBy:(state.user && state.user.label) || 'PIPER',
+      enteredAt:Date.now(),
+      updatedAt:Date.now()
+    }).then(drop).catch(drop);
+  } else {
+    drop();
+  }
 }
 
 // ─── DOOR EDIT ─────────────────────────────────────────────────────────
@@ -3075,6 +3158,12 @@ function editDoor(num) {
   <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal" style="max-width:440px">
     <h3>Door ${num} <span style="font-size:11px;color:var(--text2);font-weight:400">${type}</span></h3>
+    ${(() => { const h = yardDoorHolder(num); return h ? `
+    <div style="background:rgba(217,119,6,0.12);border:1px solid var(--warning);border-radius:8px;padding:9px 11px;margin:0 0 12px;font-size:12px;line-height:1.55;color:var(--text)">
+      <strong>Door ${num} is held by ${h.src} ${h.order}</strong> \u2014 ${h.status}${h.trailer?`, trailer ${h.trailer}`:''}.<br>
+      That load drives this door, so anything keyed here is replaced on the next refresh. Set it to
+      <strong>${h.done}</strong> or clear its door to free door ${num}.
+    </div>` : ''; })()}
     <div class="door-modal-grid">
       <div class="form-group">
         <label>Trailer / Container #</label>
