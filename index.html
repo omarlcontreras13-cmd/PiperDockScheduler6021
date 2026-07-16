@@ -1745,10 +1745,11 @@ function rollSelected(type) {
   const branch = type==='ib' ? 'inbound' : 'outbound';
   const fromDate = type==='ib' ? state.ibDate : state.obDate;
   const updates = {};
-  let rolledCount = 0;
+  let rolledCount = 0, skippedNight = 0;
   rollSel.forEach(id => {
     const rec = (branch==='outbound' ? state.outbound[id] : state.inbound[id]) || {};
     if (rec.status === 'CANCELLED') return;   // cancelled loads don't roll
+    if (rec.nightPU) { skippedNight++; return; }   // night pick-ups leave tonight — never roll them
     updates[branch+'/'+id+'/reqDate']       = target;
     updates[branch+'/'+id+'/manualReqDate']  = target;
     updates[branch+'/'+id+'/rolledFrom']     = fromDate;
@@ -1757,9 +1758,9 @@ function rollSelected(type) {
     rolledCount++;
   });
   const n = rolledCount;
-  if (!n) { showAlert('No loads rolled — cancelled loads are skipped','warning'); return; }
+  if (!n) { showAlert(skippedNight ? 'No loads rolled — night pick-ups and cancelled loads are skipped' : 'No loads rolled — cancelled loads are skipped','warning'); return; }
   db.ref(ROOT).update(updates).then(() => {
-    showAlert(`Rolled ${n} load${n>1?'s':''} to ${fmtDateLabel(target)}`,'success');
+    showAlert(`Rolled ${n} load${n>1?'s':''} to ${fmtDateLabel(target)}`+(skippedNight?` \u00b7 ${skippedNight} night pick-up${skippedNight>1?'s':''} skipped`:''),'success');
     exitRollMode(type);
   }).catch(err => showAlert('Roll failed: '+err.message,'danger'));
 }
@@ -3827,6 +3828,7 @@ function autoRollOutbound() {
   const updates = {};
   Object.entries(state.outbound||{}).forEach(([id,r])=>{
     if (!r || r.status === 'DEPARTED' || r.status === 'CANCELLED') return;
+    if (r.nightPU) return;   // night pick-up — the trailer goes out tonight, don't push it to tomorrow
     const cust = (r.customer||'').toUpperCase();
     if (NO_AUTO_ROLL_CUSTOMERS.some(c => cust.indexOf(c) > -1)) return;   // excluded customers (e.g. Sci Games)
     const d = (r.reqDate||'').slice(0,10);
