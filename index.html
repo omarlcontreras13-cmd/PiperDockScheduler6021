@@ -1561,7 +1561,7 @@ function renderOutbound() {
       const obOrig = (r.origReqDate||r.reqDate||'').slice(0,10);
       const obPri = !!r.priority;
       const obNight = !!r.nightPU;
-      const obPW  = !!r.paperwork;
+      const obPW  = !!r.paperwork && (r.status||'').toUpperCase()!=='DEPARTED';   // paperwork left with the trailer
       const obManual = r.source !== 'excel-import' && r.sourceType !== 'pickflow';
       const obTrCls = obPri ? ' class="priority-row"' : '';
       const obTrStyle = (!obPri && isPF) ? ' style="background:rgba(26,58,107,0.025)"' : '';
@@ -2002,7 +2002,7 @@ function renderFirstFleet() {
       obStatus:     r.status,
       priority:     !!r.priority,
       nightPU:      !!r.nightPU,
-      paperwork:    !!r.paperwork,
+      paperwork:    !!r.paperwork && (r.status||'').toUpperCase()!=='DEPARTED',
       phone:        r.phone||'',
       notes:        r.notes||''
     }]));
@@ -2173,7 +2173,7 @@ function renderPWD(){
       obStatus:    r.status,
       priority:    !!r.priority,
       nightPU:     !!r.nightPU,
-      paperwork:   !!r.paperwork,
+      paperwork:   !!r.paperwork && (r.status||'').toUpperCase()!=='DEPARTED',
       phone:       r.phone||'',
       notes:       r.notes||''
     }]));
@@ -3211,6 +3211,12 @@ function saveField(type, id, field, value) {
   db.ref(ROOT+'/'+path+'/'+id+'/'+field).set(value)
     .catch(e=>console.warn('Field save error',e));
   if (path==='outbound' && (field==='door' || field==='trailer')) checkDupAssignment(field, id, value);
+  // Paperwork went out with the trailer — drop the flag once the load departs. Covers the fleet
+  // boards too: their "LOAD PICKED UP" is mapped to DEPARTED before it reaches here.
+  if (path==='outbound' && field==='status' && value==='DEPARTED') {
+    db.ref(ROOT+'/outbound/'+id+'/paperwork').set(false)
+      .catch(e=>console.warn('paperwork clear',e));
+  }
 }
 
 // Editing the requested date on a row is a full date change: the order moves to that day
@@ -3493,6 +3499,181 @@ function extractTable(wb) {
   return out;
 }
 const TABLE_LABELS = { operators:'Operators', customerIB:'Customer (Inbound)', customerOB:'Customer (Outbound)', door:'Doors', stageLane:'Staging Lanes', outStatus:'Outbound Status', inStatus:'Inbound Status' };
+let _pendingScHist = null;
+
+// Header text -> stored scorecard field. Only the typed fields are importable; everything else on
+// the scorecard is derived from loads. Several spellings are accepted because the legacy books
+// drifted over time ("Tot Rail Yard" vs "Pend Rail Yard", "FFTI Trailers" vs "FFTI Trlrs").
+const SC_HIST_FIELDS = {
+  'TOT RAIL RECV':'railRecv', 'TOTAL RAIL RECV':'railRecv', 'RAIL RECV':'railRecv',
+  'PEND RAIL YARD':'pendRail', 'TOT PEND RAIL YARD':'pendRail', 'TOTAL PEND RAIL YARD':'pendRail',
+  'TOT RAIL YARD':'pendRail', 'TOTAL RAIL YARD':'pendRail', 'RAIL YARD':'pendRail', 'PEND RAIL':'pendRail',
+  'RAIL IN TRANSIT':'railTransit', 'RAIL TRANSIT':'railTransit',
+  'FFTI TRLRS':'ffti', 'FFTI TRLR':'ffti', 'FFTI TRAILERS':'ffti', 'FFTI TRAILER':'ffti',
+  'PWD TRLRS':'pwd', 'PWD TRLR':'pwd', 'PWD TRAILERS':'pwd', 'PWD TRAILER':'pwd'
+};
+// Legacy books sometimes spell a tons column out in full where the board uses a short key.
+const SC_TONS_ALIASES = {
+  'TWIN RIVERS':'TWIN', 'MAXXON':'MAX', 'NEXUS':'NEX', 'SMURFIT WESTROCK':'WRK', 'SMURFIT':'WRK',
+  'CATALYST':'CAT', 'NORCROSS':'NOR', 'NORCROSS XDK':'NOR', 'COVINGTON':'COV', 'COVINGTON XDK':'COV',
+  'SCI GAMES':'SG', 'CONWAY':'CON', 'LANET':'LAN', 'LANET - VALLEY':'LAN'
+};
+const SC_MONTH_NAMES = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+
+function scNormHdr(v){ return String(v==null?'':v).replace(/\s+/g,' ').trim().toUpperCase(); }
+// "January 2026" -> {y:2026, m:1}. The tab name is the only trustworthy date source in these books.
+function scParseTabMonth(name){
+  const m = scNormHdr(name).match(/^([A-Z]+)\s+(\d{4})$/);
+  if (!m) return null;
+  const i = SC_MONTH_NAMES.indexOf(m[1]);
+  return i < 0 ? null : { y:+m[2], m:i+1 };
+}
+function scPad2(n){ return (n<10?'0':'')+n; }
+
+// Parse a whole workbook against the ACTIVE board's tons keys.
+//
+// Dates come from each sheet's own Date column. These books are one running sheet copied across
+// several tabs — every tab restarts at the same anchor and runs a bit further, and the tab names
+// ("January 2026") don't describe their contents. So tab names are ignored, rows are keyed by their
+// real date, and tabs are merged: later copies carry extra columns (LAN/CON, MAX/NEX) that the
+// earlier ones lack, and merging by date gives the union instead of whichever tab landed last.
+function scParseHistoryBook(wb){
+  const tonsKeys = SC_TONS.map(t=>t.key);
+  const out = { rows:[], tabs:[], warnings:[] };
+  const byDate = {};
+  (wb.SheetNames||[]).forEach(name=>{
+    const grid = XLSX.utils.sheet_to_json(wb.Sheets[name], { header:1, blankrows:true, defval:null });
+    // header row = the first row carrying a "Date" cell (survives the layout drift between tabs)
+    let hr = -1;
+    for (let i=0; i<Math.min(grid.length, 25); i++){
+      if ((grid[i]||[]).some(c=>scNormHdr(c)==='DATE')){ hr = i; break; }
+    }
+    if (hr < 0){ out.warnings.push(`"${name}" — no header row found, skipped`); return; }
+    const dateCol = (grid[hr]||[]).findIndex(c=>scNormHdr(c)==='DATE');
+    if (dateCol < 0){ out.warnings.push(`"${name}" — no Date column, skipped`); return; }
+    // map columns by header name, not position
+    const map = {}, seen = [];
+    (grid[hr]||[]).forEach((c,ci)=>{
+      const h = scNormHdr(c);
+      if (!h) return;
+      if (SC_HIST_FIELDS[h]) { map[ci] = SC_HIST_FIELDS[h]; seen.push(h); }
+      else {
+        // tons column: either the board's own key ("WRK", "NOR") or the customer spelled out
+        const tk = tonsKeys.indexOf(h) > -1 ? h
+                 : (tonsKeys.indexOf(SC_TONS_ALIASES[h]||'\u0000') > -1 ? SC_TONS_ALIASES[h] : null);
+        if (tk) { map[ci] = 't/'+tk; seen.push('Tons '+tk); }
+      }
+    });
+    if (!Object.keys(map).length){
+      out.warnings.push(`"${name}" — no importable columns matched this board, skipped`); return;
+    }
+    let n = 0, first = null, last = null;
+    for (let i=hr+1; i<grid.length; i++){
+      const row = grid[i] || [];
+      const d = row[dateCol];
+      if (!(d instanceof Date) || isNaN(d)) continue;
+      const yr = d.getFullYear();
+      if (yr < 2000 || yr > 2100) continue;   // blank/zero date cells land on Excel's 1899 epoch
+      const date = `${d.getFullYear()}-${scPad2(d.getMonth()+1)}-${scPad2(d.getDate())}`;
+      const rec = {};
+      Object.keys(map).forEach(ci=>{
+        const v = row[ci];
+        if (v === null || v === undefined || v === '') return;
+        const num = Number(v);
+        if (!isFinite(num)) return;
+        rec[map[ci]] = num;
+      });
+      if (Object.keys(rec).length){
+        byDate[date] = Object.assign(byDate[date]||{}, rec);
+        n++; if (!first) first = date; last = date;
+      }
+    }
+    out.tabs.push({ tab:name, days:n, span:(first&&last)?`${first} \u2192 ${last}`:'\u2014', cols:seen });
+  });
+  out.rows = Object.keys(byDate).sort().map(d=>({ date:d, rec:byDate[d] }));
+  return out;
+}
+
+function showScImportModal(){
+  if (!state.user || state.user.role !== 'admin'){ showAlert('Admin only','warning'); return; }
+  _pendingScHist = null;
+  const b = scBoard();
+  document.getElementById('modal-container').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal" style="max-width:620px">
+        <h2 style="margin:0 0 4px">Import Scorecard History</h2>
+        <p style="color:var(--text2);font-size:13px;margin:0 0 6px">
+          Loads a legacy scorecard workbook into
+          <strong style="color:var(--accent)">${b.label}</strong>. Rows are dated from each sheet's
+          own <em>Date</em> column, and every tab is merged — these books repeat the same running
+          sheet across tabs, so the tab names are ignored.
+        </p>
+        <p style="color:var(--text2);font-size:12px;margin:0 0 14px;line-height:1.5">
+          Only the typed figures come across &mdash; <strong>Tons, Tot Rail Recv, Pend Rail Yard,
+          Rail In Transit, FFTI Trlrs, PWD Trlrs</strong>. Due Today, Shipped, Balance and Tot Trk
+          Recv are calculated from the loads on the boards and are left alone. Switch boards before
+          importing to target the other scorecard.
+        </p>
+        <input type="file" id="sc-hist-file" accept=".xlsx,.xlsm" onchange="previewScImport(event)"
+          style="display:block;width:100%;padding:10px;border:1px dashed var(--border);border-radius:8px;margin-bottom:14px">
+        <div id="sc-hist-preview" style="font-size:13px;max-height:300px;overflow:auto"></div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+          <button class="sign-out-btn" onclick="closeModal()">Cancel</button>
+          <button class="sign-out-btn" id="sc-hist-go" disabled
+            style="background:#0d9488;color:#fff;border-color:#0d9488;opacity:.5"
+            onclick="runScImport()">Import History</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function previewScImport(ev){
+  const file = ev.target.files && ev.target.files[0];
+  const box = document.getElementById('sc-hist-preview');
+  const go  = document.getElementById('sc-hist-go');
+  if (!file) return;
+  box.innerHTML = '<span style="color:var(--text2)">Reading…</span>';
+  try {
+    const buf = await file.arrayBuffer();
+    const wb  = XLSX.read(new Uint8Array(buf), { type:'array', cellDates:true });
+    const res = scParseHistoryBook(wb);
+    _pendingScHist = res;
+    const cells = res.rows.reduce((s,r)=>s+Object.keys(r.rec).length, 0);
+    if (!res.rows.length){
+      box.innerHTML = `<div style="color:var(--danger);font-weight:700">Nothing importable found.</div>`
+        + res.warnings.map(w=>`<div style="color:var(--text2);font-size:12px">• ${w}</div>`).join('');
+      go.disabled = true; go.style.opacity = .5; return;
+    }
+    const dates = res.rows.map(r=>r.date).sort();
+    box.innerHTML =
+      `<div style="font-weight:700;margin-bottom:6px">${res.rows.length} days · ${cells} values · from ${res.tabs.length} tab${res.tabs.length>1?'s':''} (merged)</div>`
+    + `<div style="color:var(--text2);font-size:12px;margin-bottom:8px">${dates[0]} → ${dates[dates.length-1]} · writing to <strong>${scBoard().label}</strong></div>`
+    + `<table style="width:100%;border-collapse:collapse;font-size:12px">
+         <tr style="text-align:left;color:var(--text2)"><th>Tab</th><th>Dates found</th><th>Days</th><th>Columns matched</th></tr>
+         ${res.tabs.map(t=>`<tr style="border-top:1px solid var(--border)"><td>${t.tab}</td><td>${t.span}</td><td>${t.days}</td><td style="color:var(--text2)">${t.cols.join(', ')||'—'}</td></tr>`).join('')}
+       </table>`
+    + (res.warnings.length ? `<div style="margin-top:8px">${res.warnings.map(w=>`<div style="color:var(--warning);font-size:12px">• ${w}</div>`).join('')}</div>` : '');
+    go.disabled = false; go.style.opacity = 1;
+  } catch(e){
+    box.innerHTML = `<div style="color:var(--danger)">Could not read that file: ${e.message}</div>`;
+    go.disabled = true; go.style.opacity = .5;
+  }
+}
+
+function runScImport(){
+  if (!_pendingScHist || !_pendingScHist.rows.length) return;
+  if (!state.user || state.user.role !== 'admin'){ showAlert('Admin only','warning'); return; }
+  const b = scBoard();
+  const updates = {};
+  _pendingScHist.rows.forEach(r=>{
+    Object.keys(r.rec).forEach(f=>{ updates[r.date+'/'+f] = r.rec[f]; });
+  });
+  const n = _pendingScHist.rows.length;
+  db.ref(ROOT+b.path).update(updates)
+    .then(()=>{ showAlert(`Imported ${n} day${n>1?'s':''} of history into ${b.label}`,'success'); closeModal(); })
+    .catch(e=>showAlert('Import failed: '+e.message,'danger'));
+}
+
 function showTableImportModal() {
   if (!state.user || state.user.role !== 'admin') { showAlert('Admin only','warning'); return; }
   _pendingTable = null;
@@ -4333,6 +4514,7 @@ function renderScorecard(){
       <button class="date-nav-btn" onclick="scShiftMonth(1)">›</button>
     </div>
     <button class="date-nav-btn" onclick="scToggleAllGroups()" title="Collapse / expand Prior Pend and Due to Ship for every customer" style="width:auto;padding:0 9px;font-size:11px;font-weight:700">\u21F9 Cols</button>
+    <button class="date-nav-btn" onclick="showScImportModal()" title="Import legacy scorecard history (tons / rail / trailers) into the board you're viewing" style="width:auto;padding:0 9px;font-size:11px;font-weight:700">\u2913 History</button>
     ${Object.keys(state.scHlRows||{}).length ? `<button class="date-nav-btn" onclick="scClearHl()" title="Clear every highlighted row" style="width:auto;padding:0 9px;font-size:11px;font-weight:700">\u2715 Highlights</button>` : ''}
     <div style="font-size:13px;font-weight:800;color:var(--text);letter-spacing:.5px">${scBoard().title}</div>
     <div style="flex:1"></div>
