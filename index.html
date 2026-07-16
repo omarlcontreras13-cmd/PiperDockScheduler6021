@@ -447,6 +447,7 @@ const state = {
   obStatFilter: null,
   scorecard: {},
   scCollapsed: {},
+  obFlagsHidden: false,
   scBoard: '6021',
   scorecardWrk: {},
   scHlRows: {},
@@ -875,6 +876,12 @@ function pwBadge(on){ return on ? '<span class="pw-badge" title="Paperwork is in
 
 // Night pick-up — the trailer goes out after hours. Stored on the outbound record so the
 // First Fleet / PWD boards, which project outbound loads, show the same flag.
+// Outbound flag columns (Pri / Paper / Night) collapse as a block — the tick-boxes are only
+// needed when you're setting them, and the badges beside the Order # still show what's flagged.
+// Session-scoped, mirroring the scorecard's column collapse.
+function obFlagsShown(){ return !state.obFlagsHidden; }
+function toggleObFlags(){ state.obFlagsHidden = !state.obFlagsHidden; renderOutbound(); }
+
 function setNightPU(id, on) {
   db.ref(ROOT+'/outbound/'+id+'/nightPU').set(!!on)
     .catch(e=>showAlert('Could not update night pick-up flag: '+e.message,'danger'));
@@ -1559,9 +1566,10 @@ function renderOutbound() {
       const obTrCls = obPri ? ' class="priority-row"' : '';
       const obTrStyle = (!obPri && isPF) ? ' style="background:rgba(26,58,107,0.025)"' : '';
       return `<tr data-lid="${id}"${obTrCls}${obTrStyle}>${obRollCell}
+        ${obFlagsShown()?`
         <td style="text-align:center"><input type="checkbox" ${obPri?'checked':''} onchange="setPriority('${id}',this.checked)" title="Mark load as priority" style="width:16px;height:16px;cursor:pointer;accent-color:var(--danger)"></td>
         <td style="text-align:center"><input type="checkbox" ${obPW?'checked':''} onchange="setPaperwork('${id}',this.checked)" title="Paperwork in trailer" style="width:16px;height:16px;cursor:pointer;accent-color:var(--inbound)"></td>
-        <td style="text-align:center"><input type="checkbox" ${obNight?'checked':''} onchange="setNightPU('${id}',this.checked)" title="Night pick-up" style="width:16px;height:16px;cursor:pointer;accent-color:#1e2a4a"></td>
+        <td style="text-align:center"><input type="checkbox" ${obNight?'checked':''} onchange="setNightPU('${id}',this.checked)" title="Night pick-up" style="width:16px;height:16px;cursor:pointer;accent-color:#1e2a4a"></td>`:''}
         <td>
           <select class="status-select ${OB_CLASSES[r.status]||'s-order-recv'}"
             onchange="saveField('ob','${id}','status',this.value);if(this.value==='DEPARTED'||this.value==='CANCELLED')saveField('ob','${id}','ffStatus',null);this.className='status-select '+(OB_CLASSES[this.value]||'s-order-recv')"
@@ -1602,11 +1610,9 @@ function renderOutbound() {
         </td>
       </tr>`;
   };
-  const obCols = (state.rollMode.ob?1:0) + 22;
+  const obCols = (state.rollMode.ob?1:0) + (obFlagsShown()?22:19);
   const obOpenRow = (label, bookArg) => `<tr class="ib-open-row">${state.rollMode.ob?'<td></td>':''}
-        <td></td>
-        <td></td>
-        <td></td>
+        ${obFlagsShown()?'<td></td><td></td><td></td>':''}
         <td><span class="ib-open-badge">OPEN</span></td>
         <td><a class="book-link" onclick="showAddLoad('ob','${bookArg}')">+ Book</a></td>
         <td></td><td></td><td></td>
@@ -1663,6 +1669,7 @@ function renderOutbound() {
       style="text-transform:uppercase;min-width:380px;width:380px;max-width:46vw;margin-left:8px">
     ${obSearching?`<button class="today-btn" onclick="clearObSearch()">Clear</button>`:''}
     <button class="add-load-btn ob-btn" onclick="showAddLoad('ob')">＋ Add Outbound Load</button>
+    <button class="roll-toggle" onclick="toggleObFlags()" title="${state.obFlagsHidden?'Show':'Hide'} the Pri / Paper / Night check boxes — flagged loads keep their badge either way">${state.obFlagsHidden?'\u25B8':'\u25BE'} FLAGS</button>
     ${obRollToggle}
   </div>
   ${obRollBar}
@@ -1683,9 +1690,10 @@ function renderOutbound() {
     <table class="schedule-table">
       <thead><tr>
         ${state.rollMode.ob?'<th style="width:40px;text-align:center">Roll</th>':''}
+        ${obFlagsShown()?`
         ${thS('Pri','ob','priority','style="width:40px;text-align:center"')}
         ${thS('Paper','ob','paperwork','style="width:46px;text-align:center"')}
-        ${thS('Night','ob','nightPU','style="width:46px;text-align:center"')}
+        ${thS('Night','ob','nightPU','style="width:46px;text-align:center"')}`:''}
         ${thS('Status','ob','status','style="width:130px"')}
         ${thFilter('Customer','ob','customer')}
         ${thFilter('Order #','ob','orderNum')}
