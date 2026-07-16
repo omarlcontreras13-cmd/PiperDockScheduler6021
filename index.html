@@ -1745,11 +1745,10 @@ function rollSelected(type) {
   const branch = type==='ib' ? 'inbound' : 'outbound';
   const fromDate = type==='ib' ? state.ibDate : state.obDate;
   const updates = {};
-  let rolledCount = 0, skippedNight = 0;
+  let rolledCount = 0;
   rollSel.forEach(id => {
     const rec = (branch==='outbound' ? state.outbound[id] : state.inbound[id]) || {};
     if (rec.status === 'CANCELLED') return;   // cancelled loads don't roll
-    if (rec.nightPU) { skippedNight++; return; }   // night pick-ups leave tonight — never roll them
     updates[branch+'/'+id+'/reqDate']       = target;
     updates[branch+'/'+id+'/manualReqDate']  = target;
     updates[branch+'/'+id+'/rolledFrom']     = fromDate;
@@ -1758,9 +1757,9 @@ function rollSelected(type) {
     rolledCount++;
   });
   const n = rolledCount;
-  if (!n) { showAlert(skippedNight ? 'No loads rolled — night pick-ups and cancelled loads are skipped' : 'No loads rolled — cancelled loads are skipped','warning'); return; }
+  if (!n) { showAlert('No loads rolled — cancelled loads are skipped','warning'); return; }
   db.ref(ROOT).update(updates).then(() => {
-    showAlert(`Rolled ${n} load${n>1?'s':''} to ${fmtDateLabel(target)}`+(skippedNight?` \u00b7 ${skippedNight} night pick-up${skippedNight>1?'s':''} skipped`:''),'success');
+    showAlert(`Rolled ${n} load${n>1?'s':''} to ${fmtDateLabel(target)}`,'success');
     exitRollMode(type);
   }).catch(err => showAlert('Roll failed: '+err.message,'danger'));
 }
@@ -3828,7 +3827,8 @@ function autoRollOutbound() {
   const updates = {};
   Object.entries(state.outbound||{}).forEach(([id,r])=>{
     if (!r || r.status === 'DEPARTED' || r.status === 'CANCELLED') return;
-    if (r.nightPU) return;   // night pick-up — the trailer goes out tonight, don't push it to tomorrow
+    if (r.nightPU) return;   // night pick-up — goes out tonight, so the 5 PM sweep leaves it alone
+                             // (a manual ROLL LOADS still moves it — that's a deliberate call)
     const cust = (r.customer||'').toUpperCase();
     if (NO_AUTO_ROLL_CUSTOMERS.some(c => cust.indexOf(c) > -1)) return;   // excluded customers (e.g. Sci Games)
     const d = (r.reqDate||'').slice(0,10);
@@ -3979,7 +3979,11 @@ const SC_GROUPS_6021 = [
   {key:'IP',   label:'IP'},
   {key:'MAX',  label:'MAXXON'}
 ];
-const SC_TONS_6021 = SC_GROUPS_6021.map(g=>({ key:g.key, label:g.key }));
+// NEX (Nexus) is stored at 6021 but counted in PALLETS, not tons. It sits after MAX in the Tons
+// section and is flagged noTotal so it never lands in the Tons Total — pallets and tons don't add
+// up to anything. It has no load group, so the report surfaces it as its own line.
+const SC_TONS_6021 = SC_GROUPS_6021.map(g=>({ key:g.key, label:g.key }))
+  .concat([{ key:'NEX', label:'NEX', noTotal:true }]);
 
 const SC_GROUPS_WRK = [
   {key:'NOR',    label:'NORCROSS XDK'},
@@ -4146,7 +4150,7 @@ function scComputeRow(date){
   const d = scDeriveDay(date);
   const tRec = scRec(date).t || {};
   const tons = {}; let tonsTotal = 0;
-  SC_TONS.forEach(t=>{ const tv=scNum(tRec[t.key]); tons[t.key]=tv; tonsTotal+=tv; });
+  SC_TONS.forEach(t=>{ const tv=scNum(tRec[t.key]); tons[t.key]=tv; if (!t.noTotal) tonsTotal+=tv; });
   d.tons = tons; d.tonsTotal = tonsTotal;
   return d;
 }
@@ -4424,7 +4428,7 @@ function scReportHtml(){
     return `<tr><td class="lbl">${g.label}</td><td>${v.due}</td><td>${v.dueToShip}</td><td>${v.shipped}</td><td class="bal">${v.balance}</td><td>${Math.round(v.tons||0)}</td></tr>`;
   }).join('');
   const tonsOnlyRows = SC_TONS.filter(t=>!SC_GROUPS.some(g=>g.key===t.key)).map(t=>
-    `<tr><td class="lbl">${t.label} <span style="font-weight:400;opacity:.55">(tons only)</span></td><td>—</td><td>—</td><td>—</td><td class="bal">—</td><td>${Math.round((A.tonsBy||{})[t.key]||0)}</td></tr>`).join('');
+    `<tr><td class="lbl">${t.label} <span style="font-weight:400;opacity:.55">${t.noTotal?'(pallets — not in tons total)':'(tons only)'}</span></td><td>—</td><td>—</td><td>—</td><td class="bal">—</td><td>${Math.round((A.tonsBy||{})[t.key]||0)}</td></tr>`).join('');
   const custTotal = `<tr class="tot"><td class="lbl">TOTAL</td><td>${A.totalDue}</td><td>${A.totalDueToShip}</td><td>${A.totalShipped}</td><td class="bal">${A.totalPending}</td><td>${Math.round(A.tonsTotal||0)}</td></tr>`;
   const botIcons = [['Total Loads Shipped',A.totalShipped],['Total Loads Pending',A.totalPending],['Total Loads',A.totalLoads],['Total Tons',Math.round(A.tonsTotal||0)]]
     .map(([k,v])=>`<div class="fbox"><span>${k}</span><b>${v||0}</b></div>`).join('');
