@@ -5106,8 +5106,7 @@ function buildYardSheetRows() {
   for (let n=15; n<=51; n++) {
     if (YARD_SPECIAL[n]) { rows.push({ door:n, special:YARD_SPECIAL[n] }); continue; }
     const d = doors[n]||{}; const live = liveDoors[String(n)];
-    const man = !live && !!d.trailer;
-    rows.push({ door:n, trailer:(live?live.trailer:(d.trailer||'')), order:(live?live.order:(d.order||'')), manual:man, by:(man?(d.enteredBy||''):''), at:(man?(d.enteredAt||0):0) });
+    rows.push({ door:n, trailer:(live?live.trailer:(d.trailer||'')), order:(live?live.order:(d.order||'')) });
   }
   return rows;
 }
@@ -5126,7 +5125,6 @@ const YARD_SHEET_CSS =
 + '.grid th{background:#1a3a6b;color:#fff;text-align:left;}'
 + '.cdoor{width:48px;text-align:center;font-weight:bold;background:#eef1f7;}'
 + '.special{text-align:center;font-weight:bold;color:#b91c1c;letter-spacing:1px;}'
-+ '.ment{font-size:10px;color:#555;white-space:nowrap;}'
 + 'thead{display:table-header-group;} tr{page-break-inside:avoid;}';
 
 function yardSheetHtml() {
@@ -5134,8 +5132,8 @@ function yardSheetHtml() {
   const logo = logoEl ? logoEl.src : '';
   const today = new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
   const body = buildYardSheetRows().map(r => r.special
-    ? '<tr><td class="cdoor">'+r.door+'</td><td class="special" colspan="3">'+r.special+'</td></tr>'
-    : '<tr><td class="cdoor">'+r.door+'</td><td>'+(r.trailer||'')+'</td><td>'+(r.order||'')+'</td><td class="ment">'+(r.manual?((r.by?String(r.by).replace(/</g,'&lt;'):'')+(r.at?((r.by?' · ':'')+fmtStamp(r.at)):'')):'')+'</td></tr>'
+    ? '<tr><td class="cdoor">'+r.door+'</td><td class="special" colspan="2">'+r.special+'</td></tr>'
+    : '<tr><td class="cdoor">'+r.door+'</td><td>'+(r.trailer||'')+'</td><td>'+(r.order||'')+'</td></tr>'
   ).join('');
   const logoImg = logo ? '<img src="'+logo+'" class="logo" alt="Piper Warehouse">' : '';
   return '<div id="sheet">'
@@ -5146,7 +5144,7 @@ function yardSheetHtml() {
     + '<td class="hdr-date">'+today+'</td>'
     + '</tr></table>'
     + '<div class="meta">Shift: ____________ &nbsp;&nbsp; Completed by: ____________________ &nbsp;&nbsp; Reviewed by: ____________</div>'
-    + '<table class="grid"><thead><tr><th class="cdoor">Door</th><th>Trailer #</th><th>IB / OB Order #</th><th>Manually Entered</th></tr></thead>'
+    + '<table class="grid"><thead><tr><th class="cdoor">Door</th><th>Trailer #</th><th>IB / OB Order #</th></tr></thead>'
     + '<tbody>'+body+'</tbody></table></div>';
 }
 
