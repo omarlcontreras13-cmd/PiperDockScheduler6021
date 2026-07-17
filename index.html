@@ -2381,26 +2381,39 @@ const RAIL_DOORS = [1,2,3,4,5,6,7];
 // forever. Shared by pruneStaleDoors and renderYard so the two can never disagree.
 function yardHoldsDoor(r, isIB){
   if (!r || !r.door || !r.trailer) return false;
-  const s = (r.status||'').toUpperCase();
+  // trim as well as upper-case: a status imported as "DEPARTED " looks identical on the board but
+  // would never match the release check, pinning the door for good.
+  const s = (r.status||'').toUpperCase().trim();
   if (s === 'CANCELLED') return false;
-  return isIB ? s !== 'COMPLETED' : s !== 'DEPARTED';
+  if (isIB ? s === 'COMPLETED' : s === 'DEPARTED') return false;
+  // History never holds a door. The yard runs a trailer pool — the same trailer goes back through
+  // the same door several times a day — so a door collects old rows, and plenty are left open
+  // because they were superseded rather than shipped. A load only holds its door while it's
+  // genuinely current: dated today or later. Anything older is paperwork, not a trailer in a door.
+  const d = (r.reqDate||'').slice(0,10);
+  if (d && d < todayStr()) return false;
+  return true;
 }
 
-// Which load is holding a door, if any — so the door editor can explain itself instead of quietly
-// dropping what was typed. Outbound wins, matching the order renderYard builds its live map in.
-function yardDoorHolder(num){
+// EVERY load holding a door, not just the first. A door in a trailer pool collects several rows, and
+// naming only one meant you cleared it, the next took over, and nothing appeared to change.
+function yardDoorHolders(num){
   const door = String(num).trim();
-  let hit = null;
+  const hits = [];
   Object.values(state.inbound||{}).forEach(r => {
-    if (!hit && yardHoldsDoor(r, true) && String(r.door).trim()===door)
-      hit = { src:'Inbound', order:r.loadNum||'(no load #)', status:r.status||'', trailer:r.trailer||'', done:'COMPLETED' };
+    if (yardHoldsDoor(r, true) && String(r.door).trim()===door)
+      hits.push({ src:'Inbound', order:r.loadNum||'(no load #)', status:(r.status||'').trim(),
+                  date:(r.reqDate||'').slice(0,10), trailer:r.trailer||'', done:'COMPLETED' });
   });
   Object.values(state.outbound||{}).forEach(r => {
     if (yardHoldsDoor(r, false) && String(r.door).trim()===door)
-      hit = { src:'Outbound', order:r.orderNum||'(no order #)', status:r.status||'', trailer:r.trailer||'', done:'DEPARTED' };
+      hits.push({ src:'Outbound', order:r.orderNum||'(no order #)', status:(r.status||'').trim(),
+                  date:(r.reqDate||'').slice(0,10), trailer:r.trailer||'', done:'DEPARTED' });
   });
-  return hit;
+  return hits;
 }
+function yardDoorHolder(num){ const h = yardDoorHolders(num); return h.length ? h[h.length-1] : null; }
+function yardHolderLine(h){ return `${h.src} ${h.order} \u00b7 ${h.date||'no date'} \u00b7 ${h.status}${h.trailer?' \u00b7 trailer '+h.trailer:''}`; }
 
 function pruneStaleDoors() {
   const doors = state.yard.doors;
@@ -3165,11 +3178,11 @@ function editDoor(num) {
   <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal" style="max-width:440px">
     <h3>Door ${num} <span style="font-size:11px;color:var(--text2);font-weight:400">${type}</span></h3>
-    ${(() => { const h = yardDoorHolder(num); return h ? `
+    ${(() => { const hs = yardDoorHolders(num); return hs.length ? `
     <div style="background:rgba(217,119,6,0.12);border:1px solid var(--warning);border-radius:8px;padding:9px 11px;margin:0 0 12px;font-size:12px;line-height:1.55;color:var(--text)">
-      <strong>Door ${num} is held by ${h.src} ${h.order}</strong> \u2014 ${h.status}${h.trailer?`, trailer ${h.trailer}`:''}.<br>
-      That load drives this door, so anything keyed here is replaced on the next refresh. Set it to
-      <strong>${h.done}</strong> or clear its door to free door ${num}.
+      <strong>Door ${num} is held by ${hs.length} load${hs.length>1?'s':''}</strong> \u2014 the schedule drives this door, so anything keyed here is replaced.
+      <ul style="margin:6px 0 0;padding-left:18px">${hs.map(h=>`<li>${yardHolderLine(h)}</li>`).join('')}</ul>
+      <div style="margin-top:6px">Mark ${hs.length>1?'them':'it'} <strong>DEPARTED</strong> (or clear the Door field on ${hs.length>1?'those loads':'that load'}) to free door ${num}.</div>
     </div>` : ''; })()}
     <div class="door-modal-grid">
       <div class="form-group">
@@ -3228,6 +3241,15 @@ function yardDamagedDoor(trailer){
 }
 
 function saveDoor(num) {
+  // Refuse up front rather than saving and then dropping it on the next render — a live load owns
+  // its door, and silently deleting what was typed reads as a broken save.
+  const holders = yardDoorHolders(num);
+  if (holders.length) {
+    showAlert(`Door ${num} is held by ${holders.length} load${holders.length>1?'s':''}: `
+      + holders.map(yardHolderLine).join('  |  ')
+      + ` \u2014 mark ${holders.length>1?'them':'it'} DEPARTED or clear the Door field`, 'warning');
+    return;
+  }
   const g = id=>document.getElementById(id);
   const U = id=>((g(id)||{}).value||'').toUpperCase();
   const data = {
