@@ -259,6 +259,8 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
 .toggle-btn { flex:1;padding:7px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:11px;font-weight:700;font-family:var(--font);transition:.15s; }
 .toggle-btn.active-empty { background:rgba(107,122,153,0.15);border-color:var(--text2);color:var(--text); }
 .toggle-btn.active-loaded { background:rgba(26,158,122,0.15);border-color:var(--accent2);color:var(--accent2); }
+.toggle-btn.active-damaged { background:rgba(185,28,28,0.14);border-color:var(--danger);color:var(--danger); }
+.badge-damaged { background:rgba(185,28,28,0.14);color:#b91c1c; }
 
 /* ── ALERTS ──────────────────────────────────────────────────────── */
 .alert-toast { position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,.15);transition:opacity .3s;color:#fff; }
@@ -1745,10 +1747,12 @@ function rollSelected(type) {
   const branch = type==='ib' ? 'inbound' : 'outbound';
   const fromDate = type==='ib' ? state.ibDate : state.obDate;
   const updates = {};
-  let rolledCount = 0;
+  let rolledCount = 0, skippedDone = 0;
   rollSel.forEach(id => {
     const rec = (branch==='outbound' ? state.outbound[id] : state.inbound[id]) || {};
     if (rec.status === 'CANCELLED') return;   // cancelled loads don't roll
+    // Already gone — a departed/completed load has shipped, so there's nothing to reschedule.
+    if (branch==='outbound' ? rec.status==='DEPARTED' : rec.status==='COMPLETED') { skippedDone++; return; }
     updates[branch+'/'+id+'/reqDate']       = target;
     updates[branch+'/'+id+'/manualReqDate']  = target;
     updates[branch+'/'+id+'/rolledFrom']     = fromDate;
@@ -1757,9 +1761,10 @@ function rollSelected(type) {
     rolledCount++;
   });
   const n = rolledCount;
-  if (!n) { showAlert('No loads rolled — cancelled loads are skipped','warning'); return; }
+  if (!n) { showAlert(skippedDone ? 'No loads rolled — loads that have already shipped, and cancelled loads, are skipped'
+                                  : 'No loads rolled — cancelled loads are skipped','warning'); return; }
   db.ref(ROOT).update(updates).then(() => {
-    showAlert(`Rolled ${n} load${n>1?'s':''} to ${fmtDateLabel(target)}`,'success');
+    showAlert(`Rolled ${n} load${n>1?'s':''} to ${fmtDateLabel(target)}`+(skippedDone?` \u00b7 ${skippedDone} already shipped, left in place`:''),'success');
     exitRollMode(type);
   }).catch(err => showAlert('Roll failed: '+err.message,'danger'));
 }
@@ -2490,7 +2495,9 @@ function renderYard() {
     const liveCls = live ? (live.src==='ib'?'ib-live':'ob-live') : (isOccupied?'occupied':'');
     let badge = '';
     if (live) badge = `<span class="door-badge ${live.src==='ib'?'badge-unloading':'badge-loaded'}">${live.status}</span>`;
-    else if (d.trailer) badge = `<span class="door-badge ${d.loaded==='LOADED'?'badge-loaded':'badge-empty'}">${d.loaded||'EMPTY'}</span>`;
+    else if (d.trailer) badge = d.loaded==='DAMAGED'
+      ? `<span class="door-badge badge-damaged" title="This trailer is damaged — do not load it">DAMAGED \u2014 DO NOT LOAD</span>`
+      : `<span class="door-badge ${d.loaded==='LOADED'?'badge-loaded':'badge-empty'}">${d.loaded||'EMPTY'}</span>`;
     const tag = live
       ? `<span style="margin-left:6px;font-size:8px;font-weight:800;letter-spacing:.5px;color:${live.src==='ib'?'var(--inbound)':'var(--outbound)'}">LIVE ${live.src==='ib'?'IB':'OB'}</span>`
       : (isManual ? `<span class="door-manual-tag">MANUAL ENTRY</span>` : '');
@@ -3185,8 +3192,9 @@ function editDoor(num) {
     <div class="form-group" style="margin-top:12px">
       <label>Status</label>
       <div class="toggle-row">
-        <button id="tb-empty"  class="toggle-btn ${(!d.loaded||d.loaded==='EMPTY')?'active-empty':''}"  onclick="setDoorStatus('EMPTY')">Empty</button>
-        <button id="tb-loaded" class="toggle-btn ${d.loaded==='LOADED'?'active-loaded':''}" onclick="setDoorStatus('LOADED')">Loaded</button>
+        <button id="tb-empty"   class="toggle-btn ${(!d.loaded||d.loaded==='EMPTY')?'active-empty':''}"  onclick="setDoorStatus('EMPTY')">Empty</button>
+        <button id="tb-loaded"  class="toggle-btn ${d.loaded==='LOADED'?'active-loaded':''}" onclick="setDoorStatus('LOADED')">Loaded</button>
+        <button id="tb-damaged" class="toggle-btn ${d.loaded==='DAMAGED'?'active-damaged':''}" onclick="setDoorStatus('DAMAGED')">Damaged</button>
       </div>
     </div>
     <div class="modal-actions" style="margin-top:20px">
@@ -3200,8 +3208,23 @@ function editDoor(num) {
 
 function setDoorStatus(val) {
   window._doorStatus = val;
-  document.getElementById('tb-empty').className  = 'toggle-btn '+(val==='EMPTY'?'active-empty':'');
-  document.getElementById('tb-loaded').className = 'toggle-btn '+(val==='LOADED'?'active-loaded':'');
+  const set = (id, cls) => { const b = document.getElementById(id); if (b) b.className = 'toggle-btn '+cls; };
+  set('tb-empty',   val==='EMPTY'   ? 'active-empty'   : '');
+  set('tb-loaded',  val==='LOADED'  ? 'active-loaded'  : '');
+  set('tb-damaged', val==='DAMAGED' ? 'active-damaged' : '');
+}
+
+// A trailer sitting in a door marked DAMAGED shouldn't quietly end up on a load. Returns the door
+// it's flagged in, if any.
+function yardDamagedDoor(trailer){
+  const t = String(trailer||'').trim().toUpperCase();
+  if (!t) return null;
+  const doors = (state.yard && state.yard.doors) || {};
+  for (const num in doors){
+    const d = doors[num];
+    if (d && d.loaded==='DAMAGED' && String(d.trailer||'').trim().toUpperCase()===t) return { door:num, rec:d };
+  }
+  return null;
 }
 
 function saveDoor(num) {
@@ -3299,6 +3322,20 @@ function saveField(type, id, field, value) {
   db.ref(ROOT+'/'+path+'/'+id+'/'+field).set(value)
     .catch(e=>console.warn('Field save error',e));
   if (path==='outbound' && (field==='door' || field==='trailer')) checkDupAssignment(field, id, value);
+  // Putting a trailer that's flagged damaged onto a load — check before it gets loaded.
+  if (field==='trailer' && value) {
+    const dmg = yardDamagedDoor(value);
+    if (dmg) {
+      if (confirm(`Trailer ${value} is marked DAMAGED \u2014 DO NOT LOAD in door ${dmg.door}.\n\nIs it clear to use?`)) {
+        // cleared for use — drop the damaged flag back to Empty
+        db.ref(ROOT+'/yard/doors/'+dmg.door+'/loaded').set('EMPTY').catch(()=>{});
+        showAlert(`Trailer ${value} cleared for use \u2014 damaged flag removed from door ${dmg.door}`,'success');
+      } else {
+        db.ref(ROOT+'/'+path+'/'+id+'/'+field).set('').catch(()=>{});
+        showAlert(`Trailer ${value} left off the load \u2014 still marked damaged in door ${dmg.door}`,'warning');
+      }
+    }
+  }
   // Paperwork went out with the trailer — drop the flag once the load departs. Covers the fleet
   // boards too: their "LOAD PICKED UP" is mapped to DEPARTED before it reaches here.
   if (path==='outbound' && field==='status' && value==='DEPARTED') {
