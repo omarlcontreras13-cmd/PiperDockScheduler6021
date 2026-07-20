@@ -357,6 +357,7 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
       <div style="font-size:15px;font-weight:800;letter-spacing:1px;color:#fff;background:var(--accent);border-radius:8px;padding:4px 10px;line-height:1.1;white-space:nowrap">6021</div>
     </div>
     <div class="header-right">
+      <div id="app-version" title="App version — compare across devices to spot anyone still on an old build" style="font-size:10px;font-weight:800;letter-spacing:.5px;color:var(--text2);border:1px solid var(--border);border-radius:5px;padding:2px 7px;white-space:nowrap">—</div>
       <div class="header-date" id="header-clock"></div>
       <div style="font-size:11px;color:var(--text2)">|</div>
       <div class="header-user" id="user-display">—</div>
@@ -366,6 +367,7 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
       <button class="sign-out-btn" id="table-btn" onclick="showTableImportModal()" style="display:none;margin-right:8px;background:#0d9488;color:#fff;border-color:#0d9488">Update Table</button>
       <button class="sign-out-btn" id="report-btn" onclick="showReportModal()" style="display:none;margin-right:8px;background:#b45309;color:#fff;border-color:#b45309">Reports</button>
       <button class="sign-out-btn" id="users-btn" onclick="showUsersModal()" style="display:none;margin-right:8px;background:#6b21a8;color:#fff;border-color:#6b21a8">Users</button>
+      <button class="sign-out-btn" onclick="hardReload()" title="Reload the latest version (hard refresh - clears the cached page)" style="margin-right:8px;background:#1a3a6b;color:#fff;border-color:#1a3a6b;font-weight:700">⟳ Reload</button>
       <button class="sign-out-btn" onclick="logout()">Sign Out</button>
     </div>
   </div>
@@ -410,6 +412,10 @@ if (typeof firebase === 'undefined') {
 firebase.initializeApp({ databaseURL:"https://piperdockscheduler-default-rtdb.firebaseio.com" });
 const db = firebase.database();
 const ROOT = 'dockSchedule/6021';
+// Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
+// header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
+// device is running. An old build won't have the header chip at all, which itself flags a stale tab.
+const APP_VERSION = 'v2026.07.20';
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -524,6 +530,7 @@ function updateClock() {
 }
 setInterval(updateClock, 30000);
 updateClock();
+{ const _v = document.getElementById('app-version'); if (_v) _v.textContent = APP_VERSION; }
 
 // ─── USERS ─────────────────────────────────────────────────────────────
 const DEFAULT_USERS = [
@@ -1111,6 +1118,18 @@ function clearSession(key) {
   db.ref(ROOT+'/sessions/'+key).remove()
     .then(()=>showAlert('Session cleared','success'))
     .catch(e=>showAlert('Could not clear session: '+e.message,'danger'));
+}
+
+// Hard-refresh: reload the page while bypassing the browser's HTTP cache, so the newest deployed
+// build is fetched. There's no service worker, so a cache-busting query param is enough; location.replace
+// keeps it out of the back-history. The app reads nothing from the query string, so ?v= is harmless.
+function hardReload() {
+  try {
+    var base = location.href.split('#')[0].split('?')[0];
+    location.replace(base + '?v=' + Date.now());
+  } catch (e) {
+    location.reload();
+  }
 }
 
 function logout() {
