@@ -2400,14 +2400,14 @@ function yardHoldsDoor(r, isIB){
 function yardDoorHolders(num){
   const door = String(num).trim();
   const hits = [];
-  Object.values(state.inbound||{}).forEach(r => {
+  Object.entries(state.inbound||{}).forEach(([id,r]) => {
     if (yardHoldsDoor(r, true) && String(r.door).trim()===door)
-      hits.push({ src:'Inbound', order:r.loadNum||'(no load #)', status:(r.status||'').trim(),
+      hits.push({ id, srcKey:'ib', src:'Inbound', order:r.loadNum||'(no load #)', status:(r.status||'').trim(),
                   date:(r.reqDate||'').slice(0,10), trailer:r.trailer||'', done:'COMPLETED' });
   });
-  Object.values(state.outbound||{}).forEach(r => {
+  Object.entries(state.outbound||{}).forEach(([id,r]) => {
     if (yardHoldsDoor(r, false) && String(r.door).trim()===door)
-      hits.push({ src:'Outbound', order:r.orderNum||'(no order #)', status:(r.status||'').trim(),
+      hits.push({ id, srcKey:'ob', src:'Outbound', order:r.orderNum||'(no order #)', status:(r.status||'').trim(),
                   date:(r.reqDate||'').slice(0,10), trailer:r.trailer||'', done:'DEPARTED' });
   });
   return hits;
@@ -3180,9 +3180,9 @@ function editDoor(num) {
     <h3>Door ${num} <span style="font-size:11px;color:var(--text2);font-weight:400">${type}</span></h3>
     ${(() => { const hs = yardDoorHolders(num); return hs.length ? `
     <div style="background:rgba(217,119,6,0.12);border:1px solid var(--warning);border-radius:8px;padding:9px 11px;margin:0 0 12px;font-size:12px;line-height:1.55;color:var(--text)">
-      <strong>Door ${num} is held by ${hs.length} load${hs.length>1?'s':''}</strong> \u2014 the schedule drives this door, so anything keyed here is replaced.
+      <strong>Door ${num} is held by ${hs.length} load${hs.length>1?'s':''}</strong> \u2014 the schedule drives this door. Enter your trailer and click Save \u2014 you'll be asked to close it out first.
       <ul style="margin:6px 0 0;padding-left:18px">${hs.map(h=>`<li>${yardHolderLine(h)}</li>`).join('')}</ul>
-      <div style="margin-top:6px">Mark ${hs.length>1?'them':'it'} <strong>DEPARTED</strong> (or clear the Door field on ${hs.length>1?'those loads':'that load'}) to free door ${num}.</div>
+      <div style="margin-top:6px">Saving will offer to mark ${hs.length>1?'them':'it'} <strong>${hs.length>1?'DEPARTED/COMPLETED':hs[0].done}</strong> (or clear the Door field on ${hs.length>1?'those loads':'that load'} instead) to free door ${num}.</div>
     </div>` : ''; })()}
     <div class="door-modal-grid">
       <div class="form-group">
@@ -3241,15 +3241,6 @@ function yardDamagedDoor(trailer){
 }
 
 function saveDoor(num) {
-  // Refuse up front rather than saving and then dropping it on the next render — a live load owns
-  // its door, and silently deleting what was typed reads as a broken save.
-  const holders = yardDoorHolders(num);
-  if (holders.length) {
-    showAlert(`Door ${num} is held by ${holders.length} load${holders.length>1?'s':''}: `
-      + holders.map(yardHolderLine).join('  |  ')
-      + ` \u2014 mark ${holders.length>1?'them':'it'} DEPARTED or clear the Door field`, 'warning');
-    return;
-  }
   const g = id=>document.getElementById(id);
   const U = id=>((g(id)||{}).value||'').toUpperCase();
   const data = {
@@ -3262,7 +3253,54 @@ function saveDoor(num) {
     enteredAt: Date.now(),
     updatedAt:Date.now()
   };
+  // A live scheduled load still owns this door. Instead of silently dropping what was typed, warn and
+  // offer to close those loads out so the manual trailer can take the door.
+  const holders = yardDoorHolders(num);
+  if (holders.length) { promptResolveDoorLoads(num, data, holders); return; }
   db.ref(ROOT+'/yard/doors/'+num).update(data).then(()=>{showAlert('Door '+num+' updated','success');closeModal();});
+}
+
+// The door the yard wants to hand-key is still held by one or more open schedule rows. Rather than a
+// dead-end warning, show what's pinning the door and offer to close those loads out (mark them
+// DEPARTED/COMPLETED) and then write the manual trailer, in one step.
+function promptResolveDoorLoads(num, data, holders) {
+  window._pendingDoorSave = { num, data };
+  const rows = holders.map(h=>`<li style="margin-bottom:4px">${yardHolderLine(h)} <span style="color:var(--text2)">→ will be marked ${h.done}</span></li>`).join('');
+  document.getElementById('modal-container').innerHTML = `
+  <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal" style="max-width:470px">
+    <h3>Door ${num} is still on the schedule</h3>
+    <div style="background:rgba(217,119,6,0.12);border:1px solid var(--warning);border-radius:8px;padding:10px 12px;margin:12px 0;font-size:12px;line-height:1.55;color:var(--text)">
+      Trailer <strong>${data.trailer||'(blank)'}</strong> can't take door ${num} while ${holders.length>1?'these open loads are':'this open load is'} still on it:
+      <ul style="margin:6px 0 0;padding-left:18px">${rows}</ul>
+      <div style="margin-top:8px">Closing ${holders.length>1?'them':'it'} out frees the door, then your trailer is saved automatically.</div>
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="resolveDoorLoadsAndSave(${num})">Close out ${holders.length>1?'loads':'load'} & save trailer</button>
+    </div>
+  </div></div>`;
+}
+
+// Mark every load currently holding the door DEPARTED (outbound) / COMPLETED (inbound) — the same
+// transitions cycleOBStatus/cycleIBStatus use, including the timeOut stamp — then write the pending
+// manual trailer. Holders are recomputed fresh in case the schedule changed since the prompt opened.
+function resolveDoorLoadsAndSave(num) {
+  const pending = window._pendingDoorSave;
+  if (!pending || pending.num!==num) { closeModal(); return; }
+  const holders = yardDoorHolders(num);
+  const nowT = new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false});
+  const jobs = holders.map(h => {
+    const coll = h.srcKey==='ib' ? 'inbound' : 'outbound';
+    const rec = (state[coll]||{})[h.id] || {};
+    const upd = { status: h.done };
+    if (!rec.timeOut) upd.timeOut = nowT;
+    return db.ref(ROOT+'/'+coll+'/'+h.id).update(upd);
+  });
+  Promise.all(jobs)
+    .then(()=> db.ref(ROOT+'/yard/doors/'+num).update(pending.data))
+    .then(()=>{ window._pendingDoorSave=null; showAlert('Door '+num+' updated — '+holders.length+' load'+(holders.length>1?'s':'')+' closed out','success'); closeModal(); })
+    .catch(()=>{ showAlert('Could not update door '+num+' — please try again','warning'); });
 }
 
 function clearDoor(num) {
