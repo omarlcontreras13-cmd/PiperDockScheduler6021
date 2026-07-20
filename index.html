@@ -415,7 +415,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.07.20';
+const APP_VERSION = 'v2026.07.20-3';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260720003;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -1130,6 +1131,62 @@ function hardReload() {
   } catch (e) {
     location.reload();
   }
+}
+
+// Auto-update: broadcast the running build through Firebase so every open tab converges on the newest
+// deploy with no one touching each device. A newer build (even just you reloading) writes its number to
+// meta/build; older tabs see the higher number and force a cache-busting hard refresh to pull the new
+// file from GitHub. The sessionStorage guard reloads at most once per target build per minute, so a
+// brief CDN lag can't cause a reload storm. Best-effort: any failure here must never block the app.
+// Zero-touch auto-update: watch the deployed file itself. GitHub changes the file's ETag/Last-Modified
+// on every push, so we sample it (cache-bypassed) on load, then re-check every couple minutes and each
+// time the tab regains focus. If the server's fingerprint changed, a newer build is live -> hard refresh
+// to it. This means a plain push to GitHub updates everyone even if the version constants weren't bumped.
+let _deploySig = null;
+async function _sampleDeploySig() {
+  try {
+    const r = await fetch(location.pathname + '?_dc=' + Date.now(), { method: 'HEAD', cache: 'no-store' });
+    return r.headers.get('etag') || r.headers.get('last-modified') || '';
+  } catch (e) { return ''; }
+}
+async function checkDeploy() {
+  const sig = await _sampleDeploySig();
+  if (!sig) return;                          // couldn't read a fingerprint — do nothing
+  if (_deploySig === null) { _deploySig = sig; return; }   // first sample = baseline
+  if (sig !== _deploySig) {                  // the served file changed since we loaded -> new build
+    let last = 0; try { last = Number(sessionStorage.getItem('vPollAt') || 0); } catch (e) {}
+    if (Date.now() - last > 60000) {         // never reload more than once a minute
+      try { sessionStorage.setItem('vPollAt', String(Date.now())); } catch (e) {}
+      hardReload();
+    }
+  }
+}
+function startDeployPoll() {
+  checkDeploy();                                                  // set baseline right away
+  setInterval(checkDeploy, 120000);                              // recheck every 2 minutes
+  window.addEventListener('focus', checkDeploy);                 // and whenever they click back in
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkDeploy(); });
+}
+
+function startVersionWatch() {
+  try {
+    const ref = db.ref(ROOT + '/meta/build');
+    ref.on('value', snap => {
+      const remote = Number(snap.val() || 0);
+      if (remote > APP_BUILD) {
+        let g = {};
+        try { g = JSON.parse(sessionStorage.getItem('vReload') || '{}'); } catch (e) {}
+        const triedThisBuild = g.build === remote && (Date.now() - (g.at || 0) < 60000);
+        if (!triedThisBuild) {
+          try { sessionStorage.setItem('vReload', JSON.stringify({ build: remote, at: Date.now() })); } catch (e) {}
+          hardReload();
+        }
+      } else if (APP_BUILD > remote) {
+        ref.set(APP_BUILD).catch(() => {});
+        db.ref(ROOT + '/meta/version').set(APP_VERSION).catch(() => {});
+      }
+    });
+  } catch (e) { /* version watch is best-effort */ }
 }
 
 function logout() {
@@ -5284,6 +5341,8 @@ function exportYardCheck() {
 }
 
 buildLoginScreen();
+startVersionWatch();
+startDeployPoll();
 </script>
 </body>
 </html>
