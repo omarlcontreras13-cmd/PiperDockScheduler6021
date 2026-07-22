@@ -2462,12 +2462,12 @@ function yardHoldsDoor(r, isIB){
   const s = (r.status||'').toUpperCase().trim();
   if (s === 'CANCELLED') return false;
   if (isIB ? s === 'COMPLETED' : s === 'DEPARTED') return false;
-  // History never holds a door. The yard runs a trailer pool — the same trailer goes back through
-  // the same door several times a day — so a door collects old rows, and plenty are left open
-  // because they were superseded rather than shipped. A load only holds its door while it's
-  // genuinely current: dated today or later. Anything older is paperwork, not a trailer in a door.
-  const d = (r.reqDate||'').slice(0,10);
-  if (d && d < todayStr()) return false;
+  // Release is the ONLY thing that frees a door. No date rule: a load dated yesterday whose trailer
+  // is still in the door is still in the door — night pick-ups and weekend carry-overs are the
+  // normal case, not the exception. While a load holds a door the yard cannot hand-key a trailer
+  // into it; saveDoor sees the holder and offers to close the load out first. Once it is DEPARTED
+  // (outbound) / COMPLETED (inbound) the door is free and accepts a manual entry, including the
+  // same door and trailer the load just used.
   return true;
 }
 
