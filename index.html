@@ -366,6 +366,7 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
       <button class="sign-out-btn" id="import-btn" onclick="showImportModal()" style="display:none;margin-right:8px;background:var(--inbound);color:#fff;border-color:var(--inbound)">Import Excel</button>
       <button class="sign-out-btn" id="table-btn" onclick="showTableImportModal()" style="display:none;margin-right:8px;background:#0d9488;color:#fff;border-color:#0d9488">Update Table</button>
       <button class="sign-out-btn" id="report-btn" onclick="showReportModal()" style="display:none;margin-right:8px;background:#b45309;color:#fff;border-color:#b45309">Reports</button>
+      <button class="sign-out-btn" id="notify-btn" onclick="showNotifyModal()" style="display:none;margin-right:8px;background:#0f766e;color:#fff;border-color:#0f766e">Notify</button>
       <button class="sign-out-btn" id="users-btn" onclick="showUsersModal()" style="display:none;margin-right:8px;background:#6b21a8;color:#fff;border-color:#6b21a8">Users</button>
       <button class="sign-out-btn" onclick="hardReload()" title="Reload the latest version (hard refresh - clears the cached page)" style="margin-right:8px;background:#1a3a6b;color:#fff;border-color:#1a3a6b;font-weight:700">⟳ Reload</button>
       <button class="sign-out-btn" onclick="logout()">Sign Out</button>
@@ -672,6 +673,7 @@ function loginGroup(group, isAdmin) {
   document.getElementById('import-btn').style.display = admin ? '' : 'none';
   document.getElementById('table-btn').style.display  = admin ? '' : 'none';
   document.getElementById('users-btn').style.display  = admin ? '' : 'none';
+  var _nb = document.getElementById('notify-btn'); if (_nb) _nb.style.display = admin ? '' : 'none';
   document.getElementById('report-btn').style.display = admin ? '' : 'none';
 
   // Tab visibility — FFTI/SW sees only First Fleet
@@ -696,6 +698,315 @@ function applyTabAccess(group) {
 }
 
 // ─── AUTHORIZED USERS ──────────────────────────────────────────────────
+// ─── LOADED + PAPERWORK EMAIL NOTIFICATION ────────────────────────────────────
+// When an outbound load reaches status LOADED with the paperwork flag on, one email goes
+// to the recipients configured for that load's customer.
+//
+// This page is static (GitHub Pages + Firebase), so the browser cannot send mail itself.
+// This half is transport-agnostic: it decides WHEN to notify, WHO receives it and WHAT it
+// says, then writes the message to ROOT/notifyOutbox. Delivery is pluggable — paste a
+// Power Automate / Logic Apps / Cloud Function URL into the Notify screen and queued
+// messages are POSTed to it. With no URL set, messages simply queue and can be opened in
+// Outlook by hand, so the rule can be proven against real loads before anything is sent.
+//
+// Exactly-once: the winning client stamps outbound/{id}/notifiedLP with a transaction, so
+// when several boards are open only one of them queues the message.
+const LP_OUTBOX   = () => ROOT + '/notifyOutbox';
+const LP_SETTINGS = () => ROOT + '/settings/notify';
+const LP_MAX_AGE_DAYS = 7;    // don't notify on historical rows arriving via import
+const LP_OUTBOX_SHOW  = 15;   // rows shown in the Notify screen
+
+function _lpCfg(){ return state.notifyCfg || {}; }
+function _lpWho(){ return (state.user && state.user.label) || 'PIPER'; }
+function _lpQualifies(r){
+  if (!r) return false;
+  const s = (r.status||'').toUpperCase().trim();
+  return s === 'LOADED' && !!r.paperwork;
+}
+// Split on comma / semicolon / whitespace, keep anything that looks like an address, dedupe.
+function _lpEmails(v){
+  const out = [], seen = {};
+  String(v==null?'':v).split(/[,;\s]+/).forEach(function(x){
+    const e = x.trim();
+    if (!e || !/^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test(e)) return;
+    const k = e.toLowerCase();
+    if (!seen[k]) { seen[k] = 1; out.push(e); }
+  });
+  return out;
+}
+// Firebase keys can't contain . # $ [ ] / — fold the customer name to a safe key.
+function _lpCustKey(name){ return String(name==null?'':name).trim().toUpperCase().replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'') || '_'; }
+function _lpRecipientsFor(customer){
+  const cfg = _lpCfg(), map = cfg.recipients || {};
+  const row = map[_lpCustKey(customer)] || {};
+  const to  = _lpEmails(row.to);
+  const cc  = _lpEmails(row.cc).concat(_lpEmails(cfg.globalCc));
+  const seen = {}; to.forEach(function(e){ seen[e.toLowerCase()] = 1; });
+  return { to: to, cc: cc.filter(function(e){ const k=e.toLowerCase(); if(seen[k]) return false; seen[k]=1; return true; }) };
+}
+function _lpSubject(r){
+  return 'Load Ready \u2014 ' + (r.customer||'Unknown customer')
+       + (r.orderNum ? ' \u2014 Order ' + r.orderNum : '')
+       + ' \u2014 paperwork in trailer';
+}
+function _lpBody(r){
+  const L = [];
+  L.push('The following outbound load is loaded and the paperwork is in the trailer.');
+  L.push('');
+  L.push('Customer:      ' + (r.customer||''));
+  if (r.orderNum) L.push('Order #:       ' + r.orderNum);
+  if (r.loadNum)  L.push('Load #:        ' + r.loadNum);
+  if (r.destination) L.push('Destination:   ' + r.destination);
+  if (r.carrier)  L.push('Carrier:       ' + r.carrier);
+  if (r.trailer)  L.push('Trailer:       ' + r.trailer);
+  if (r.door)     L.push('Door:          ' + r.door);
+  if (r.reqDate)  L.push('Date:          ' + String(r.reqDate).slice(0,10));
+  if (r.priority) L.push('Priority:      YES');
+  if (r.nightPU)  L.push('Night pick-up: YES');
+  if (r.notes)    L.push('Notes:         ' + r.notes);
+  L.push('');
+  L.push('Paperwork is in the trailer.');
+  L.push('');
+  L.push('Piper Warehouse & Logistics');
+  return L.join('\n');
+}
+
+// Scan for loads that have just qualified. Called on every outbound update.
+function _lpScan(){
+  const cfg = _lpCfg();
+  if (!cfg.enabled || !cfg.baselineAt) return;   // off, or not baselined yet
+  const today = todayStr();
+  Object.keys(state.outbound||{}).forEach(function(id){
+    const r = state.outbound[id];
+    if (!_lpQualifies(r) || r.notifiedLP) return;
+    const d = (r.reqDate||'').slice(0,10);
+    if (d) {
+      const age = (new Date(today) - new Date(d)) / 86400000;
+      if (age > LP_MAX_AGE_DAYS) return;         // historical row, not a live event
+    }
+    // No recipients configured for this customer yet — don't stamp, so it will send
+    // as soon as someone fills the list in.
+    const rec = _lpRecipientsFor(r.customer);
+    if (!rec.to.length && !rec.cc.length) return;
+    _lpClaim(id, r);
+  });
+}
+// Transaction so only one open board queues the message.
+function _lpClaim(id, r){
+  db.ref(ROOT+'/outbound/'+id+'/notifiedLP')
+    .transaction(function(cur){ return cur === null ? { at: Date.now(), by: _lpWho() } : undefined; })
+    .then(function(res){ if (res.committed) _lpEnqueue(id, r); })
+    .catch(function(){});
+}
+function _lpEnqueue(id, r){
+  const rec = _lpRecipientsFor(r.customer);
+  const item = {
+    loadId:id, customer:r.customer||'', orderNum:r.orderNum||'', loadNum:r.loadNum||'',
+    trailer:r.trailer||'', door:r.door||'', reqDate:(r.reqDate||'').slice(0,10),
+    to:rec.to, cc:rec.cc, subject:_lpSubject(r), body:_lpBody(r),
+    createdAt:Date.now(), createdBy:_lpWho(), status:'queued', attempts:0
+  };
+  db.ref(LP_OUTBOX()).push(item)
+    .then(function(ref){ _lpSend(ref.key); })
+    .catch(function(e){ showAlert('Could not queue notification: '+e.message,'danger'); });
+}
+// Delivery. With no webhook configured the message stays queued for manual send.
+function _lpSend(key){
+  const cfg = _lpCfg(), item = (state.notifyOutbox||{})[key];
+  if (!item || item.status === 'sent' || item.status === 'sending') return;
+  const url = (cfg.webhookUrl||'').trim();
+  if (!url) return;
+  const ref = db.ref(LP_OUTBOX()+'/'+key);
+  ref.update({ status:'sending', attempts:(item.attempts||0)+1, error:null });
+  fetch(url, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify({ to:item.to, cc:item.cc, subject:item.subject, body:item.body,
+                           customer:item.customer, orderNum:item.orderNum, loadNum:item.loadNum,
+                           trailer:item.trailer, door:item.door, reqDate:item.reqDate, site:ROOT })
+  })
+  .then(function(res){ if (!res.ok) throw new Error('HTTP '+res.status); return ref.update({ status:'sent', sentAt:Date.now(), error:null }); })
+  .catch(function(e){ ref.update({ status:'failed', error:String((e&&e.message)||e) }); });
+}
+function _lpRetry(key){ if(!requireAdmin()) return; db.ref(LP_OUTBOX()+'/'+key+'/status').set('queued').then(function(){ _lpSend(key); showNotifyModal(); }); }
+function _lpDelete(key){ if(!requireAdmin()) return; db.ref(LP_OUTBOX()+'/'+key).remove().then(function(){ showNotifyModal(); }); }
+function _lpMailto(key){
+  const it = (state.notifyOutbox||{})[key]; if (!it) return '#';
+  const q = [];
+  if (it.cc && it.cc.length) q.push('cc=' + encodeURIComponent(it.cc.join(',')));
+  q.push('subject=' + encodeURIComponent(it.subject||''));
+  q.push('body=' + encodeURIComponent(it.body||''));
+  return 'mailto:' + encodeURIComponent((it.to||[]).join(',')).replace(/%40/g,'@').replace(/%2C/g,',') + '?' + q.join('&');
+}
+function _lpMarkSent(key){ if(!requireAdmin()) return; db.ref(LP_OUTBOX()+'/'+key).update({ status:'sent', sentAt:Date.now(), error:null }).then(function(){ showNotifyModal(); }); }
+
+// ── settings writes ──
+function _lpSaveCfg(field, val){
+  if (!requireAdmin()) return;
+  const v = (val==null?'':String(val)).trim();
+  const ref = db.ref(LP_SETTINGS()+'/'+field);
+  (v ? ref.set(v) : ref.remove())
+    .then(function(){ showAlert('Saved','success'); })
+    .catch(function(e){ showAlert('Could not save: '+e.message,'danger'); });
+}
+function _lpSaveRecipient(custKey, which, val){
+  if (!requireAdmin()) return;
+  const list = _lpEmails(val);
+  const ref = db.ref(LP_SETTINGS()+'/recipients/'+custKey+'/'+which);
+  (list.length ? ref.set(list.join(', ')) : ref.remove())
+    .then(function(){ showAlert(list.length ? list.length+' recipient(s) saved' : 'Cleared','success'); showNotifyModal(); })
+    .catch(function(e){ showAlert('Could not save: '+e.message,'danger'); });
+}
+// Switching on stamps everything that already qualifies, so enabling never blasts the backlog.
+function _lpSetEnabled(on){
+  if (!requireAdmin()) return;
+  const cfg = _lpCfg();
+  const finish = function(){ db.ref(LP_SETTINGS()+'/enabled').set(!!on)
+    .then(function(){ showAlert(on?'Notifications on':'Notifications off','success'); showNotifyModal(); }); };
+  if (on && !cfg.baselineAt) {
+    const ups = {}; let n = 0;
+    Object.keys(state.outbound||{}).forEach(function(id){
+      const r = state.outbound[id];
+      if (_lpQualifies(r) && !r.notifiedLP) { ups['outbound/'+id+'/notifiedLP'] = { at:Date.now(), by:'baseline', baseline:true }; n++; }
+    });
+    db.ref(ROOT).update(ups)
+      .then(function(){ return db.ref(LP_SETTINGS()+'/baselineAt').set(Date.now()); })
+      .then(function(){ if (n) showAlert(n+' load(s) already loaded with paperwork were marked as already notified','success'); finish(); })
+      .catch(function(e){ showAlert('Could not baseline: '+e.message,'danger'); });
+  } else finish();
+}
+function _lpTestSend(){
+  if (!requireAdmin()) return;
+  const el = document.getElementById('lp-test-addr');
+  const to = _lpEmails(el && el.value);
+  if (!to.length) { showAlert('Enter a valid email address to test','warning'); return; }
+  const item = {
+    loadId:'TEST', customer:'TEST', orderNum:'TEST-0001', loadNum:'', trailer:'123456', door:'22',
+    reqDate: todayStr(), to:to, cc:_lpEmails(_lpCfg().globalCc),
+    subject:'Load Ready \u2014 TEST \u2014 Order TEST-0001 \u2014 paperwork in trailer',
+    body:_lpBody({ customer:'TEST', orderNum:'TEST-0001', trailer:'123456', door:'22', reqDate:todayStr(), carrier:'TEST CARRIER', notes:'This is a test notification.' }),
+    createdAt:Date.now(), createdBy:_lpWho(), status:'queued', attempts:0, test:true
+  };
+  db.ref(LP_OUTBOX()).push(item).then(function(ref){ _lpSend(ref.key); showNotifyModal(); });
+}
+
+// ── Notify screen ──
+function showNotifyModal(){
+  if (!state.user || state.user.role !== 'admin') { showAlert('Admin only','warning'); return; }
+  const cfg  = _lpCfg();
+  const map  = cfg.recipients || {};
+  const custs = refOpts('customerOB').slice().sort(function(a,b){ return String(a).localeCompare(String(b)); });
+  const esc = function(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); };
+
+  const rows = custs.map(function(c){
+    const k = _lpCustKey(c), row = map[k] || {};
+    const none = !_lpEmails(row.to).length && !_lpEmails(row.cc).length;
+    return '<tr style="border-bottom:1px solid var(--border)">'
+      + '<td style="padding:5px 8px;font-weight:700;white-space:nowrap">'+esc(c)
+        + (none ? ' <span style="font-size:9px;background:rgba(180,83,9,.14);color:#b45309;padding:1px 5px;border-radius:4px;font-weight:700">NOT SET</span>' : '')
+      + '</td>'
+      + '<td style="padding:4px 6px"><input value="'+esc(row.to||'')+'" placeholder="name@piperlogistics.com, name2@\u2026" onchange="_lpSaveRecipient(\''+k+'\',\'to\',this.value)" style="width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:6px;font-size:12px"></td>'
+      + '<td style="padding:4px 6px"><input value="'+esc(row.cc||'')+'" placeholder="optional" onchange="_lpSaveRecipient(\''+k+'\',\'cc\',this.value)" style="width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:6px;font-size:12px"></td>'
+      + '</tr>';
+  }).join('');
+
+  const ob = state.notifyOutbox || {};
+  const items = Object.keys(ob).map(function(k){ return [k, ob[k]]; })
+    .sort(function(a,b){ return (b[1].createdAt||0) - (a[1].createdAt||0); })
+    .slice(0, LP_OUTBOX_SHOW);
+  const pill = function(s){
+    const c = s==='sent' ? '#065f46' : s==='failed' ? '#b91c1c' : s==='sending' ? '#b45309' : '#374151';
+    const bg= s==='sent' ? 'rgba(6,95,70,.12)' : s==='failed' ? 'rgba(185,28,28,.12)' : s==='sending' ? 'rgba(180,83,9,.14)' : 'rgba(55,65,81,.10)';
+    return '<span style="font-size:9px;font-weight:800;color:'+c+';background:'+bg+';padding:2px 6px;border-radius:4px;letter-spacing:.3px">'+String(s||'queued').toUpperCase()+'</span>';
+  };
+  const outboxRows = items.length ? items.map(function(p){
+    const k = p[0], it = p[1];
+    const when = it.createdAt ? new Date(it.createdAt).toLocaleString('en-US',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+    return '<tr style="border-bottom:1px solid var(--border)">'
+      + '<td style="padding:4px 8px;white-space:nowrap">'+pill(it.status)+(it.test?' <span style="font-size:9px;color:var(--text2)">test</span>':'')+'</td>'
+      + '<td style="padding:4px 8px;white-space:nowrap;font-size:11px">'+esc(when)+'</td>'
+      + '<td style="padding:4px 8px;font-size:11px;font-weight:700;white-space:nowrap">'+esc(it.customer||'')+'</td>'
+      + '<td style="padding:4px 8px;font-size:11px;white-space:nowrap">'+esc(it.orderNum||'')+'</td>'
+      + '<td style="padding:4px 8px;font-size:10px;color:var(--text2);max-width:260px;overflow:hidden;text-overflow:ellipsis">'+esc((it.to||[]).join(', '))+((it.cc&&it.cc.length)?(' <i>cc '+esc(it.cc.join(', '))+'</i>'):'')+'</td>'
+      + '<td style="padding:4px 8px;white-space:nowrap">'
+        + '<a href="'+_lpMailto(k)+'" target="_blank" style="font-size:10px;font-weight:700;color:var(--inbound);text-decoration:underline;margin-right:8px">Outlook</a>'
+        + '<a href="#" onclick="event.preventDefault();_lpMarkSent(\''+k+'\')" style="font-size:10px;color:#065f46;text-decoration:underline;margin-right:8px">Mark sent</a>'
+        + '<a href="#" onclick="event.preventDefault();_lpRetry(\''+k+'\')" style="font-size:10px;color:#b45309;text-decoration:underline;margin-right:8px">Retry</a>'
+        + '<a href="#" onclick="event.preventDefault();_lpDelete(\''+k+'\')" style="font-size:10px;color:var(--danger);text-decoration:underline">Delete</a>'
+      + '</td></tr>'
+      + (it.error ? '<tr><td colspan="6" style="padding:0 8px 5px;font-size:10px;color:var(--danger)">'+esc(it.error)+'</td></tr>' : '');
+  }).join('') : '<tr><td colspan="6" style="padding:12px;text-align:center;color:var(--text2);font-size:12px">Nothing queued yet.</td></tr>';
+
+  const transportNote = (cfg.webhookUrl||'').trim()
+    ? '<span style="color:#065f46;font-weight:700">Connected</span> \u2014 queued messages are POSTed automatically.'
+    : '<span style="color:#b45309;font-weight:700">No sending endpoint yet</span> \u2014 messages queue below and can be opened in Outlook by hand.';
+
+  document.getElementById('modal-container').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal" style="max-width:1000px;width:96vw;max-height:92vh;display:flex;flex-direction:column;overflow:hidden">
+        <h2 style="margin:0 0 4px;flex:0 0 auto">Load Ready Notifications</h2>
+        <p style="color:var(--text2);font-size:12px;margin:0 0 12px;flex:0 0 auto">
+          One email goes out when an outbound load is set to <b>LOADED</b> with <b>paperwork in trailer</b> ticked, to the recipients set for that customer. ${transportNote}
+        </p>
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:0 0 12px;flex:0 0 auto">
+          <label style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;cursor:pointer">
+            <input type="checkbox" ${cfg.enabled?'checked':''} onchange="_lpSetEnabled(this.checked)" style="width:16px;height:16px;cursor:pointer">
+            Notifications on
+          </label>
+          <label style="display:flex;align-items:center;gap:7px;flex:1 1 320px">
+            <span style="font-size:12px;color:var(--text2);font-weight:600;white-space:nowrap">Sending endpoint</span>
+            <input value="${esc(cfg.webhookUrl||'')}" placeholder="Power Automate / Flow URL \u2014 leave blank to queue only"
+              onchange="_lpSaveCfg('webhookUrl',this.value)"
+              style="flex:1 1 auto;padding:7px 9px;border:1px solid var(--border);border-radius:7px;font-size:12px">
+          </label>
+        </div>
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:0 0 14px;flex:0 0 auto">
+          <label style="display:flex;align-items:center;gap:7px;flex:1 1 300px">
+            <span style="font-size:12px;color:var(--text2);font-weight:600;white-space:nowrap">Always CC</span>
+            <input value="${esc(cfg.globalCc||'')}" placeholder="copied on every notification"
+              onchange="_lpSaveCfg('globalCc',this.value)"
+              style="flex:1 1 auto;padding:7px 9px;border:1px solid var(--border);border-radius:7px;font-size:12px">
+          </label>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input id="lp-test-addr" placeholder="test recipient" value="${esc(cfg.lastTest||'')}"
+              style="width:230px;padding:7px 9px;border:1px solid var(--border);border-radius:7px;font-size:12px">
+            <button class="sign-out-btn" onclick="_lpTestSend()" style="background:#1a3a6b;color:#fff;border-color:#1a3a6b">Send test</button>
+          </div>
+        </div>
+
+        <div style="flex:1 1 auto;overflow:auto;border:1px solid var(--border);border-radius:8px">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="background:var(--bg);position:sticky;top:0">
+              <th style="padding:6px 8px;text-align:left;font-size:10px;letter-spacing:.5px;color:var(--text2)">CUSTOMER</th>
+              <th style="padding:6px 8px;text-align:left;font-size:10px;letter-spacing:.5px;color:var(--text2)">TO (one or more, comma separated)</th>
+              <th style="padding:6px 8px;text-align:left;font-size:10px;letter-spacing:.5px;color:var(--text2)">CC</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+
+        <h3 style="margin:14px 0 6px;font-size:13px;flex:0 0 auto">Outbox</h3>
+        <div style="flex:0 0 auto;max-height:230px;overflow:auto;border:1px solid var(--border);border-radius:8px">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="background:var(--bg);position:sticky;top:0">
+              <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2)">STATUS</th>
+              <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2)">WHEN</th>
+              <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2)">CUSTOMER</th>
+              <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2)">ORDER #</th>
+              <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2)">RECIPIENTS</th>
+              <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2)"></th>
+            </tr></thead>
+            <tbody>${outboxRows}</tbody>
+          </table>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;flex:0 0 auto">
+          <button class="sign-out-btn" onclick="closeModal()">Close</button>
+        </div>
+      </div>
+    </div>`;
+}
+
 function showUsersModal() {
   if (!state.user || state.user.role !== 'admin') { showAlert('Admin only','warning'); return; }
   document.getElementById('modal-container').innerHTML = `
@@ -1210,12 +1521,22 @@ function startListeners() {
   });
   db.ref(ROOT+'/outbound').on('value', snap => {
     state.outbound = snap.val()||{};
+    _lpScan();
     if (state.tab==='ob') renderOutbound();
     if (state.tab==='yd') renderYard();
     if (state.tab==='ff') renderFirstFleet();
     if (state.tab==='pwd') renderPWD();
     if (state.tab==='sc') scDeferRender();
     updateBadges();
+  });
+  db.ref(LP_SETTINGS()).on('value', snap => {
+    state.notifyCfg = snap.val()||{};
+    _lpScan();
+    if (document.querySelector('#modal-container .modal') && document.getElementById('lp-test-addr')) showNotifyModal();
+  });
+  db.ref(LP_OUTBOX()).on('value', snap => {
+    state.notifyOutbox = snap.val()||{};
+    if (document.getElementById('lp-test-addr')) showNotifyModal();
   });
   db.ref(ROOT+'/firstfleet').on('value', snap => {
     state.firstfleet = snap.val()||{};
@@ -1353,9 +1674,9 @@ function apptSelForEdit(r){
   return APPT_SLOTS.includes(s) ? s : NOAPPT_VAL;
 }
 // Build <option> list of customers from a reference-table key (keeps any custom value already on a load).
-function customerOptionsFrom(refKey, selected) {
+function customerOptionsFrom(refKey, selected, listOverride) {
   const cur = (selected||'').toUpperCase();
-  let list = refOpts(refKey).slice();
+  let list = (listOverride || refOpts(refKey)).slice();
   if (cur && list.indexOf(cur)===-1) list = [cur, ...list];
   let opts = '<option value="">— Select customer —</option>';
   list.forEach(c => { opts += '<option value="'+String(c).replace(/"/g,'&quot;')+'" '+(String(c).toUpperCase()===cur?'selected':'')+'>'+c+'</option>'; });
@@ -1364,7 +1685,15 @@ function customerOptionsFrom(refKey, selected) {
 // Per-board thin wrappers
 function ibSlotsTaken(date, excludeId){ return apptSlotsTaken(state.inbound, date, excludeId); }
 function ibApptOptions(date, selected, excludeId){ return apptOptions(state.inbound, date, selected, excludeId); }
-function ibCustomerOptions(selected){ return customerOptionsFrom('customerIB', selected); }
+// Inbound customer list with the forced buckets guaranteed, so NEXUS is pickable even if
+// the reference table in Firebase predates it.
+function ibCustList() {
+  const list = refOpts('customerIB').slice();
+  const have = list.map(x => String(x).toUpperCase().trim());
+  Object.keys(IB_FORCED_ICONS).forEach(k => { if (have.indexOf(k) === -1) list.push(k); });
+  return list;
+}
+function ibCustomerOptions(selected){ return customerOptionsFrom('customerIB', selected, ibCustList()); }
 function obSlotsTaken(date, excludeId){ return apptSlotsTaken(state.outbound, date, excludeId); }
 function obApptOptions(date, selected, excludeId){ return apptOptions(state.outbound, date, selected, excludeId, true); }
 function obCustomerOptions(selected){ return customerOptionsFrom('customerOB', selected); }
@@ -1481,7 +1810,7 @@ function renderInbound() {
             ${ibOpts}
           </select>
         </td>
-        <td style="font-weight:600;min-width:110px">${cellSelect('ib',id,'customer',r.customer,refOpts('customerIB'),'110px','font-weight:700')}${ibIsRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
+        <td style="font-weight:600;min-width:110px">${cellSelect('ib',id,'customer',r.customer,ibCustList(),'110px','font-weight:700')}${ibIsRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:80px">${cellInput('ib',id,'loadNum',r.loadNum,'80px','Load #','font-weight:700')}${dupBadge('ib', ibDups, r.loadNum, id)}</td>
         <td style="min-width:70px"><span class="ib-appt-label">${fmtApptLabel(r.apptTime)}</span></td>
         <td>
@@ -1903,7 +2232,7 @@ function toggleFFCust(full) {
 // Updatable via the table import. Defaults seeded from the ICON_HEADERS table.
 const DEFAULT_ICON_IB = {
   'ATL UPM':'ATL UPM','CATALYST':'CATALYST','IP':'IP','IPG - ITAPE':'IPG - ITAPE',
-  'WRK - PRATT':'WRK - PRATT','SMUR-WRK':'SMUR-WRK','TWIN RIVERS':'TWIN RIVERS'
+  'NEXUS':'NEXUS','WRK - PRATT':'WRK - PRATT','SMUR-WRK':'SMUR-WRK','TWIN RIVERS':'TWIN RIVERS'
 };
 const DEFAULT_ICON_OB = {
   'ALL SOUTH':'OTHER','ATL UPM':'ATL UPM','ATLANTIC CONV':'OTHER','CATALYST':'CATALYST','CONWAY':'OTHER',
@@ -1923,25 +2252,41 @@ function looksValidIconMap(m) {
   const ok = vals.filter(v => v==='OTHER' || keys.indexOf(v)>-1).length;
   return (ok/vals.length) >= 0.6;
 }
+// Inbound-only buckets that have to exist whatever the imported icon table says, so a
+// stale table import can't quietly drop them. OTHER is the catch-all: any inbound customer
+// the table doesn't name (and any load with no customer picked yet) lands there, so every
+// load on the day sits in exactly one tile instead of vanishing from the filter bar.
+// Outbound is deliberately left exactly as it was.
+const IB_FORCED_ICONS = { 'NEXUS':'NEXUS' };
+const ICON_OTHER = 'OTHER';
+function ibForceIcons(base) {
+  const out = Object.assign({}, base);
+  const have = Object.keys(out).map(k => String(k).toUpperCase().trim());
+  Object.keys(IB_FORCED_ICONS).forEach(k => { if (have.indexOf(k) === -1) out[k] = IB_FORCED_ICONS[k]; });
+  return out;
+}
 function iconMap(tab) {
   const ih = state.iconHeaders || {};
   const m = (tab==='ib') ? ih.inbound : ih.outbound;
-  return (m && Object.keys(m).length && looksValidIconMap(m)) ? m : (tab==='ib' ? DEFAULT_ICON_IB : DEFAULT_ICON_OB);
+  const base = (m && Object.keys(m).length && looksValidIconMap(m)) ? m : (tab==='ib' ? DEFAULT_ICON_IB : DEFAULT_ICON_OB);
+  return (tab==='ib') ? ibForceIcons(base) : base;
 }
 function iconList(tab) {
   const m = iconMap(tab);
   const set = [];
   Object.values(m).forEach(ic => { const v=(ic||'').toString().trim().toUpperCase(); if (v && set.indexOf(v)===-1) set.push(v); });
+  if (tab==='ib' && set.indexOf(ICON_OTHER)===-1) set.push(ICON_OTHER);
   set.sort((a,b)=>{ if(a==='OTHER') return 1; if(b==='OTHER') return -1; return a.localeCompare(b); });
   return set;
 }
 function iconForCustomer(tab, customer) {
   const m = iconMap(tab);
   const cu = (customer||'').toString().trim().toUpperCase();
-  if (!cu) return null;
+  const miss = (tab==='ib') ? ICON_OTHER : null;   // outbound keeps its old null
+  if (!cu) return miss;
   for (const k in m) if (k.toUpperCase()===cu) return (m[k]||'').toString().trim().toUpperCase();
   for (const k in m) { const ku=k.toUpperCase(); if (ku && (cu.indexOf(ku)>-1 || ku.indexOf(cu)>-1)) return (m[k]||'').toString().trim().toUpperCase(); }
-  return null;
+  return miss;
 }
 
 // Icon-table-driven customer-filter bar (all icons shown, 0 when empty)
@@ -3422,7 +3767,7 @@ function clearRail(num) {
 
 const DEFAULT_REF_TABLE = {
   operators: ['ADRIAN','DENNIS','FERNANDO','LARRY','LUIS','JUNIOR','JOSH','TRAVIS','YOSIMAR'],
-  customerIB: ['ATL UPM','CATALYST','IP','IPG - ITAPE','WRK - PRATT','SMUR-WRK','TWIN RIVERS'],
+  customerIB: ['ATL UPM','CATALYST','IP','IPG - ITAPE','NEXUS','WRK - PRATT','SMUR-WRK','TWIN RIVERS'],
   customerOB: ['ALL SOUTH','ATL UPM','ATLANTIC CONV','CATALYST','CONWAY','COVINGTON XDK','HBH','HOOD','IP','IPG - ITAPE','LANET - VALLEY','LITHIA SPRINGS','MAXXON','MONTGOMEREY XDK','MPS','NORCROSS XDK','PREGIS','SCI GAMES','TWIN RIVERS','WRK ATL SHEET','WRK CONWAY','WRK HEBRON','WRK RECLAMATION'],
   door: ['15','16','17','18','19','20','21','22','23','24','25','26','27','28','29','30','31','32','33','34','35','36','37','38','39','40','41','42','43','44','45','46','47','48','49','50','51'],
   stageLane: ['23-00-00','23-01-00','23-02-00','23-03-00','23-04-00','23-05-00','23-06-00','23-07-00','23-08-00','23-09-00','23-10-00','23-11-00','23-12-00','23-13-00','23-14-00','23-15-00','23-16-00','23-17-00'],
