@@ -1758,12 +1758,12 @@ function cycleOBStatus(id) {
 // the row you're working on stays put.
 function keepScroll(view) {
   if (!view) return;
-  const sc = view.querySelector('.schedule-wrap, .yard-scroll');
+  const sc = view.querySelector('.schedule-wrap, .yard-scroll, .sc-wrap');
   if (!sc) return;
   const top = sc.scrollTop, left = sc.scrollLeft;
   if (!top && !left) return;
   requestAnimationFrame(() => {
-    const e = view.querySelector('.schedule-wrap, .yard-scroll');
+    const e = view.querySelector('.schedule-wrap, .yard-scroll, .sc-wrap');
     if (e) { e.scrollTop = top; e.scrollLeft = left; }
   });
 }
@@ -4122,7 +4122,7 @@ const SC_HIST_FIELDS = {
 const SC_TONS_ALIASES = {
   'TWIN RIVERS':'TWIN', 'MAXXON':'MAX', 'NEXUS':'NEX', 'SMURFIT WESTROCK':'WRK', 'SMURFIT':'WRK',
   'CATALYST':'CAT', 'NORCROSS':'NOR', 'NORCROSS XDK':'NOR', 'COVINGTON':'COV', 'COVINGTON XDK':'COV',
-  'SCI GAMES':'SG', 'CONWAY':'CON', 'LANET':'LAN', 'LANET - VALLEY':'LAN'
+  'SCI GAMES':'SG', 'CONWAY':'CON', 'LANET':'LAN', 'LANET - VALLEY':'LAN', 'DOMTAR':'DOM'
 };
 const SC_MONTH_NAMES = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
 
@@ -4760,6 +4760,7 @@ function exportReportExcel() {
 const SC_GROUPS_6021 = [
   {key:'WRK',  label:'SMURFIT WESTROCK'},
   {key:'CAT',  label:'CATALYST'},
+  {key:'DOM',  label:'DOMTAR'},
   {key:'UPM',  label:'UPM'},
   {key:'TWIN', label:'TWIN RIVERS'},
   {key:'IPG',  label:'IPG'},
@@ -4798,6 +4799,7 @@ function scoreGroup(customer){
   if (!c) return null;
   if (c.indexOf('WRK')>-1 || SC_WRK_MEMBERS.indexOf(c)>-1) return 'WRK';
   if (c.indexOf('CATALYST')>-1) return 'CAT';
+  if (c.indexOf('DOMTAR')>-1)   return 'DOM';
   if (c.indexOf('MAXXON')>-1)   return 'MAX';
   if (c.indexOf('TWIN')>-1)     return 'TWIN';
   if (c.indexOf('IPG')>-1)      return 'IPG';   // check IPG before IP (IPG contains "IP")
