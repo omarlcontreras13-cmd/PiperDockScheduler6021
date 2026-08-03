@@ -385,6 +385,7 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
       <button class="sign-out-btn" id="report-btn" onclick="showReportModal()" style="display:none;margin-right:8px;background:#b45309;color:#fff;border-color:#b45309">Reports</button>
       <button class="sign-out-btn" id="notify-btn" onclick="showNotifyModal()" style="display:none;margin-right:8px;background:#0f766e;color:#fff;border-color:#0f766e">Notify</button>
       <button class="sign-out-btn" id="users-btn" onclick="showUsersModal()" style="display:none;margin-right:8px;background:#6b21a8;color:#fff;border-color:#6b21a8">Users</button>
+      <button class="sign-out-btn" id="mls-btn" onclick="msShowModal()" style="display:none;margin-right:8px;background:#7a1620;color:#fff;border-color:#7a1620;font-weight:700" title="Print inspection sheets for multiple loads at once">🖨 Master Load Sheet</button>
       <button class="sign-out-btn" onclick="hardReload()" title="Reload the latest version (hard refresh - clears the cached page)" style="margin-right:8px;background:#1a3a6b;color:#fff;border-color:#1a3a6b;font-weight:700">⟳ Reload</button>
       <button class="sign-out-btn" onclick="logout()">Sign Out</button>
     </div>
@@ -696,6 +697,7 @@ function loginGroup(group, isAdmin) {
   document.getElementById('users-btn').style.display  = admin ? '' : 'none';
   var _nb = document.getElementById('notify-btn'); if (_nb) _nb.style.display = admin ? '' : 'none';
   document.getElementById('report-btn').style.display = admin ? '' : 'none';
+  var _ms=document.getElementById('mls-btn'); if(_ms) _ms.style.display = isPiper ? '' : 'none';
 
   // Tab visibility — FFTI/SW sees only First Fleet
   applyTabAccess(group);
@@ -2126,7 +2128,7 @@ function renderInbound() {
             onchange="saveField('ib','${id}','status',this.value);this.className='status-select '+(IB_CLASSES[this.value]||'s-scheduled')"
             style="color:#111">
             ${ibOpts}
-          </select>
+          </select>${lsBtn('ib',id,r)}
         </td>
         <td style="font-weight:600;min-width:110px">${cellSelect('ib',id,'customer',r.customer,ibCustList(),'110px','font-weight:700')}${ibIsRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:80px">${cellInput('ib',id,'loadNum',r.loadNum,'80px','Load #','font-weight:700')}${dupBadge('ib', ibDups, r.loadNum, id)}</td>
@@ -2302,7 +2304,7 @@ function renderOutbound() {
             onchange="saveField('ob','${id}','status',this.value);if(this.value==='DEPARTED'||this.value==='CANCELLED')saveField('ob','${id}','ffStatus',null);this.className='status-select '+(OB_CLASSES[this.value]||'s-order-recv')"
             style="color:${obStatusColor}">
             ${obOpts}
-          </select>
+          </select>${lsBtn('ob',id,r)}
         </td>
         <td style="min-width:155px">${cellSelect('ob',id,'customer',r.customer,refOpts('customerOB'),'150px','font-weight:700')}${obPri?'<span class="pri-badge">★ PRIORITY</span>':''}${isPF?'<span style="font-size:8px;background:rgba(26,58,107,0.12);color:var(--inbound);padding:1px 5px;border-radius:4px;margin-left:4px;font-weight:700">PF</span>':''}${obIsRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:150px">${cellInput('ob',id,'orderNum',r.orderNum,'115px','Order #','font-weight:700')}${(obManual && !obIsRolled)?'<span class="notexcel-badge">NEW ORDER</span>':''}${dupBadge('ob', obDups, r.orderNum, id)}${pwBadge(obPW)}${nightBadge(obNight)}</td>
@@ -6006,6 +6008,342 @@ function exportYardCheck() {
   if (w.document.readyState === 'complete') wire(); else w.onload = wire;
   setTimeout(wire, 300);
 }
+
+
+
+// ─── LOAD / UNLOAD INSPECTION SHEET (additive; do not modify existing logic) ──
+// Replicates page 2 of the Piper "Controlled Trailer/Rail Inspection and
+// Load/Unload Sheet" as a full-page (8.5x11) print-preview, prefilled from a
+// load's Dock Scheduler details. A "printer Sheet" button appears in the Status
+// cell only when an Inbound load is UNLOADING or an Outbound load is LOADING,
+// and enables only once the required detail fields are present. The top
+// "Master Load Sheet" tool batch-prints, for a chosen day (today / next day),
+// every load NOT yet finished (Loaded, Departed, Cancelled, or completed
+// Inbound are hidden). Purely additive.
+const LS_LOC = (String(ROOT).indexOf('6021') >= 0) ? 'Location 6021 &mdash; Greensboro'
+             : (String(ROOT).indexOf('6049') >= 0) ? 'Location 6049'
+             : ('Location ' + String(ROOT).replace(/[^0-9]/g, ''));
+// Required detail fields per board (label used in the "missing" hint).
+const LS_REQ = {
+  ib: [['reqDate','Date'], ['loadNum','Order Number'], ['customer','Customer / City'], ['door','Door Number'], ['trailer','Trailer / Rail Car #']],
+  ob: [['dateOB','Date'], ['orderNum','Order Number'], ['destination','Destination / City'], ['stageLoc','Staging Area'], ['door','Door Number'], ['trailer','Trailer / Rail Car #']]
+};
+function _lsEsc(s){ return (s==null ? '' : String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function _lsAttr(s){ return _lsEsc(s).replace(/"/g,'&quot;'); }
+function _lsVal(board, r, key){
+  if (key==='dateOB') return (r.origReqDate || r.reqDate || '').slice(0,10);
+  if (key==='reqDate') return (r.reqDate || '').slice(0,10);
+  return r[key];
+}
+function lsIsTrigger(board, r){
+  const s = ((r && r.status) || '').toUpperCase();
+  return board==='ob' ? (s==='LOADING') : (s==='UNLOADING');
+}
+function lsReady(board, r){
+  const miss = [];
+  (LS_REQ[board]||[]).forEach(function(pair){
+    const v = _lsVal(board, r, pair[0]);
+    if (v==null || String(v).trim()==='') miss.push(pair[1]);
+  });
+  return { ok: miss.length===0, missing: miss };
+}
+function lsBtn(board, id, r){
+  if (!lsIsTrigger(board, r)) return '';
+  const chk = lsReady(board, r);
+  const base = 'display:block;width:100%;box-sizing:border-box;margin-top:3px;font-size:9px;font-weight:700;padding:2px 4px;border-radius:4px;line-height:1.3;letter-spacing:.2px;';
+  if (chk.ok){
+    return '<button type="button" title="Open Load/Unload Inspection Sheet"'
+      + ' onclick="openLoadSheet(\'' + board + '\',\'' + id + '\')"'
+      + ' style="' + base + 'border:1px solid #1d6f42;background:#1d6f42;color:#fff;cursor:pointer;">&#128424; Sheet</button>';
+  }
+  return '<button type="button" disabled title="' + _lsAttr('Complete to enable: ' + chk.missing.join(', '))
+    + '" style="' + base + 'border:1px solid #c2c8d0;background:#eef1f5;color:#9aa2ad;cursor:not-allowed;">&#128424; Sheet</button>';
+}
+function _lsFmtDate(iso){
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
+  if (!m) return iso || '';
+  const d = new Date(+m[1], +m[2]-1, +m[3]);
+  return d.toLocaleDateString('en-US', { month:'2-digit', day:'2-digit', year:'numeric' });
+}
+function _lsDayLabel(iso){
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
+  if (!m) return iso || '';
+  const d = new Date(+m[1], +m[2]-1, +m[3]);
+  return d.toLocaleDateString('en-US', { weekday:'short', month:'numeric', day:'numeric' });
+}
+function _lsAddDays(iso, n){
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
+  if (!m) return iso || '';
+  const d = new Date(+m[1], +m[2]-1, +m[3]); d.setDate(d.getDate() + n);
+  const p = function(x){ return String(x).padStart(2,'0'); };
+  return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate());
+}
+function _lsCustCity(board, r){
+  const c = (r.customer || '').trim();
+  if (board==='ob'){
+    const d = (r.destination || '').trim();
+    return (c && d) ? (c + ' / ' + d) : (c || d || '');
+  }
+  return c;
+}
+// Sized to fill a US-Letter (8.5x11in) page at 0.5in margins (7.5x10in printable).
+const LS_SHEET_CSS =
+  '.ls-sheet{font-family:Arial,Helvetica,sans-serif;color:#111;width:7.4in;min-height:9.5in;margin:0 auto;display:flex;flex-direction:column;}'
++ '.ls-sheet *{box-sizing:border-box;}'
++ '.ls-spacer{flex:1 1 auto;min-height:8px;}'
++ '.ls-hdr{width:100%;border-collapse:collapse;margin-bottom:8px;}'
++ '.ls-hdr td{vertical-align:middle;}'
++ '.ls-logo-img{height:88px;width:auto;display:block;}'
++ '.ls-h-mid{text-align:center;padding:0 8px;}'
++ '.ls-title{font-size:16px;font-weight:800;letter-spacing:.2px;color:#7a1620;line-height:1.18;}'
++ '.ls-sub{font-size:10.5px;color:#333;margin-top:3px;}'
++ '.ls-h-r{text-align:right;font-size:9.5px;color:#333;white-space:nowrap;}'
++ '.ls-badge{display:inline-block;background:#7a1620;color:#fff;font-size:9.5px;font-weight:700;padding:3px 8px;border-radius:4px;letter-spacing:.5px;margin-bottom:5px;}'
++ '.ls-sec{background:#1a3a6b;color:#fff;font-size:11.5px;font-weight:700;padding:5px 9px;margin:11px 0 0;letter-spacing:.3px;}'
++ '.ls-tbl{width:100%;border-collapse:collapse;font-size:11.5px;}'
++ '.ls-tbl td{border:1px solid #b9c2d0;padding:8px 8px;width:50%;vertical-align:middle;}'
++ '.ls-tbl b{font-weight:700;color:#1a3a6b;}'
++ '.ls-fill{display:inline-block;border-bottom:1px solid #333;min-width:70px;padding:0 4px;font-weight:700;line-height:1.7;}'
++ '.ls-insp{width:100%;border-collapse:collapse;font-size:11px;}'
++ '.ls-insp th{background:#eef2f8;border:1px solid #b9c2d0;padding:6px;text-align:left;font-size:10.5px;color:#1a3a6b;}'
++ '.ls-insp td{border:1px solid #b9c2d0;padding:8px 6px;vertical-align:top;}'
++ '.ls-insp tr{height:0.58in;}'
++ '.ls-insp .ls-icol{width:64px;font-weight:700;color:#1a3a6b;}'
++ '.ls-insp .ls-scol{width:96px;}'
++ '.ls-sign{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px;}'
++ '.ls-sign td{padding:18px 6px 4px;vertical-align:bottom;}'
++ '.ls-note{font-size:8.5px;color:#666;margin-top:9px;font-style:italic;}';
+function lsSheetHtml(board, r){
+  const isOB = (board==='ob');
+  const logoEl = document.querySelector('img[alt="Piper Warehouse"]');
+  const logoImg = logoEl && logoEl.src ? '<img src="' + logoEl.src + '" class="ls-logo-img" alt="Piper Warehouse">' : '';
+  const printed = new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+  const F = function(v, w){ return '<span class="ls-fill"' + (w ? (' style="min-width:' + w + '"') : '') + '>' + _lsEsc(v) + '</span>'; };
+  const dateVal  = isOB ? _lsFmtDate((r.origReqDate || r.reqDate || '').slice(0,10)) : _lsFmtDate((r.reqDate || '').slice(0,10));
+  const orderVal = isOB ? r.orderNum : r.loadNum;
+  const custCity = _lsCustCity(board, r);
+  const stageVal = isOB ? (r.stageLoc || '') : '';
+  const badge = isOB ? 'OUTBOUND &middot; LOADING' : 'INBOUND &middot; UNLOADING';
+  var h = '<div class="ls-sheet"><div class="ls-body">';
+  h += '<table class="ls-hdr"><tr>'
+     + '<td style="width:220px">' + logoImg + '</td>'
+     + '<td class="ls-h-mid"><div class="ls-title">Controlled Trailer / Rail Inspection<br>and Load / Unload Sheet</div>'
+     + '<div class="ls-sub">Piper Warehouse &amp; Logistics &middot; ' + LS_LOC + '</div></td>'
+     + '<td class="ls-h-r"><span class="ls-badge">' + badge + '</span><br>Printed: ' + _lsEsc(printed) + '</td>'
+     + '</tr></table>';
+  h += '<div class="ls-sec">Order Detail Verification</div>';
+  h += '<table class="ls-tbl">'
+     + '<tr><td><b>Date:</b> ' + F(dateVal, '150px') + '</td><td><b>Order Number:</b> ' + F(orderVal, '150px') + '</td></tr>'
+     + '<tr><td><b>Customer / City:</b> ' + F(custCity, '230px') + '</td><td><b>Order Staged Area:</b> ' + F(stageVal, '120px') + '</td></tr>'
+     + '<tr><td><b>Dock / Door Number:</b> ' + F(r.door, '90px') + '</td><td><b>Trailer / Rail Car Number:</b> ' + F(r.trailer, '150px') + '</td></tr>'
+     + '<tr><td><b>Pallet / Roll Count:</b> ' + F('', '110px') + '</td><td><b>Pack List Provided?</b> ' + F('', '110px') + '</td></tr>'
+     + '<tr><td><b>Arrival Time:</b> ' + F(r.timeIn, '110px') + '</td><td><b>Departure Time:</b> ' + F(r.timeOut, '110px') + '</td></tr>'
+     + '</table>';
+  h += '<div class="ls-sec">Pre - Loading Inspection (Loader)</div>';
+  h += '<table class="ls-tbl">'
+     + '<tr><td>Unloading / Loading Start Time: ' + F('', '90px') + '</td><td>Unloading / Loading End Time: ' + F('', '90px') + '</td></tr>'
+     + '<tr><td>Trailer Stand Applied? ' + F('', '70px') + '</td><td>Tandems Slid Back? ' + F('', '70px') + '</td></tr>'
+     + '<tr><td>Wheels Chocked? ' + F('', '70px') + '</td><td>Mats Applied? ' + F('', '70px') + '</td></tr>'
+     + '<tr><td>Is Trailer Number Correct? ' + F('', '70px') + '</td><td>Is Trailer in Correct Door? ' + F('', '70px') + '</td></tr>'
+     + '<tr><td>Is Order Number Correct? ' + F('', '70px') + '</td><td>Is Pallet / Roll Count Correct? ' + F('', '70px') + '</td></tr>'
+     + '</table>';
+  h += '<table class="ls-insp"><thead><tr>'
+     + '<th class="ls-icol">Inspection</th><th>Items</th><th class="ls-scol">Right Side</th><th class="ls-scol">Left Side</th>'
+     + '</tr></thead><tbody>'
+     + '<tr><td class="ls-icol">Floor</td><td>Free of holes, cracks or missing boards, nails or debris, rot or wet contamination, faulty or improper repairs.</td><td></td><td></td></tr>'
+     + '<tr><td class="ls-icol">Roof</td><td>Free of cracks or holes, visible signs of leaking or light entering from seams.</td><td></td><td></td></tr>'
+     + '</tbody></table>';
+  h += '<div class="ls-sec">Post &ndash; Load Inspection (Loader &amp; Supervisor)</div>';
+  h += '<table class="ls-tbl">'
+     + '<tr><td>Pallets / Rolls Verified Against Pack Slip? ' + F('', '60px') + '</td><td>Total Pallets / Rolls Loaded? ' + F('', '70px') + '</td></tr>'
+     + '<tr><td>Total Pallets / Rolls Expected? ' + F('', '70px') + '</td><td>Total Pallets / Rolls Loaded? ' + F('', '70px') + '</td></tr>'
+     + '<tr><td>Pallets / Rolls Loaded Correctly? ' + F('', '60px') + '</td><td>Staging Area Clear? ' + F('', '70px') + '</td></tr>'
+     + '<tr><td>Paperwork / Seal Applied? ' + F('', '70px') + '</td><td>Dock Plate Lifted? ' + F('', '70px') + '</td></tr>'
+     + '</table>';
+  h += '</div><div class="ls-spacer"></div><div class="ls-foot">';
+  h += '<table class="ls-sign">'
+     + '<tr><td style="width:65%">Loader: ' + F('', '300px') + '</td><td>Date: ' + F('', '130px') + '</td></tr>'
+     + '<tr><td>Supervisor: ' + F('', '285px') + '</td><td>Date: ' + F('', '130px') + '</td></tr>'
+     + '</table>';
+  h += '<div class="ls-note">Generated from Dock Scheduler ' + _lsEsc(String(ROOT)) + ' &mdash; verify all fields against physical load before sign-off.</div>';
+  h += '</div></div>';
+  return h;
+}
+// Shared preview chrome (single or master multi-sheet).
+function _lsPreviewCss(){
+  return LS_SHEET_CSS
+    + '@page{size:8.5in 11in;margin:0.5in;}'
+    + '@media print{.no-print{display:none!important;} html,body{margin:0;} .ls-page{padding:0!important;max-width:none;} .ls-pw{page-break-after:always;} .ls-pw:last-child{page-break-after:auto;}}'
+    + '.ls-toolbar{position:sticky;top:0;background:#1a3a6b;padding:10px 14px;display:flex;gap:10px;align-items:center;z-index:5;}'
+    + '.ls-toolbar .ttl{color:#fff;font:600 13px Arial;margin-right:auto;}'
+    + '.ls-toolbar button{font:600 13px Arial;padding:8px 14px;border:none;border-radius:6px;cursor:pointer;}'
+    + '.b-print{background:#1d6f42;color:#fff;}'
+    + 'body{background:#e9edf4;margin:0;} .ls-page{padding:22px;max-width:8.5in;margin:0 auto;background:#fff;}'
+    + '.ls-pw{background:#fff;} .ls-pw + .ls-pw{margin-top:22px;}';
+}
+function _lsOpenPreview(title, innerHtml, doFit){
+  const w = window.open('', '_blank');
+  if (!w){ showAlert('Allow pop-ups to open the sheet.', 'warning'); return null; }
+  const html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + _lsEsc(title) + '</title><style>'
+    + _lsPreviewCss() + '</style></head><body>'
+    + '<div class="ls-toolbar no-print"><span class="ttl">' + _lsEsc(title) + '</span>'
+    + '<button class="b-print" id="ls-btn-print">&#128424; Print / Save PDF</button></div>'
+    + '<div class="ls-page">' + innerHtml + '</div></body></html>';
+  w.document.open(); w.document.write(html); w.document.close();
+  const wire = function(){ try {
+    const tb = w.document.querySelector('.ls-toolbar');
+    const el = doFit ? w.document.querySelector('.ls-sheet') : null;
+    const fitOnePage = function(){ try {
+      if (!el) return;
+      el.style.zoom = '1';
+      const hh = el.getBoundingClientRect().height;
+      const target = 9.85 * 96;
+      if (hh > target) el.style.zoom = (target / hh).toFixed(3);
+    } catch(e){} };
+    const resetFit = function(){ try { if (el) el.style.zoom = '1'; } catch(e){} };
+    const bp = w.document.getElementById('ls-btn-print');
+    if (bp) bp.onclick = function(){ fitOnePage(); w.print(); };
+    w.onbeforeprint = function(){ if (tb) tb.style.display = 'none'; fitOnePage(); };
+    w.onafterprint  = function(){ if (tb) tb.style.display = ''; resetFit(); };
+  } catch(e){} };
+  if (w.document.readyState === 'complete') wire(); else w.onload = wire;
+  setTimeout(wire, 300);
+  return w;
+}
+function openLoadSheet(board, id){
+  const coll = (board==='ob') ? state.outbound : state.inbound;
+  const r = coll && coll[id];
+  if (!r){ showAlert('Load not found.', 'warning'); return; }
+  if (!lsIsTrigger(board, r)){
+    showAlert('The sheet is available only when the load is set to ' + (board==='ob' ? 'LOADING' : 'UNLOADING') + '.', 'warning');
+    return;
+  }
+  const chk = lsReady(board, r);
+  if (!chk.ok){ showAlert('Missing required detail(s): ' + chk.missing.join(', '), 'warning'); return; }
+  const ttl = (board==='ob' ? 'Loading' : 'Unloading') + ' Sheet — ' + ((board==='ob' ? r.orderNum : r.loadNum) || '');
+  _lsOpenPreview(ttl, '<div class="ls-pw">' + lsSheetHtml(board, r) + '</div>', true);
+}
+
+// ─── MASTER LOAD SHEET (batch, by day; additive) ─────────────────────────────
+// Finished statuses that are hidden from the master list (never need a sheet).
+const MS_DONE = { ob: { 'LOADED':1, 'DEPARTED':1, 'CANCELLED':1 }, ib: { 'COMPLETED':1, 'CANCELLED':1 } };
+var _msDay = '';
+function msIncludeStatus(board, r){
+  const s = ((r && r.status) || '').toUpperCase();
+  return !(MS_DONE[board] && MS_DONE[board][s]);
+}
+// Loads whose scheduled day (reqDate — the day the board groups them under)
+// equals `day`, on both boards, excluding finished statuses.
+function msLoadsForDay(day){
+  const out = [];
+  const add = function(coll, board){
+    Object.keys(coll || {}).forEach(function(id){
+      const r = coll[id];
+      const d = (r && r.reqDate ? r.reqDate.slice(0,10) : '');
+      if (d === day && msIncludeStatus(board, r)) out.push({ board:board, id:id, r:r });
+    });
+  };
+  add(state.outbound, 'ob');
+  add(state.inbound, 'ib');
+  out.sort(function(a,b){
+    if (a.board !== b.board) return a.board==='ob' ? -1 : 1;
+    const oa = (a.board==='ob'?a.r.orderNum:a.r.loadNum) || '';
+    const ob = (b.board==='ob'?b.r.orderNum:b.r.loadNum) || '';
+    return String(oa).localeCompare(String(ob));
+  });
+  return out;
+}
+function _msRow(e){
+  const isOB = e.board==='ob';
+  const order = (isOB ? e.r.orderNum : e.r.loadNum) || '(no #)';
+  const cc = _lsCustCity(e.board, e.r) || '(no customer)';
+  const st = ((e.r.status) || '').toUpperCase() || '—';
+  const bcol = isOB ? '#1a3a6b' : '#0f766e';
+  const need = lsReady(e.board, e.r).missing;
+  const needHtml = need.length ? ('<span style="color:#b45309;font-weight:600"> &middot; needs: ' + _lsEsc(need.join(', ')) + '</span>') : '';
+  return '<label style="display:flex;align-items:center;gap:9px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;cursor:pointer;font-size:12.5px">'
+    + '<input type="checkbox" class="ms-ck" data-b="' + e.board + '" data-i="' + _lsAttr(e.id) + '" checked style="width:16px;height:16px;cursor:pointer;flex:0 0 auto">'
+    + '<span style="flex:0 0 auto;background:' + bcol + ';color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px">' + (isOB?'OB':'IB') + '</span>'
+    + '<span style="flex:0 0 auto;background:#eef2f8;color:#1a3a6b;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;border:1px solid #d5deea">' + _lsEsc(st) + '</span>'
+    + '<b style="flex:0 0 auto">' + _lsEsc(order) + '</b>'
+    + '<span style="flex:1 1 auto;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _lsEsc(cc)
+    + ' &middot; Door ' + _lsEsc(e.r.door||'—') + ' &middot; Tr ' + _lsEsc(e.r.trailer||'—') + needHtml + '</span>'
+    + '</label>';
+}
+const MS_DAYBTN = 'padding:7px 14px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;font-weight:700;cursor:pointer;';
+function msShowModal(){
+  const t0 = todayStr();
+  const t1 = _lsAddDays(t0, 1);
+  document.getElementById('modal-container').innerHTML = ''
+    + '<div class="modal-overlay" onclick="if(event.target===this)closeModal()">'
+    + '  <div class="modal" style="max-width:740px;width:94vw;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">'
+    + '    <h2 style="margin:0 0 4px;flex:0 0 auto">Master Load Sheet</h2>'
+    + '    <p style="color:var(--text2);font-size:13px;margin:0 0 12px;flex:0 0 auto">Every load still to be worked (Loaded, Departed, Cancelled and completed Inbound are hidden) for the day you pick. Each prints as its own full 8&frac12;&times;11 inspection sheet.</p>'
+    + '    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex:0 0 auto">'
+    + '      <span style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text2);font-weight:700">View day:</span>'
+    + '      <button id="ms-day-0" onclick="msSetDay(0)" style="' + MS_DAYBTN + '">Today &middot; ' + _lsEsc(_lsDayLabel(t0)) + '</button>'
+    + '      <button id="ms-day-1" onclick="msSetDay(1)" style="' + MS_DAYBTN + '">Next Day &middot; ' + _lsEsc(_lsDayLabel(t1)) + '</button>'
+    + '    </div>'
+    + '    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex:0 0 auto">'
+    + '      <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;cursor:pointer"><input type="checkbox" id="ms-all" checked onchange="msToggleAll(this.checked)" style="width:15px;height:15px;cursor:pointer"> Select all</label>'
+    + '      <span id="ms-count" style="font-size:12px;color:var(--text2);margin-left:auto"></span>'
+    + '    </div>'
+    + '    <div id="ms-list" onchange="msSyncCount()" style="flex:1 1 auto;min-height:0;overflow:auto;padding-right:4px"></div>'
+    + '    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;flex:0 0 auto">'
+    + '      <button class="sign-out-btn" onclick="closeModal()">Cancel</button>'
+    + '      <button class="sign-out-btn" id="ms-print" onclick="msPrint()" style="background:#7a1620;color:#fff;border-color:#7a1620;font-weight:700">&#128424; Print Selected Sheets</button>'
+    + '    </div>'
+    + '  </div>'
+    + '</div>';
+  msSetDay(0);
+}
+function msSetDay(n){
+  _msDay = _lsAddDays(todayStr(), n);
+  const on = 'background:#1a3a6b;color:#fff;border-color:#1a3a6b;';
+  const off = 'background:#fff;color:#1a3a6b;';
+  const b0 = document.getElementById('ms-day-0'), b1 = document.getElementById('ms-day-1');
+  if (b0) b0.setAttribute('style', MS_DAYBTN + (n===0?on:off));
+  if (b1) b1.setAttribute('style', MS_DAYBTN + (n===1?on:off));
+  msRenderList();
+}
+function msRenderList(){
+  const host = document.getElementById('ms-list');
+  if (!host) return;
+  const loads = msLoadsForDay(_msDay);
+  host.innerHTML = loads.length
+    ? loads.map(_msRow).join('')
+    : '<div style="padding:26px;text-align:center;color:var(--text2);font-size:13px">No loads still to be worked on ' + _lsEsc(_lsDayLabel(_msDay)) + '.</div>';
+  const aEl = document.getElementById('ms-all'); if (aEl) aEl.checked = loads.length > 0;
+  msSyncCount();
+}
+function msToggleAll(on){
+  const cks = document.querySelectorAll('#ms-list .ms-ck');
+  cks.forEach(function(c){ c.checked = !!on; });
+  msSyncCount();
+}
+function msSyncCount(){
+  const total = document.querySelectorAll('#ms-list .ms-ck').length;
+  const sel = document.querySelectorAll('#ms-list .ms-ck:checked').length;
+  const cEl = document.getElementById('ms-count'); if (cEl) cEl.textContent = sel + ' of ' + total + ' selected';
+  const pEl = document.getElementById('ms-print'); if (pEl) pEl.disabled = (sel === 0);
+  const aEl = document.getElementById('ms-all'); if (aEl) aEl.checked = (total > 0 && sel === total);
+}
+function msPrint(){
+  const cks = [].slice.call(document.querySelectorAll('#ms-list .ms-ck:checked'));
+  if (!cks.length){ showAlert('Select at least one load.', 'warning'); return; }
+  const sheets = [];
+  cks.forEach(function(ck){
+    const b = ck.getAttribute('data-b'); const id = ck.getAttribute('data-i');
+    const coll = (b==='ob') ? state.outbound : state.inbound;
+    const r = coll && coll[id];
+    if (r) sheets.push('<div class="ls-pw">' + lsSheetHtml(b, r) + '</div>');
+  });
+  if (!sheets.length){ showAlert('No sheets to print.', 'warning'); return; }
+  const ttl = 'Master Load Sheets (' + sheets.length + ') — ' + _lsDayLabel(_msDay);
+  const w = _lsOpenPreview(ttl, sheets.join(''), false);
+  if (w) closeModal();
+}
+// ─── end LOAD / UNLOAD INSPECTION SHEET ──────────────────────────────────────
 
 buildLoginScreen();
 startVersionWatch();
