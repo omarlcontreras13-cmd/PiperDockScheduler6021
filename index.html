@@ -43,9 +43,11 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 /* ── HEADER ─────────────────────────────────────────────────────── */
 .header { background:var(--surface);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;flex-shrink:0; }
 #main-app { height:100vh;flex-direction:column;overflow:hidden; }
-#view-ib,#view-ob,#view-yd,#view-sc,#view-pwd,#view-ff { display:flex;flex-direction:column;flex:1 1 auto;min-height:0; }
+#view-ib,#view-ob,#view-yd,#view-sc,#view-pwd,#view-ff,#view-sd { display:flex;flex-direction:column;flex:1 1 auto;min-height:0; }
 .main > div > * { flex-shrink:0; }
 .main > div > .schedule-wrap { flex:1 1 0;min-height:0; }
+.data-scroll { background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:auto;flex:1 1 0;min-height:0; }
+.main > div > .data-scroll { flex:1 1 0;min-height:0; }
 .header-user { font-size:12px;color:var(--text2);font-weight:600;letter-spacing:1px; }
 .header-right { display:flex;align-items:center;gap:12px; }
 .header-date { font-size:11px;color:var(--text2); }
@@ -135,6 +137,21 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .schedule-table th.th-sort, .schedule-table th .th-sort { cursor:pointer; }
 .schedule-table th.th-sort:hover, .schedule-table th .th-sort:hover { color:var(--accent); }
 .sort-arrow { font-size:8px;color:var(--accent);vertical-align:middle; }
+/* WRK ShipDue — scoped styles so the summary table has room to breathe. Nothing outside
+   #view-sd is affected. */
+#view-sd .sd-wrap { background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:auto;flex:1 1 0;min-height:0; }
+#view-sd .sd-table { width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px; }
+#view-sd .sd-table thead th { position:sticky;top:0;z-index:5;background:var(--surface2);padding:11px 16px;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--text2);font-weight:800;border-bottom:2px solid var(--border);white-space:nowrap;text-align:left; }
+#view-sd .sd-table tbody td { padding:11px 16px;border-bottom:1px solid var(--border);vertical-align:middle;color:var(--text); }
+#view-sd .sd-table tbody tr:last-child td { border-bottom:none; }
+#view-sd .sd-table tbody tr:hover td { background:rgba(26,58,107,0.04); }
+#view-sd .sd-table td.sd-num { text-align:right;font-variant-numeric:tabular-nums; }
+#view-sd .sd-table td.sd-ship { font-weight:700; }
+#view-sd .sd-table th.sd-r, #view-sd .sd-table td.sd-r { text-align:right; }
+#view-sd .sd-table th.sd-c, #view-sd .sd-table td.sd-c { text-align:center; }
+#view-sd .sd-gm { font-size:9.5px;font-weight:800;letter-spacing:.3px;padding:3px 9px;border-radius:999px;white-space:nowrap;display:inline-block; }
+#view-sd .sd-pills { display:flex;gap:8px;margin:0 0 14px;flex-wrap:wrap; }
+#view-sd .summary-bar { margin-bottom:16px; }
 .col-filter { display:block;width:100%;min-width:0;box-sizing:border-box;margin-top:4px;font-size:11px;font-weight:500;letter-spacing:normal;text-transform:uppercase;color:var(--text);padding:3px 6px;border:1px solid var(--border);border-radius:5px;background:#fff; }
 .col-filter::placeholder { color:#aab2c5;font-weight:400;text-transform:none; }
 .roll-bar { display:flex;align-items:center;gap:12px;background:rgba(217,119,6,0.08);border:1px solid var(--warning);border-radius:10px;padding:10px 14px;margin-bottom:14px;flex-wrap:wrap; }
@@ -378,6 +395,7 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
     <button class="nav-tab" id="tab-ob" onclick="switchTab('ob')">📤 Outbound<span id="badge-ob" class="badge-count badge-ob"></span></button>
     <button class="nav-tab" id="tab-yd" onclick="switchTab('yd')">🏗 Yard Manager</button>
     <button class="nav-tab" id="tab-sc" onclick="switchTab('sc')">📊 Scorecard</button>
+    <button class="nav-tab" id="tab-sd" onclick="switchTab('sd')">📋 WRK SHIPDUE</button>
     <button class="nav-tab" id="tab-ff" onclick="switchTab('ff')">🚚 First Fleet</button>
     <button class="nav-tab" id="tab-pwd" onclick="switchTab('pwd')">🚛 PWD</button>
   </div>
@@ -387,6 +405,7 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
     <div id="view-ob" style="display:none"></div>
     <div id="view-yd" style="display:none"></div>
     <div id="view-sc" style="display:none"></div>
+    <div id="view-sd" style="display:none"></div>
     <div id="view-ff" style="display:none"></div>
     <div id="view-pwd" style="display:none"></div>
   </div>
@@ -445,7 +464,9 @@ const state = {
   obCustFilter: null,
   iconHeaders: {},
   obSearch: '',
-  ibColFilter: { customer:'', loadNum:'' },
+  shipdue: null,
+  sdFilter: 'Not Processed',
+  ibColFilter: { customer:'', loadNum:'', unloader:'' },
   obColFilter: { customer:'', orderNum:'', picker:'', loader:'', trailer:'' },
   ffColFilter: { status:'', carrier:'', customer:'', origReqDate:'', loadId:'', door:'', trailer:'', driver:'', phone:'', notes:'' },
   pwdColFilter: { status:'', carrier:'', customer:'', origReqDate:'', loadId:'', door:'', trailer:'', driver:'', phone:'', notes:'' },
@@ -687,7 +708,7 @@ function applyTabAccess(group) {
   const g = normGroup(group);
   // piper sees everything; ffti sees only First Fleet; pwd sees only the PWD board.
   const vis = {
-    'tab-ib': g==='piper', 'tab-ob': g==='piper', 'tab-yd': g==='piper', 'tab-sc': g==='piper',
+    'tab-ib': g==='piper', 'tab-ob': g==='piper', 'tab-yd': g==='piper', 'tab-sc': g==='piper', 'tab-sd': g==='piper',
     'tab-ff': g==='piper' || g==='ffti',
     'tab-pwd': g==='piper' || g==='pwd'
   };
@@ -1527,6 +1548,7 @@ function startListeners() {
     if (state.tab==='ff') renderFirstFleet();
     if (state.tab==='pwd') renderPWD();
     if (state.tab==='sc') scDeferRender();
+    if (state.tab==='sd') renderShipDue();
     updateBadges();
   });
   db.ref(LP_SETTINGS()).on('value', snap => {
@@ -1545,6 +1567,10 @@ function startListeners() {
   db.ref(ROOT+'/scorecard').on('value', snap => {
     state.scorecard = snap.val()||{};
     if (state.tab==='sc' && scBoard().store==='scorecard') scDeferRender();
+  });
+  db.ref(ROOT+'/shipdue').on('value', snap => {
+    state.shipdue = snap.val()||null;
+    if (state.tab==='sd') renderShipDue();
   });
   db.ref(ROOT+'/scorecardWrk').on('value', snap => {
     state.scorecardWrk = snap.val()||{};
@@ -1594,18 +1620,310 @@ function updateBadges() {
 }
 
 // ─── TABS ──────────────────────────────────────────────────────────────
+// ─── WRK SHIPDUE ─────────────────────────────────────────────────────────────
+// Imports the SAP "ShipDue" export (WRK orders — HBH, Sci Games, Conway, Lanet, MPS,
+// WestRock and others) and shows it as a read-only summary on its own tab. Rows can be
+// filtered by Goods Movement Status (Not Processed / Completely Processed). A Not
+// Processed row can be pushed onto the Outbound board under ORDER RECEIVED via
+// "Add to Schedule". Nothing here touches the existing boards' logic — it only creates
+// outbound loads through the same shape the manual Add Load form produces.
+//
+// Data lives at ROOT/shipdue as { rows:[...], importedAt, importedBy }. Each row keeps the
+// source fields plus a stable _sid (Shipment Number) used to mark it "added".
+
+// Column headers in the SAP export, matched by name so column order can drift.
+const SHIPDUE_COLS = {
+  'SHIPMENT NUMBER':'shipment', 'DELIVERY':'delivery', 'OV.TRANSPORT STATUS':'ovStatus',
+  'SCAC':'scac', 'CUSTOMER NAME':'customer', 'CITY':'city', 'TOTAL WEIGHT':'weight',
+  'PICKING DATE':'pickDate', 'DELIV. DATE(FROM/TO)':'delivDate', 'GOODS MOVEMENT STATUS':'gmStatus'
+};
+function _sdNormHdr(v){ return String(v==null?'':v).replace(/\s+/g,' ').trim().toUpperCase(); }
+function _sdDateStr(v){
+  if (v==null || v==='') return '';
+  if (v instanceof Date && !isNaN(v)) return v.getFullYear()+'-'+String(v.getMonth()+1).padStart(2,'0')+'-'+String(v.getDate()).padStart(2,'0');
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);            if (m) return m[1]+'-'+m[2]+'-'+m[3];
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);          if (m) return m[3]+'-'+String(m[1]).padStart(2,'0')+'-'+String(m[2]).padStart(2,'0');
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})\b/);        if (m) return '20'+m[3]+'-'+String(m[1]).padStart(2,'0')+'-'+String(m[2]).padStart(2,'0');
+  return s;
+}
+function _sdNum(v){ if (v==null||v==='') return 0; const n=parseFloat(String(v).replace(/,/g,'')); return isNaN(n)?0:n; }
+function _sdGM(v){   // normalize the two statuses we care about; anything else passes through as-is
+  const s = _sdNormHdr(v);
+  if (s === 'NOT PROCESSED') return 'Not Processed';
+  if (s === 'COMPLETELY PROCESSED') return 'Completely Processed';
+  return String(v==null?'':v).trim();
+}
+
+// Parse the workbook -> array of row objects. First sheet with a "Shipment Number" header wins.
+function sdParseBook(wb){
+  const out = { rows:[], warnings:[] };
+  const names = wb.SheetNames || [];
+  for (const name of names){
+    const grid = XLSX.utils.sheet_to_json(wb.Sheets[name], { header:1, raw:true, defval:null, blankrows:false });
+    let hr = -1;
+    for (let i=0; i<Math.min(grid.length,20); i++){
+      if ((grid[i]||[]).some(c=>_sdNormHdr(c)==='SHIPMENT NUMBER')){ hr=i; break; }
+    }
+    if (hr < 0) continue;
+    const map = {};
+    (grid[hr]||[]).forEach((c,ci)=>{ const key = SHIPDUE_COLS[_sdNormHdr(c)]; if (key) map[ci]=key; });
+    if (map && Object.values(map).indexOf('shipment') === -1) continue;
+    for (let r=hr+1; r<grid.length; r++){
+      const row = grid[r]||[];
+      const o = {};
+      Object.keys(map).forEach(ci=>{ o[map[ci]] = row[ci]; });
+      const shipment = String(o.shipment==null?'':o.shipment).trim();
+      if (!shipment) continue;                       // skip subtotal / blank rows
+      out.rows.push({
+        _sid:       shipment,
+        shipment:   shipment,
+        delivery:   String(o.delivery==null?'':o.delivery).trim(),
+        ovStatus:   String(o.ovStatus==null?'':o.ovStatus).trim(),
+        scac:       String(o.scac==null?'':o.scac).trim(),
+        customer:   String(o.customer==null?'':o.customer).trim(),
+        city:       String(o.city==null?'':o.city).trim(),
+        weight:     _sdNum(o.weight),
+        pickDate:   _sdDateStr(o.pickDate),
+        delivDate:  _sdDateStr(o.delivDate),
+        gmStatus:   _sdGM(o.gmStatus)
+      });
+    }
+    return out;    // first matching sheet only
+  }
+  out.warnings.push('No sheet with a "Shipment Number" header was found.');
+  return out;
+}
+
+function sdRows(){ return (state.shipdue && Array.isArray(state.shipdue.rows)) ? state.shipdue.rows : []; }
+function sdIsAdded(sid){ const a=(state.shipdue&&state.shipdue.added)||{}; return !!a[sid]; }
+// A shipment counts as already scheduled if it is on the Outbound board (Order # === Shipment #)
+// or it carries the added-mark. The ShipDue list hides these so only unscheduled loads show.
+function sdIsScheduled(sid){
+  if (sdIsAdded(sid)) return true;
+  const key = String(sid==null?'':sid).toUpperCase();
+  return Object.values(state.outbound||{}).some(o=>String(o.orderNum||'').toUpperCase()===key);
+}
+
+// ── import (admin) ──
+let _pendingShipDue = null;
+function showShipDueImport(){
+  if (!requireAdmin()) return;
+  document.getElementById('modal-container').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal" style="max-width:560px">
+        <h2 style="margin:0 0 6px">Import WRK ShipDue</h2>
+        <p style="color:var(--text2);font-size:12px;margin:0 0 14px">Select the ShipDue export (.xlsx). It replaces the current ShipDue list; rows already added to the schedule stay marked.</p>
+        <input type="file" id="sd-file" accept=".xlsx,.xlsm" onchange="previewShipDueImport(event)"
+          style="display:block;width:100%;margin-bottom:12px;font-size:13px">
+        <div id="sd-preview" style="font-size:12px;color:var(--text2);min-height:20px"></div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+          <button class="sign-out-btn" onclick="closeModal()">Cancel</button>
+          <button class="sign-out-btn" id="sd-go" disabled onclick="commitShipDueImport()" style="background:#1a3a6b;color:#fff;border-color:#1a3a6b;opacity:.5">Import</button>
+        </div>
+      </div>
+    </div>`;
+}
+async function previewShipDueImport(ev){
+  const file = ev.target.files && ev.target.files[0];
+  const box = document.getElementById('sd-preview');
+  const go  = document.getElementById('sd-go');
+  if (!file) return;
+  box.innerHTML = 'Reading…';
+  try {
+    const buf = await file.arrayBuffer();
+    const wb  = XLSX.read(new Uint8Array(buf), { type:'array', cellDates:true });
+    const res = sdParseBook(wb);
+    _pendingShipDue = res;
+    if (!res.rows.length){
+      box.innerHTML = '<span style="color:var(--danger)">No ShipDue rows found. '+(res.warnings[0]||'')+'</span>';
+      go.disabled = true; go.style.opacity = .5; return;
+    }
+    const np = res.rows.filter(r=>r.gmStatus==='Not Processed').length;
+    const cp = res.rows.filter(r=>r.gmStatus==='Completely Processed').length;
+    box.innerHTML = `<b>${res.rows.length}</b> rows &middot; <b>${np}</b> Not Processed &middot; <b>${cp}</b> Completely Processed`;
+    go.disabled = false; go.style.opacity = 1;
+  } catch(e){
+    box.innerHTML = '<span style="color:var(--danger)">Could not read file: '+(e&&e.message||e)+'</span>';
+    go.disabled = true; go.style.opacity = .5;
+  }
+}
+function commitShipDueImport(){
+  if (!requireAdmin() || !_pendingShipDue || !_pendingShipDue.rows.length) return;
+  const prevAdded = (state.shipdue && state.shipdue.added) || {};   // preserve "added" marks by shipment #
+  const payload = { rows:_pendingShipDue.rows, added:prevAdded, importedAt:Date.now(),
+                    importedBy:(state.user && state.user.label) || '' };
+  db.ref(ROOT+'/shipdue').set(payload)
+    .then(()=>{ closeModal(); showAlert('ShipDue imported: '+payload.rows.length+' rows','success'); switchTab('sd'); })
+    .catch(e=>showAlert('Import failed: '+e.message,'danger'));
+  _pendingShipDue = null;
+}
+
+// ── view ──
+function setSdFilter(v){ state.sdFilter = v; renderShipDue(); }
+function renderShipDue(){
+  const view = document.getElementById('view-sd');
+  if (!view) return;
+  const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  // Show everything. Completely Processed rows are done (informational). Not Processed rows are
+  // schedulable — if one is already on the Outbound board it shows a Scheduled flag instead of
+  // the Add button, but it stays visible.
+  const all = sdRows();
+  const scheduledCount = all.filter(r=>r.gmStatus==='Not Processed' && sdIsScheduled(r._sid)).length;
+  const filt = state.sdFilter || 'Not Processed';
+  const recs = (filt==='ALL') ? all : all.filter(r=>r.gmStatus===filt);
+  const npCount = all.filter(r=>r.gmStatus==='Not Processed').length;
+  const cpCount = all.filter(r=>r.gmStatus==='Completely Processed').length;
+  const importedInfo = state.shipdue && state.shipdue.importedAt
+    ? 'Imported '+new Date(state.shipdue.importedAt).toLocaleString('en-US',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})+(state.shipdue.importedBy?(' by '+esc(state.shipdue.importedBy)):'')
+    : 'No file imported yet';
+  const admin = !!(state.user && state.user.role === 'admin');
+
+  const pill = (label, val, active, col) =>
+    `<button class="sign-out-btn" onclick="setSdFilter('${label==='Not Processed'?'Not Processed':label==='Completely Processed'?'Completely Processed':'ALL'}')"
+       style="background:${active?col:'transparent'};color:${active?'#fff':'var(--text)'};border-color:${col};font-size:12px">${label} (${val})</button>`;
+
+  const rowsHtml = recs.length ? recs.slice().sort((a,b)=>String(a.pickDate).localeCompare(String(b.pickDate))||String(a.shipment).localeCompare(String(b.shipment))).map(r=>{
+    const np = r.gmStatus === 'Not Processed';
+    const scheduled = np && sdIsScheduled(r._sid);
+    const actionCell = np
+      ? (scheduled
+          ? '<span style="font-size:10px;font-weight:800;color:#065f46;background:rgba(6,95,70,.12);padding:3px 9px;border-radius:999px;white-space:nowrap">✓ SCHEDULED</span>'
+          : (admin ? `<button class="btn" style="font-size:10px;padding:4px 10px" onclick="sdAskAddToSchedule('${esc(r._sid)}')">Add to Schedule</button>` : '<span style="color:var(--text2);font-size:11px">—</span>'))
+      : '<span style="color:var(--text2);font-size:11px">—</span>';
+    const gmBg = np ? 'rgba(180,83,9,.12)' : 'rgba(6,95,70,.12)';
+    const gmCol = np ? '#b45309' : '#065f46';
+    return `<tr${scheduled?' style="background:rgba(6,95,70,.05)"':''}>
+      <td><span class="sd-gm" style="color:${gmCol};background:${gmBg}">${esc(r.gmStatus||'')}</span></td>
+      <td style="white-space:nowrap">${esc(r.pickDate||'')}</td>
+      <td style="white-space:nowrap">${esc(r.delivDate||'')}</td>
+      <td class="sd-ship" style="white-space:nowrap">${esc(r.shipment||'')}</td>
+      <td style="white-space:nowrap">${esc(r.delivery||'')}</td>
+      <td class="sd-c">${esc(r.ovStatus||'')}</td>
+      <td style="white-space:nowrap">${esc(r.scac||'')}</td>
+      <td style="white-space:nowrap">${esc(r.customer||'')}</td>
+      <td style="white-space:nowrap">${esc(r.city||'')}</td>
+      <td class="sd-num">${r.weight?Math.round(r.weight).toLocaleString():''}</td>
+      <td style="white-space:nowrap">${actionCell}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="11" style="padding:26px;text-align:center;color:var(--text2);font-size:13px">${all.length?'No rows for this status.':'No ShipDue file imported yet.'}</td></tr>`;
+
+  const totalWt = recs.reduce((s,r)=>s+(r.weight||0),0);
+
+  view.innerHTML = `
+  <div class="date-nav" style="justify-content:flex-start;gap:10px;flex-wrap:wrap">
+    <h2 style="margin:0;font-size:19px">WRK ShipDue</h2>
+    ${admin ? '<button class="sign-out-btn" onclick="showShipDueImport()" style="background:#166534;color:#fff;border-color:#166534">⤓ Import ShipDue</button>' : ''}
+    <span style="font-size:11px;color:var(--text2)">${importedInfo}</span>
+  </div>
+  <div class="summary-bar" style="grid-template-columns:repeat(3,1fr);max-width:560px">
+    <div class="scard"><div class="scard-label">Rows shown</div><div class="scard-value">${recs.length}</div></div>
+    <div class="scard"><div class="scard-label">Total weight (LB)</div><div class="scard-value" style="color:var(--accent)">${Math.round(totalWt).toLocaleString()}</div></div>
+    <div class="scard"><div class="scard-label">Scheduled (Not Processed)</div><div class="scard-value" style="color:#065f46">${scheduledCount}</div></div>
+  </div>
+  <div class="sd-pills">
+    ${pill('Not Processed', npCount, filt==='Not Processed', '#b45309')}
+    ${pill('Completely Processed', cpCount, filt==='Completely Processed', '#065f46')}
+    ${pill('All', all.length, filt==='ALL', '#1a3a6b')}
+  </div>
+  <div class="sd-wrap">
+    <table class="sd-table">
+      <thead><tr>
+        <th>GM Status</th><th>Picking Date</th><th>Deliv. Date</th><th>Shipment #</th><th>Delivery</th>
+        <th class="sd-c">Ov. Transport</th><th>SCAC</th><th>Customer Name</th><th>City</th><th class="sd-r">Total Weight</th><th></th>
+      </tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+  </div>`;
+}
+
+// ── add to schedule (outbound / ORDER RECEIVED) ──
+function sdRowBySid(sid){ return sdRows().find(r=>r._sid===sid) || null; }
+function sdAskAddToSchedule(sid){
+  if (!requireAdmin()) return;
+  const r = sdRowBySid(sid);
+  if (!r){ showAlert('Row not found','warning'); return; }
+  const date = r.pickDate;
+  if (!date){ showAlert('This row has no Picking Date, so it cannot be scheduled.','warning'); return; }
+  // Already on the Outbound board? (same Shipment # as Order #). Report where, then ask.
+  const existing = Object.entries(state.outbound||{})
+    .filter(([,o])=>String(o.orderNum||'').toUpperCase()===String(r.shipment).toUpperCase())
+    .map(([id,o])=>({ id, date:(o.reqDate||'').slice(0,10), status:o.status||'' }));
+  const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const dupNote = existing.length
+    ? `<div style="margin:10px 0;padding:9px 11px;border:1.5px solid #b45309;background:rgba(180,83,9,.09);border-radius:7px;font-size:12px">
+         <b style="color:#b45309">Already scheduled.</b> Shipment ${esc(r.shipment)} is on the Outbound board:
+         ${existing.map(e=>`<div style="margin-top:3px">&bull; ${esc(e.date)} &mdash; ${esc(e.status)}</div>`).join('')}
+       </div>` : '';
+  const buttons = existing.length
+    ? `<button class="sign-out-btn" onclick="closeModal()">Skip</button>
+       <button class="sign-out-btn" onclick="sdDoAddToSchedule('${esc(sid)}',true)" style="background:#b45309;color:#fff;border-color:#b45309">Replace</button>`
+    : `<button class="sign-out-btn" onclick="closeModal()">No</button>
+       <button class="sign-out-btn" onclick="sdDoAddToSchedule('${esc(sid)}',false)" style="background:#166534;color:#fff;border-color:#166534">Yes, add</button>`;
+  document.getElementById('modal-container').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal" style="max-width:520px">
+        <h2 style="margin:0 0 6px">Add to Schedule?</h2>
+        <p style="color:var(--text2);font-size:12px;margin:0 0 6px">This creates an Outbound load under <b>Order Received</b>.</p>
+        <div style="font-size:13px;line-height:1.7;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+          <div><b>Date:</b> ${esc(date)} <span style="color:var(--text2)">(Picking Date)</span></div>
+          <div><b>Order #:</b> ${esc(r.shipment)} <span style="color:var(--text2)">(Shipment #)</span></div>
+          <div><b>Customer:</b> ${esc(r.customer||'')}</div>
+          <div><b>Destination:</b> ${esc(r.city||'')} <span style="color:var(--text2)">(City)</span></div>
+          <div><b>Carrier:</b> ${esc(r.scac||'')} <span style="color:var(--text2)">(SCAC)</span></div>
+        </div>
+        ${dupNote}
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">${buttons}</div>
+      </div>
+    </div>`;
+}
+function sdDoAddToSchedule(sid, replace){
+  if (!requireAdmin()) return;
+  const r = sdRowBySid(sid);
+  if (!r){ closeModal(); return; }
+  const date = r.pickDate;
+  const coll = state.outbound || (state.outbound = {});
+
+  if (replace){
+    Object.entries(coll).forEach(([id,o])=>{
+      if (String(o.orderNum||'').toUpperCase()===String(r.shipment).toUpperCase()){
+        delete coll[id];
+        db.ref(ROOT+'/outbound/'+id).remove().catch(()=>{});
+      }
+    });
+  }
+  const rec = {
+    orderNum: r.shipment, customer: r.customer||'', destination: r.city||'', carrier: r.scac||'',
+    reqDate: date, origReqDate: date, apptTime:'', door:'', trailer:'', phone:'', notes:'',
+    status:'ORDER RECEIVED', source:'shipdue', createdAt:Date.now(), updatedAt:Date.now()
+  };
+  const key = db.ref().push().key;
+  coll[key] = rec;
+  db.ref(ROOT+'/outbound/'+key).update(rec).catch(()=>{});
+
+  // mark the ShipDue row as added (shared, survives re-import)
+  db.ref(ROOT+'/shipdue/added/'+sid).set({ at:Date.now(), by:(state.user&&state.user.label)||'', obKey:key, date:date }).catch(()=>{});
+  if (state.shipdue){ state.shipdue.added = state.shipdue.added||{}; state.shipdue.added[sid] = { at:Date.now(), obKey:key, date:date }; }
+
+  state.obDate = date;
+  closeModal();
+  showAlert('Added '+r.shipment+' to the Outbound schedule on '+date,'success');
+  renderShipDue();
+}
+
 function switchTab(tab) {
   state.tab = tab;
-  ['ib','ob','yd','sc','ff','pwd'].forEach(t => {
+  ['ib','ob','yd','sc','sd','ff','pwd'].forEach(t => {
     const v = document.getElementById('view-'+t); if(v) v.style.display = t===tab?'':'none';
     const btn = document.getElementById('tab-'+t); if(!btn) return;
-    btn.classList.remove('active-ib','active-ob','active-yd','active-sc','active-ff','active-pwd');
+    btn.classList.remove('active-ib','active-ob','active-yd','active-sc','active-sd','active-ff','active-pwd');
     if(t===tab) btn.classList.add(t==='ff'?'active-ff':'active-'+t);
   });
   if(tab==='ib') renderInbound();
   if(tab==='ob') renderOutbound();
   if(tab==='yd') renderYard();
   if(tab==='sc') renderScorecard();
+  if(tab==='sd') renderShipDue();
   if(tab==='ff') renderFirstFleet();
   if(tab==='pwd') renderPWD();
 }
@@ -1829,6 +2147,7 @@ function renderInbound() {
         <td>${dur}</td>
         <td style="min-width:60px">${ibArrBadge}</td>
         <td style="min-width:52px">${cellSelect('ib',id,'door',r.door,refOpts('door'),'58px')}</td>
+        <td style="min-width:90px">${cellSelect('ib',id,'unloader',r.unloader,refOpts('operators'),'100px')}</td>
         <td style="min-width:80px">${cellInput('ib',id,'trailer',r.trailer,'80px','Trailer')}</td>
         <td style="min-width:80px">${cellInput('ib',id,'carrier',r.carrier,'80px','Carrier')}</td>
         <td style="min-width:110px">${cellInput('ib',id,'phone',r.phone,'110px','Phone')}</td>
@@ -1839,13 +2158,13 @@ function renderInbound() {
         </td>
       </tr>`;
   };
-  const ibCols = (state.rollMode.ib?1:0) + 15;
+  const ibCols = (state.rollMode.ib?1:0) + 16;
   const ibOpenRow = (label, bookArg) => `<tr class="ib-open-row">${state.rollMode.ib?'<td></td>':''}
         <td><span class="ib-open-badge">OPEN</span></td>
         <td><a class="book-link" onclick="showAddLoad('ib','${bookArg}')">+ Book</a></td>
         <td></td>
         <td style="min-width:70px"><span class="ib-open-appt">${label}</span></td>
-        <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+        <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
       </tr>`;
 
   if (state.ibCustFilter || ibFiltering() || ibSorting() || state.ibStatFilter) {
@@ -1910,6 +2229,7 @@ function renderInbound() {
         <th>Duration</th>
         <th>Arr</th>
         ${thS('Door','ib','door')}
+        ${thFilter('Unloader','ib','unloader')}
         ${thS('Trailer','ib','trailer')}
         ${thS('Carrier','ib','carrier')}
         ${thS('Phone','ib','phone')}
@@ -1942,7 +2262,7 @@ function renderOutbound() {
   let recs;
   if (obSearching) {
     recs = Object.entries(state.outbound)
-      .filter(([,r])=>[r.orderNum,r.customer,r.destination,r.trailer,r.carrier,r.loadNum,r.door,r.picker,r.loader]
+      .filter(([,r])=>[r.orderNum,r.customer,r.destination,r.trailer,r.carrier,r.loadNum,r.door,r.picker,r.loader,r.unloader]
         .some(v=>String(v||'').toUpperCase().indexOf(obQuery)>-1))
       .sort((a,b)=> (String(a[1].reqDate||'').localeCompare(String(b[1].reqDate||'')) || (a[1].apptTime||'99:99').localeCompare(b[1].apptTime||'99:99')));
   } else {
@@ -3041,8 +3361,8 @@ function refocusFilter(id){ const el=document.getElementById(id); if(el){ el.foc
 function _boardSortKey(board){ return board==='ib'?'ibSort':board==='ob'?'obSort':board==='ff'?'ffSort':'pwdSort'; }
 function _boardFilter(board){ return board==='ib'?state.ibColFilter:board==='ob'?state.obColFilter:board==='ff'?state.ffColFilter:state.pwdColFilter; }
 function _boardRender(board){ if(board==='ib')renderInbound(); else if(board==='ob')renderOutbound(); else if(board==='ff')renderFirstFleet(); else renderPWD(); }
-function ibFiltering(){ const f=state.ibColFilter||{}; return !!((f.customer||'').trim() || (f.loadNum||'').trim()); }
-function ibColMatch(r){ const f=state.ibColFilter||{}; return _colHit(r.customer,f.customer) && _colHit(r.loadNum,f.loadNum); }
+function ibFiltering(){ const f=state.ibColFilter||{}; return !!((f.customer||'').trim() || (f.loadNum||'').trim() || (f.unloader||'').trim()); }
+function ibColMatch(r){ const f=state.ibColFilter||{}; return _colHit(r.customer,f.customer) && _colHit(r.loadNum,f.loadNum) && _colHit(r.unloader,f.unloader); }
 function setIbFilter(field, v){ state.ibColFilter[field]=v; renderInbound(); refocusFilter('ib-filter-'+field); }
 function obFiltering(){ const f=state.obColFilter||{}; return !!((f.customer||'').trim() || (f.orderNum||'').trim() || (f.picker||'').trim() || (f.loader||'').trim() || (f.trailer||'').trim()); }
 function obColMatch(r){ const f=state.obColFilter||{}; return _colHit(r.customer,f.customer) && _colHit(r.orderNum,f.orderNum) && _colHit(r.picker,f.picker) && _colHit(r.loader,f.loader) && _colHit(r.trailer,f.trailer); }
