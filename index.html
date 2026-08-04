@@ -1843,6 +1843,48 @@ function renderShipDue(){
 
 // ── add to schedule (outbound / ORDER RECEIVED) ──
 function sdRowBySid(sid){ return sdRows().find(r=>r._sid===sid) || null; }
+// Explicit ShipDue-name -> Customer-Table-name aliases for names the generic
+// matcher can't derive (initialisms / custom short names). Keys are the ShipDue
+// customer name upper-cased (letters/digits + single spaces). Add rows as needed.
+const SD_CUST_ALIASES = {
+  'INTERNATIONAL PAPER': 'IP',        // IP = International Paper (NOT IPG)
+  'SCIENTIFIC GAMES':    'SCI GAMES'
+};
+// Map a ShipDue customer name onto the matching Customer Table (Outbound) name so
+// scheduled loads read consistently (e.g. "Scientific Games" -> "SCI GAMES").
+// 1) explicit alias above; then 2) align each table-name token to a shipment-name
+// token (equal, or a >=3-char prefix either way). Returns the table match, or null.
+function sdMatchCustomer(raw){
+  const opts = refOpts('customerOB') || [];
+  const norm = s => String(s==null?'':s).toUpperCase().replace(/[^A-Z0-9]+/g,' ').replace(/\s+/g,' ').trim();
+  const rn = norm(raw);
+  if (!rn) return null;
+  const _alias = SD_CUST_ALIASES[rn];
+  if (_alias){ const _an = norm(_alias); const _hit = opts.find(o => norm(o) === _an); if (_hit) return _hit; }
+  const rtok = rn.split(' ').filter(Boolean);
+  const tokMatch = (a,b) => a===b || (a.length>=3 && b.indexOf(a)===0) || (b.length>=3 && a.indexOf(b)===0);
+  let best=null, bestScore=-1;
+  opts.forEach(opt=>{
+    const on = norm(opt);
+    if (!on) return;
+    let score;
+    if (on===rn){ score = 1e9; }
+    else {
+      const otok = on.split(' ').filter(Boolean);
+      const used = {}; let ok=true, s=0;
+      for (const ot of otok){
+        let hit=-1;
+        for (let i=0;i<rtok.length;i++){ if(!used[i] && tokMatch(ot, rtok[i])){ hit=i; break; } }
+        if (hit<0){ ok=false; break; }
+        used[hit]=1; s += Math.min(ot.length, rtok[hit].length);
+      }
+      if (!ok) return;
+      score = s*10 + Object.keys(used).length;
+    }
+    if (score>bestScore){ bestScore=score; best=opt; }
+  });
+  return best;
+}
 function sdAskAddToSchedule(sid){
   if (!requireAdmin()) return;
   const r = sdRowBySid(sid);
@@ -1860,6 +1902,9 @@ function sdAskAddToSchedule(sid){
     .filter(([,o])=>String(o.orderNum||'').toUpperCase()===String(r.shipment).toUpperCase())
     .map(([id,o])=>({ id, date:(o.reqDate||'').slice(0,10), status:o.status||'' }));
   const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const _custRaw = r.customer||'';
+  const _custTbl = sdMatchCustomer(_custRaw);
+  const _cust = _custTbl || _custRaw;
   const dupNote = existing.length
     ? `<div style="margin:10px 0;padding:9px 11px;border:1.5px solid #b45309;background:rgba(180,83,9,.09);border-radius:7px;font-size:12px">
          <b style="color:#b45309">Already scheduled.</b> Shipment ${esc(r.shipment)} is on the Outbound board:
@@ -1878,7 +1923,7 @@ function sdAskAddToSchedule(sid){
         <div style="font-size:13px;line-height:1.7;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
           <div><b>Date:</b> ${esc(_eff)} <span style="color:var(--text2)">${_past?('(today &mdash; Delivery Date '+esc(date)+' has passed)'):'(Delivery Date)'}</span></div>
           <div><b>Order #:</b> ${esc(r.shipment)} <span style="color:var(--text2)">(Shipment #)</span></div>
-          <div><b>Customer:</b> ${esc(r.customer||'')}</div>
+          <div><b>Customer:</b> ${esc(_cust)}${(_custTbl && _custTbl!==_custRaw)?` <span style="color:var(--text2)">(Customer Table &mdash; from ${esc(_custRaw)})</span>`:''}</div>
           <div><b>Destination:</b> ${esc(r.city||'')} <span style="color:var(--text2)">(City)</span></div>
           <div><b>Carrier:</b> ${esc(r.scac||'')} <span style="color:var(--text2)">(SCAC)</span></div>
         </div>
@@ -1907,7 +1952,7 @@ function sdDoAddToSchedule(sid, replace){
     });
   }
   const rec = {
-    orderNum: r.shipment, customer: r.customer||'', destination: r.city||'', carrier: r.scac||'',
+    orderNum: r.shipment, customer: sdMatchCustomer(r.customer||'') || (r.customer||''), destination: r.city||'', carrier: r.scac||'',
     reqDate: date, origReqDate: date, apptTime:'', door:'', trailer:'', phone:'', notes:'',
     status:'ORDER RECEIVED', source:'shipdue', createdAt:Date.now(), updatedAt:Date.now()
   };
