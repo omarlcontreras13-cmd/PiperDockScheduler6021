@@ -1702,7 +1702,9 @@ function sdIsAdded(sid){ const a=(state.shipdue&&state.shipdue.added)||{}; retur
 // A shipment counts as already scheduled if it is on the Outbound board (Order # === Shipment #)
 // or it carries the added-mark. The ShipDue list hides these so only unscheduled loads show.
 function sdIsScheduled(sid){
-  if (sdIsAdded(sid)) return true;
+  // Scheduled only while the Outbound load actually exists (Order # === Shipment #).
+  // If that load is deleted, the row reverts to "Add to Schedule" so it can be
+  // rescheduled — a lingering added-mark no longer counts as scheduled.
   const key = String(sid==null?'':sid).toUpperCase();
   return Object.values(state.outbound||{}).some(o=>String(o.orderNum||'').toUpperCase()===key);
 }
@@ -1845,8 +1847,14 @@ function sdAskAddToSchedule(sid){
   if (!requireAdmin()) return;
   const r = sdRowBySid(sid);
   if (!r){ showAlert('Row not found','warning'); return; }
-  const date = r.delivDate;
+  const date = (r.delivDate||'').slice(0,10);
   if (!date){ showAlert('This row has no Delivery Date, so it cannot be scheduled.','warning'); return; }
+  const _today = todayStr();
+  const _past  = date < _today;                      // delivery date already passed
+  const _eff   = _past ? _today : date;              // past deliveries schedule onto today
+  const _warn  = _past
+    ? `<div style="margin:10px 0 0;padding:9px 11px;border:1.5px solid #b45309;background:rgba(180,83,9,.09);border-radius:7px;font-size:12px;color:#b45309"><b>Delivery date is prior to current date.</b> It will be added to today (${_today}), and the Picking Date will be set to today.</div>`
+    : '';
   // Already on the Outbound board? (same Shipment # as Order #). Report where, then ask.
   const existing = Object.entries(state.outbound||{})
     .filter(([,o])=>String(o.orderNum||'').toUpperCase()===String(r.shipment).toUpperCase())
@@ -1868,12 +1876,13 @@ function sdAskAddToSchedule(sid){
         <h2 style="margin:0 0 6px">Add to Schedule?</h2>
         <p style="color:var(--text2);font-size:12px;margin:0 0 6px">This creates an Outbound load under <b>Order Received</b>.</p>
         <div style="font-size:13px;line-height:1.7;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
-          <div><b>Date:</b> ${esc(date)} <span style="color:var(--text2)">(Delivery Date)</span></div>
+          <div><b>Date:</b> ${esc(_eff)} <span style="color:var(--text2)">${_past?('(today &mdash; Delivery Date '+esc(date)+' has passed)'):'(Delivery Date)'}</span></div>
           <div><b>Order #:</b> ${esc(r.shipment)} <span style="color:var(--text2)">(Shipment #)</span></div>
           <div><b>Customer:</b> ${esc(r.customer||'')}</div>
           <div><b>Destination:</b> ${esc(r.city||'')} <span style="color:var(--text2)">(City)</span></div>
           <div><b>Carrier:</b> ${esc(r.scac||'')} <span style="color:var(--text2)">(SCAC)</span></div>
         </div>
+        ${_warn}
         ${dupNote}
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">${buttons}</div>
       </div>
@@ -1883,7 +1892,10 @@ function sdDoAddToSchedule(sid, replace){
   if (!requireAdmin()) return;
   const r = sdRowBySid(sid);
   if (!r){ closeModal(); return; }
-  const date = r.delivDate;
+  const _today = todayStr();
+  const _del   = (r.delivDate||'').slice(0,10);
+  const _past  = !!_del && _del < _today;            // delivery date already passed
+  const date   = _past ? _today : _del;              // past delivery dates schedule onto today
   const coll = state.outbound || (state.outbound = {});
 
   if (replace){
@@ -1907,6 +1919,13 @@ function sdDoAddToSchedule(sid, replace){
   db.ref(ROOT+'/shipdue/added/'+sid).set({ at:Date.now(), by:(state.user&&state.user.label)||'', obKey:key, date:date }).catch(()=>{});
   if (state.shipdue){ state.shipdue.added = state.shipdue.added||{}; state.shipdue.added[sid] = { at:Date.now(), obKey:key, date:date }; }
 
+  if (_past){                                        // pull the row's Picking Date up to today as well
+    const _i = sdRows().findIndex(x=>x && x._sid===sid);
+    if (_i >= 0){
+      sdRows()[_i].pickDate = _today;
+      db.ref(ROOT+'/shipdue/rows/'+_i+'/pickDate').set(_today).catch(()=>{});
+    }
+  }
   state.obDate = date;
   closeModal();
   showAlert('Added '+r.shipment+' to the Outbound schedule on '+date,'success');
