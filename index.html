@@ -6104,6 +6104,7 @@ const LS_SHEET_CSS =
 + '.ls-tbl td{border:1px solid #b9c2d0;padding:8px 8px;width:50%;vertical-align:middle;}'
 + '.ls-tbl b{font-weight:700;color:#1a3a6b;}'
 + '.ls-fill{display:inline-block;border-bottom:1px solid #333;min-width:70px;padding:0 4px;font-weight:700;line-height:1.7;}'
++ '.ls-fill.ls-big{font-size:14px;}'
 + '.ls-insp{width:100%;border-collapse:collapse;font-size:11px;}'
 + '.ls-insp th{background:#eef2f8;border:1px solid #b9c2d0;padding:6px;text-align:left;font-size:10.5px;color:#1a3a6b;}'
 + '.ls-insp td{border:1px solid #b9c2d0;padding:8px 6px;vertical-align:top;}'
@@ -6118,7 +6119,7 @@ function lsSheetHtml(board, r){
   const logoEl = document.querySelector('img[alt="Piper Warehouse"]');
   const logoImg = logoEl && logoEl.src ? '<img src="' + logoEl.src + '" class="ls-logo-img" alt="Piper Warehouse">' : '';
   const printed = new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
-  const F = function(v, w){ return '<span class="ls-fill"' + (w ? (' style="min-width:' + w + '"') : '') + '>' + _lsEsc(v) + '</span>'; };
+  const F = function(v, w, big){ return '<span class="ls-fill' + (big ? ' ls-big' : '') + '"' + (w ? (' style="min-width:' + w + '"') : '') + '>' + _lsEsc(v) + '</span>'; };
   const dateVal  = isOB ? _lsFmtDate((r.origReqDate || r.reqDate || '').slice(0,10)) : _lsFmtDate((r.reqDate || '').slice(0,10));
   const orderVal = isOB ? r.orderNum : r.loadNum;
   const custCity = _lsCustCity(board, r);
@@ -6133,9 +6134,9 @@ function lsSheetHtml(board, r){
      + '</tr></table>';
   h += '<div class="ls-sec">Order Detail Verification</div>';
   h += '<table class="ls-tbl">'
-     + '<tr><td><b>Date:</b> ' + F(dateVal, '150px') + '</td><td><b>Order Number:</b> ' + F(orderVal, '150px') + '</td></tr>'
+     + '<tr><td><b>Date:</b> ' + F(dateVal, '150px') + '</td><td><b>Order Number:</b> ' + F(orderVal, '150px', true) + '</td></tr>'
      + '<tr><td><b>Customer / City:</b> ' + F(custCity, '230px') + '</td><td><b>Order Staged Area:</b> ' + F(stageVal, '120px') + '</td></tr>'
-     + '<tr><td><b>Dock / Door Number:</b> ' + F(r.door, '90px') + '</td><td><b>Trailer / Rail Car Number:</b> ' + F(r.trailer, '150px') + '</td></tr>'
+     + '<tr><td><b>Dock / Door Number:</b> ' + F(r.door, '90px', true) + '</td><td><b>Trailer / Rail Car Number:</b> ' + F(r.trailer, '150px', true) + '</td></tr>'
      + '<tr><td><b>Pallet / Roll Count:</b> ' + F('', '110px') + '</td><td><b>Pack List Provided?</b> ' + F('', '110px') + '</td></tr>'
      + '<tr><td><b>Arrival Time:</b> ' + F(r.timeIn, '110px') + '</td><td><b>Departure Time:</b> ' + F(r.timeOut, '110px') + '</td></tr>'
      + '</table>';
