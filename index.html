@@ -1845,8 +1845,8 @@ function sdAskAddToSchedule(sid){
   if (!requireAdmin()) return;
   const r = sdRowBySid(sid);
   if (!r){ showAlert('Row not found','warning'); return; }
-  const date = r.pickDate;
-  if (!date){ showAlert('This row has no Picking Date, so it cannot be scheduled.','warning'); return; }
+  const date = r.delivDate;
+  if (!date){ showAlert('This row has no Delivery Date, so it cannot be scheduled.','warning'); return; }
   // Already on the Outbound board? (same Shipment # as Order #). Report where, then ask.
   const existing = Object.entries(state.outbound||{})
     .filter(([,o])=>String(o.orderNum||'').toUpperCase()===String(r.shipment).toUpperCase())
@@ -1868,7 +1868,7 @@ function sdAskAddToSchedule(sid){
         <h2 style="margin:0 0 6px">Add to Schedule?</h2>
         <p style="color:var(--text2);font-size:12px;margin:0 0 6px">This creates an Outbound load under <b>Order Received</b>.</p>
         <div style="font-size:13px;line-height:1.7;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
-          <div><b>Date:</b> ${esc(date)} <span style="color:var(--text2)">(Picking Date)</span></div>
+          <div><b>Date:</b> ${esc(date)} <span style="color:var(--text2)">(Delivery Date)</span></div>
           <div><b>Order #:</b> ${esc(r.shipment)} <span style="color:var(--text2)">(Shipment #)</span></div>
           <div><b>Customer:</b> ${esc(r.customer||'')}</div>
           <div><b>Destination:</b> ${esc(r.city||'')} <span style="color:var(--text2)">(City)</span></div>
@@ -1883,7 +1883,7 @@ function sdDoAddToSchedule(sid, replace){
   if (!requireAdmin()) return;
   const r = sdRowBySid(sid);
   if (!r){ closeModal(); return; }
-  const date = r.pickDate;
+  const date = r.delivDate;
   const coll = state.outbound || (state.outbound = {});
 
   if (replace){
