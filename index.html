@@ -570,16 +570,51 @@ const DEFAULT_USERS = [
 const PIPER_DEFAULT_PW = 'Piper6021';
 const FFTI_DEFAULT_PW  = 'FFTI6021';
 const PWD_DEFAULT_PW   = 'PWD6021';
+const YARD_DEFAULT_PW  = 'Yard6021';
 // Access groups: piper = full app · ffti = First Fleet board only · pwd = PWD board only.
-function normGroup(g){ const v = String(g||'').toLowerCase(); return (v==='piper'||v==='pwd') ? v : 'ffti'; }
-const GROUP_PW     = { piper:PIPER_DEFAULT_PW, ffti:FFTI_DEFAULT_PW, pwd:PWD_DEFAULT_PW };
-const GROUP_SHORT  = { piper:'PIPER', ffti:'FFTI / SW', pwd:'PWD' };
-const GROUP_LABEL  = { piper:'PIPER (full)', ffti:'FFTI / SW', pwd:'PWD' };
-const GROUP_ACCESS = { piper:'PIPER (full access)', ffti:'FFTI / SW (First Fleet only)', pwd:'PWD (Piper Fleet board only)' };
+function normGroup(g){ const v = String(g||'').toLowerCase(); return (v==='piper'||v==='pwd'||v==='yardview'||v==='yardedit') ? v : 'ffti'; }
+// ─── MULTI-ACCESS (additive): a user may hold several access options at once ─
+const ACCESS_ORDER = ['piper','pwd','ffti','yardedit','yardview'];
+const ACCESS_OPTS = [
+  ['ffti','FFTI / SW (First Fleet only)'],
+  ['pwd','PWD (Piper Fleet board only)'],
+  ['yardview','Yard &ndash; View (Yard Manager, read-only)'],
+  ['yardedit','Yard &ndash; Edit (Yard Manager, editable)'],
+  ['piper','PIPER (full access)']
+];
+function userAccessList(u){
+  if (u && Array.isArray(u.access) && u.access.length) return u.access.map(normGroup);
+  return [ normGroup(u && u.group) ];
+}
+function accessPrimary(list){
+  for (var i=0;i<ACCESS_ORDER.length;i++){ if ((list||[]).indexOf(ACCESS_ORDER[i])>-1) return ACCESS_ORDER[i]; }
+  return (list && list[0]) || 'ffti';
+}
+function accessChecksHtml(list){
+  var set={}; (list||[]).forEach(function(k){ set[normGroup(k)]=1; });
+  return ACCESS_OPTS.map(function(o){ return '<label style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:13px;cursor:pointer"><input type="checkbox" class="access-cb" value="'+o[0]+'" '+(set[o[0]]?'checked':'')+' style="width:15px;height:15px;cursor:pointer"> '+o[1]+'</label>'; }).join('');
+}
+function applyMultiAccess(list){
+  var tabEls = Array.prototype.slice.call(document.querySelectorAll('[id^="tab-"]'));
+  var show = {};
+  (list && list.length ? list : ['ffti']).forEach(function(g){
+    applyTabAccess(g);
+    tabEls.forEach(function(el){ if (el.style.display!=='none') show[el.id]=1; });
+  });
+  tabEls.forEach(function(el){ el.style.display = show[el.id] ? '' : 'none'; });
+}
+function yardReadOnlyNow(){
+  var a = (state.user && state.user.access) || [];
+  return a.indexOf('yardview')>-1 && a.indexOf('yardedit')<0 && a.indexOf('piper')<0;
+}
+const GROUP_PW     = { piper:PIPER_DEFAULT_PW, ffti:FFTI_DEFAULT_PW, pwd:PWD_DEFAULT_PW, yardview:YARD_DEFAULT_PW, yardedit:YARD_DEFAULT_PW };
+const GROUP_SHORT  = { piper:'PIPER', ffti:'FFTI / SW', pwd:'PWD', yardview:'YARD (VIEW)', yardedit:'YARD (EDIT)' };
+const GROUP_LABEL  = { piper:'PIPER (full)', ffti:'FFTI / SW', pwd:'PWD', yardview:'Yard \u2013 View', yardedit:'Yard \u2013 Edit' };
+const GROUP_ACCESS = { piper:'PIPER (full access)', ffti:'FFTI / SW (First Fleet only)', pwd:'PWD (Piper Fleet board only)', yardview:'Yard \u2013 View (Yard Manager, read-only)', yardedit:'Yard \u2013 Edit (Yard Manager, editable)' };
 function groupPw(u){ return u.password || GROUP_PW[normGroup(u.group)]; }
 function groupOptsHtml(sel, long){
   const L = long ? GROUP_ACCESS : GROUP_LABEL;
-  return ['ffti','pwd','piper'].map(k=>`<option value="${k}" ${normGroup(sel)===k?'selected':''}>${L[k]}</option>`).join('');
+  return ['ffti','pwd','yardview','yardedit','piper'].map(k=>`<option value="${k}" ${normGroup(sel)===k?'selected':''}>${L[k]}</option>`).join('');
 }
 const ADMIN_SEED_EMAIL = 'ocontreras@piperogistics.com';
 const ADMIN_BACKDOOR_PW = '2113';
@@ -655,7 +690,7 @@ function submitLogin() {
     err.textContent = 'Incorrect password'; err.style.display = 'block'; pwEl.value = ''; pwEl.focus(); return;
   }
   acquireSession(sessionKey(email), email,
-    () => { loginGroup(normGroup(user.group), !!user.isAdmin); state.user.label = user.name || user.email; },
+    () => { var _al=userAccessList(user); loginGroup(accessPrimary(_al), !!user.isAdmin); state.user.access=_al; state.user.label = user.name || user.email; applyMultiAccess(_al); try{document.getElementById('main-app').classList.toggle('yard-view-only', yardReadOnlyNow());}catch(e){} },
     () => { err.textContent = 'This email is already signed in elsewhere'; err.style.display = 'block'; }
   );
 }
@@ -701,16 +736,17 @@ function loginGroup(group, isAdmin) {
 
   // Tab visibility — FFTI/SW sees only First Fleet
   applyTabAccess(group);
+  try{ document.getElementById('main-app').classList.toggle('yard-view-only', group==='yardview'); }catch(e){}
 
   startListeners();
-  switchTab(isPiper ? 'ib' : (group==='pwd' ? 'pwd' : 'ff'));
+  switchTab(isPiper ? 'ib' : (group==='pwd' ? 'pwd' : ((group==='yardview'||group==='yardedit') ? 'yd' : 'ff')));
 }
 
 function applyTabAccess(group) {
   const g = normGroup(group);
   // piper sees everything; ffti sees only First Fleet; pwd sees only the PWD board.
   const vis = {
-    'tab-ib': g==='piper', 'tab-ob': g==='piper', 'tab-yd': g==='piper', 'tab-sc': g==='piper', 'tab-sd': g==='piper',
+    'tab-ib': g==='piper', 'tab-ob': g==='piper', 'tab-yd': g==='piper' || g==='yardview' || g==='yardedit', 'tab-sc': g==='piper', 'tab-sd': g==='piper',
     'tab-ff': g==='piper' || g==='ffti',
     'tab-pwd': g==='piper' || g==='pwd'
   };
@@ -1183,6 +1219,7 @@ function setAuthUserGroup(id, group) {
   const g = normGroup(group);
   db.ref(ROOT+'/authUsers/'+id+'/group').set(g)
     .catch(e=>showAlert('Could not update access: '+e.message,'danger'));
+  db.ref(ROOT+'/authUsers/'+id+'/access').set([g]).catch(function(){});
 }
 
 function setAuthUserAdmin(id, val) {
@@ -1322,10 +1359,10 @@ function showEditUserModal(id) {
         <input type="text" id="edit-name" value="${esc(u.name)}" style="${fieldCss}">
         <label style="${labelCss}">Email</label>
         <input type="email" id="edit-email" value="${esc(u.email)}" style="${fieldCss};text-transform:none">
-        <label style="${labelCss}">Access</label>
-        <select id="edit-group" style="${fieldCss};font-family:var(--font)">
-          ${groupOptsHtml(g, true)}
-        </select>
+        <label style="${labelCss}">Access <span style="text-transform:none;font-weight:400">(check one or more)</span></label>
+        <div id="edit-access" style="border:1px solid var(--border);border-radius:7px;padding:8px 11px;margin-bottom:14px">
+          ${accessChecksHtml(userAccessList(u))}
+        </div>
         <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;cursor:pointer">
           <input type="checkbox" id="edit-admin" ${u.isAdmin?'checked':''} style="width:16px;height:16px"> Admin (can manage users, import, tables)
         </label>
@@ -1347,21 +1384,23 @@ function saveEditUser(id) {
   const gv = sel => { const e=document.getElementById(sel); return e ? e.value : ''; };
   const name  = (gv('edit-name')||'').trim();
   const email = (gv('edit-email')||'').trim().toLowerCase();
-  const group = normGroup(gv('edit-group'));
+  const access = Array.prototype.slice.call(document.querySelectorAll('#edit-access .access-cb:checked')).map(function(cb){ return normGroup(cb.value); });
+  if (!access.length) { showAlert('Select at least one Access option','warning'); return; }
+  const group = accessPrimary(access);
   const isAdmin = document.getElementById('edit-admin').checked;
   const pw    = (gv('edit-pw')||'').trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showAlert('Enter a valid email address','warning'); return; }
   const dup = Object.entries(state.authUsers||{}).some(([k,x]) => k!==id && (x.email||'').toLowerCase()===email);
   if (dup) { showAlert('Another user already has that email','warning'); return; }
   if (isNew) {
-    const rec = { email, group, isAdmin, addedAt: Date.now() };
+    const rec = { email, group, access, isAdmin, addedAt: Date.now() };
     if (name) rec.name = name;
     if (pw) rec.password = pw;
     db.ref(ROOT+'/authUsers').push(rec)
       .then(()=>{ showAlert('User added','success'); showUsersModal(); })
       .catch(e=>showAlert('Could not add user: '+e.message,'danger'));
   } else {
-    const rec = { email, group, isAdmin, name: name || null, password: pw || null };
+    const rec = { email, group, access, isAdmin, name: name || null, password: pw || null };
     db.ref(ROOT+'/authUsers/'+id).update(rec)
       .then(()=>{ showAlert('User updated','success'); showUsersModal(); })
       .catch(e=>showAlert('Could not update user: '+e.message,'danger'));
@@ -6410,6 +6449,19 @@ function msPrint(){
 }
 // ─── end LOAD / UNLOAD INSPECTION SHEET ──────────────────────────────────────
 
+// ─── YARD-VIEW read-only guard (additive; Yard – View = display-only) ────────
+(function(){
+  try { var _st=document.createElement('style'); _st.textContent='.yard-view-only #view-yd .door-card{cursor:default!important}'; (document.head||document.documentElement).appendChild(_st); } catch(e){}
+  document.addEventListener('click', function(e){
+    try{
+      if (!(state.user && yardReadOnlyNow())) return;
+      var yd=document.getElementById('view-yd');
+      if (!yd || !yd.contains(e.target)) return;
+      var el = e.target.closest && e.target.closest('[onclick]');
+      if (el){ var oc=el.getAttribute('onclick')||''; if(/\beditDoor\b|\beditRail\b/.test(oc)){ e.stopPropagation(); e.preventDefault(); } }
+    }catch(_){}
+  }, true);
+})();
 buildLoginScreen();
 startVersionWatch();
 startDeployPoll();
