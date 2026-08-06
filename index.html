@@ -2578,10 +2578,18 @@ function rollSelected(type) {
   const fromDate = type==='ib' ? state.ibDate : state.obDate;
   const updates = {};
   let rolledCount = 0, skippedDone = 0;
+  // SAFETY NET: a load that has already shipped (Departed / Completed) is LOCKED to its
+  // shipped date and is NEVER moved by a roll. Non-shipped loads roll silently; if the
+  // selection includes shipped loads, alert first (they are skipped; the rest still roll).
+  const _doneSel = [];
+  rollSel.forEach(id => { const r=(branch==='outbound'?state.outbound[id]:state.inbound[id])||{}; if (branch==='outbound'?r.status==='DEPARTED':r.status==='COMPLETED') _doneSel.push(id); });
+  if (_doneSel.length) {
+    if (!confirm(_doneSel.length+' of the selected load'+(_doneSel.length===1?' is':'s are')+' marked '+(branch==='outbound'?'DEPARTED':'COMPLETED')+' (already shipped) and will NOT be moved \u2014 they stay on their shipped date.\n\nOK = roll the remaining loads      Cancel = cancel')) return;
+  }
   rollSel.forEach(id => {
     const rec = (branch==='outbound' ? state.outbound[id] : state.inbound[id]) || {};
     if (rec.status === 'CANCELLED') return;   // cancelled loads don't roll
-    // Already gone — a departed/completed load has shipped, so there's nothing to reschedule.
+    // Already shipped (Departed/Completed) — locked to its shipped date, never moved.
     if (branch==='outbound' ? rec.status==='DEPARTED' : rec.status==='COMPLETED') { skippedDone++; return; }
     updates[branch+'/'+id+'/reqDate']       = target;
     updates[branch+'/'+id+'/manualReqDate']  = target;
@@ -4227,6 +4235,18 @@ function saveField(type, id, field, value) {
   const path = type==='ib'?'inbound':type==='ob'?'outbound':type==='firstfleet'?'firstfleet':'outbound';
   db.ref(ROOT+'/'+path+'/'+id+'/'+field).set(value)
     .catch(e=>console.warn('Field save error',e));
+  if (path==='outbound' && field==='status' && value==='DEPARTED') {
+    // A departed load stays on the day it shipped. If auto-roll pushed it ahead to a future
+    // day, pull it back to today (the actual departure day); same-day / past left as-is.
+    try {
+      const _rec = (state.outbound||{})[id];
+      const _t = todayStr();
+      if (_rec && (_rec.reqDate||'').slice(0,10) > _t) {
+        _rec.reqDate = _t;
+        db.ref(ROOT+'/outbound/'+id+'/reqDate').set(_t).catch(()=>{});
+      }
+    } catch(e){}
+  }
   if (path==='outbound' && (field==='door' || field==='trailer')) checkDupAssignment(field, id, value);
   // Putting a trailer that's flagged damaged onto a load — check before it gets loaded.
   if (field==='trailer' && value) {
