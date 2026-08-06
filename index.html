@@ -949,8 +949,170 @@ function _lpTestSend(){
   db.ref(LP_OUTBOX()).push(item).then(function(ref){ _lpSend(ref.key); showNotifyModal(); });
 }
 
+// ─── STATUS-UPDATE EMAILS (additive add-on) ─────────────────────────────────
+// Opt-in notifications that email the SAME per-customer recipients when an outbound
+// load is set to LOADED and again when set to DEPARTED. When the status changes, a
+// confirm prompt lists the recipients: OK sends one email to all of them right away;
+// Cancel ("send later") queues that same email in the Outbox and an isolated flusher
+// sends it automatically on its next cycle (or the admin can send it from the Notify
+// screen). Every notification is a SINGLE email addressed to all recipients (To + CC
+// in one message), never one-per-person. Reuses the existing recipients, "Always CC",
+// sending endpoint (webhook) and Outbox. Does NOT touch the existing Loaded+paperwork
+// engine, the auto-roll, or any other logic. Own on/off toggles (settings/notify.stLoaded,
+// .stDeparted) and own per-load stamps (outbound/<id>/notifiedLoaded, .notifiedDeparted).
+// Inert until turned on + an endpoint is set; nothing sends without an explicit answer.
+var _ST_FLUSH_TIMER = null;
+var ST_FLUSH_MS = 300000;   // deferred ("send later") items go out on this cycle — every 5 min
+var _stHintShown = false;   // one-time nudge if a prompt is suppressed by a missed setting
+function _stEnabledFor(kind){ const c=_lpCfg(); return kind==='loaded' ? !!c.stLoaded : !!c.stDeparted; }
+function _stCustEnabled(customer){ const m=(_lpCfg().stCust)||{}; return !!m[_lpCustKey(customer)]; }
+function _stToggleCust(key, on){ if (!requireAdmin()) return; db.ref(LP_SETTINGS()+'/stCust/'+key).set(!!on).then(function(){ showAlert(on?'Emails enabled for this customer':'Emails disabled for this customer','success'); }).catch(function(e){ showAlert('Could not update: '+e.message,'danger'); }); }
+function _stFlagKey(kind){ return kind==='loaded' ? 'stLoaded' : 'stDeparted'; }
+function _stStampKey(kind){ return kind==='loaded' ? 'notifiedLoaded' : 'notifiedDeparted'; }
+function _stSubject(kind, r){
+  return (kind==='loaded' ? 'Shipment loaded — ' : 'Shipment departed — ')
+    + (r.customer||'Unknown customer') + (r.orderNum ? (' (Order ' + r.orderNum + ')') : '');
+}
+function _stBody(kind, r){
+  const L = [];
+  L.push('Hello,');
+  L.push('');
+  L.push('This is an automated shipment notification from Piper Warehouse & Logistics.');
+  L.push('');
+  L.push(kind==='loaded'
+    ? 'The outbound load below has been loaded and is ready to depart:'
+    : 'The outbound load below has departed:');
+  L.push('');
+  L.push('  Customer:       ' + (r.customer||''));
+  if (r.orderNum)    L.push('  Order #:        ' + r.orderNum);
+  if (r.loadNum)     L.push('  Load #:         ' + r.loadNum);
+  if (r.destination) L.push('  Destination:    ' + r.destination);
+  if (r.carrier)     L.push('  Carrier:        ' + r.carrier);
+  if (r.trailer)     L.push('  Trailer:        ' + r.trailer);
+  if (r.door)        L.push('  Door:           ' + r.door);
+  if (r.reqDate)     L.push((kind==='loaded' ? '  Ship date:      ' : '  Departure date: ') + String(r.reqDate).slice(0,10));
+  if (r.notes)       L.push('  Notes:          ' + r.notes);
+  L.push('');
+  L.push('If you have any questions about this shipment, please reply to this email.');
+  L.push('');
+  L.push('Thank you,');
+  L.push('Piper Warehouse & Logistics');
+  return L.join('\n');
+}
+// Build one Outbox item = one email to ALL recipients. deferred=true holds it for the
+// flusher; deferred=false sends it now. Reuses the existing _lpSend endpoint untouched.
+function _stEnqueue(id, kind, r, deferred){
+  const rec = _lpRecipientsFor(r.customer);
+  const item = {
+    loadId:id, kind:kind, customer:r.customer||'', orderNum:r.orderNum||'', loadNum:r.loadNum||'',
+    trailer:r.trailer||'', door:r.door||'', reqDate:(r.reqDate||'').slice(0,10),
+    to:rec.to, cc:rec.cc, subject:_stSubject(kind,r), body:_stBody(kind,r),
+    createdAt:Date.now(), createdBy:_lpWho(), status:'queued', attempts:0,
+    stDeferred: !!deferred, sendAfter: Date.now()
+  };
+  return db.ref(LP_OUTBOX()).push(item)
+    .then(function(ref){ if (!deferred) _lpSend(ref.key); return ref.key; })
+    .catch(function(e){ showAlert('Could not queue notification: '+e.message,'danger'); });
+}
+// Called from saveField on the real transition to LOADED / DEPARTED. OK = send now;
+// Cancel = queue to send later. Either way the load is stamped (audit) so it won't re-ask.
+// Opens the default mail app (Outlook) with a pre-filled draft to ALL recipients — one email.
+function _stOpenOutlook(kind, r, to, cc){
+  try {
+    const q = [];
+    if (cc && cc.length) q.push('cc=' + encodeURIComponent(cc.join(',')));
+    q.push('subject=' + encodeURIComponent(_stSubject(kind, r)));
+    q.push('body=' + encodeURIComponent(_stBody(kind, r)));
+    const href = 'mailto:' + encodeURIComponent((to||[]).join(',')).replace(/%40/g,'@').replace(/%2C/g,',') + '?' + q.join('&');
+    const a = document.createElement('a'); a.href = href; a.style.display = 'none';
+    document.body.appendChild(a); a.click(); a.remove();
+  } catch(e){}
+}
+function _stPromptSend(kind, id){
+  try {
+    const r = (state.outbound||{})[id];
+    if (!r) return;
+    const word  = kind==='loaded' ? 'LOADED' : 'DEPARTED';
+    const label = kind==='loaded' ? 'Loaded' : 'Departed';
+    const rec = _lpRecipientsFor(r.customer);
+    const to = rec.to||[], cc = rec.cc||[];
+    const hasRecip = !!(to.length || cc.length);
+    const kindOn = _stEnabledFor(kind);
+    const custOn = _stCustEnabled(r.customer);
+    if (!(kindOn && custOn && hasRecip)) {
+      // No prompt will show. If this customer is set up with recipients, say WHY (once) so
+      // a missed toggle / unticked box is visible instead of silent.
+      if (hasRecip && !_stHintShown) {
+        _stHintShown = true;
+        const why = [];
+        if (!kindOn) why.push('the "Prompt on ' + word + '" switch is off');
+        if (!custOn) why.push('"' + (r.customer||'this customer') + '" is not ticked in the EMAIL column');
+        if (why.length) showAlert('No email prompt shown: ' + why.join(' and ') + '. Open the Notify screen to fix it.','warning');
+      }
+      return;
+    }
+    const who = to.map(function(a){ return '  ' + a; })
+      .concat(cc.map(function(a){ return '  ' + a + '  (cc)'; })).join('\n');
+    const head = 'This load is now ' + word + '.\n\n'
+      + 'Customer:  ' + (r.customer||'') + (r.orderNum ? ('     Order ' + r.orderNum) : '') + '\n\n';
+    const hasEndpoint = !!(_lpCfg().webhookUrl||'').trim();
+    if (hasEndpoint){
+      const msg = head + 'One email will be sent to these recipients:\n' + who + '\n\n'
+        + 'OK      = send the email now\n'
+        + 'Cancel  = queue it and send a little later';
+      const sendNow = confirm(msg);
+      _stEnqueue(id, kind, r, !sendNow);
+      db.ref(ROOT+'/outbound/'+id+'/'+_stStampKey(kind)).set({ at: Date.now(), by: _lpWho(), deferred: !sendNow }).catch(function(){});
+      showAlert(sendNow ? (label+' notification sent for '+(r.customer||'load'))
+                        : (label+' notification queued — it will send shortly'), 'success');
+    } else {
+      // No sending endpoint set: OK opens Outlook with the email ready to send, and keeps a
+      // copy in the Outbox as a record. Cancel skips this one.
+      const msg = head + 'Email these recipients now?\n' + who + '\n\n'
+        + 'OK      = open Outlook with the email ready to send\n'
+        + 'Cancel  = skip this one';
+      if (!confirm(msg)) return;
+      _stEnqueue(id, kind, r, true);
+      _stOpenOutlook(kind, r, to, cc);
+      db.ref(ROOT+'/outbound/'+id+'/'+_stStampKey(kind)).set({ at: Date.now(), by: _lpWho(), manual: true }).catch(function(){});
+      showAlert(label+' — Outlook opened for '+(r.customer||'load')+'. (Also saved in the Outbox; click "Mark sent" once you send it.)','success');
+    }
+  } catch(e){}
+}
+// Sends any of OUR deferred items whose time has come. Scoped to stDeferred+queued only,
+// so it never touches the existing Loaded+paperwork queue. No-op without an endpoint.
+function _stFlush(){
+  try {
+    const cfg = _lpCfg();
+    if (!(cfg.webhookUrl||'').trim()) return;
+    const ob = state.notifyOutbox || {};
+    const now = Date.now();
+    Object.keys(ob).forEach(function(k){
+      const it = ob[k];
+      if (!it || !it.stDeferred || it.status !== 'queued') return;
+      if ((it.sendAfter||0) > now) return;
+      _lpSend(k);
+    });
+  } catch(e){}
+}
+function _stStartFlusher(){
+  if (_ST_FLUSH_TIMER) return;
+  _ST_FLUSH_TIMER = setInterval(_stFlush, ST_FLUSH_MS);
+  setTimeout(_stFlush, 8000);
+}
+// Toggle just flips the master on/off. With the prompt model there is no backlog to baseline.
+function _stSetEnabled(kind, on){
+  if (!requireAdmin()) return;
+  db.ref(LP_SETTINGS()+'/'+_stFlagKey(kind)).set(!!on)
+    .then(function(){ showAlert(on ? ('Prompt-to-email on '+kind.toUpperCase()+' turned on') : ('Prompt-to-email on '+kind.toUpperCase()+' turned off'),'success'); showNotifyModal(); })
+    .catch(function(e){ showAlert('Could not update: '+e.message,'danger'); });
+}
+_stStartFlusher();
+// ─── end STATUS-UPDATE EMAILS ────────────────────────────────────────────────
+
 // ── Notify screen ──
 function showNotifyModal(){
+  try{_stFlush();}catch(e){}
   if (!state.user || state.user.role !== 'admin') { showAlert('Admin only','warning'); return; }
   const cfg  = _lpCfg();
   const map  = cfg.recipients || {};
@@ -961,6 +1123,7 @@ function showNotifyModal(){
     const k = _lpCustKey(c), row = map[k] || {};
     const none = !_lpEmails(row.to).length && !_lpEmails(row.cc).length;
     return '<tr style="border-bottom:1px solid var(--border)">'
+      + '<td style="padding:5px 8px;text-align:center"><input type="checkbox" '+(_stCustEnabled(c)?'checked':'')+' onchange="_stToggleCust(\''+k+'\',this.checked)" style="width:15px;height:15px;cursor:pointer" title="Email this customer when a load is LOADED / DEPARTED"></td>'
       + '<td style="padding:5px 8px;font-weight:700;white-space:nowrap">'+esc(c)
         + (none ? ' <span style="font-size:9px;background:rgba(180,83,9,.14);color:#b45309;padding:1px 5px;border-radius:4px;font-weight:700">NOT SET</span>' : '')
       + '</td>'
@@ -1019,6 +1182,16 @@ function showNotifyModal(){
               style="flex:1 1 auto;padding:7px 9px;border:1px solid var(--border);border-radius:7px;font-size:12px">
           </label>
         </div>
+        <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin:0 0 12px;flex:0 0 auto;padding:9px 11px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
+          <span style="font-size:12px;color:var(--text2);font-weight:700">Status-change email prompt (add-on):</span>
+          <label style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;cursor:pointer">
+            <input type="checkbox" ${cfg.stLoaded?'checked':''} onchange="_stSetEnabled('loaded',this.checked)" style="width:16px;height:16px;cursor:pointer"> Prompt on LOADED (ask to send)
+          </label>
+          <label style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;cursor:pointer">
+            <input type="checkbox" ${cfg.stDeparted?'checked':''} onchange="_stSetEnabled('departed',this.checked)" style="width:16px;height:16px;cursor:pointer"> Prompt on DEPARTED (ask to send)
+          </label>
+          <span style="font-size:11px;color:var(--text2)">One email to all recipients; Cancel = send later. Tick the customers below to enable &mdash; only ticked customers are emailed.</span>
+        </div>
         <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:0 0 14px;flex:0 0 auto">
           <label style="display:flex;align-items:center;gap:7px;flex:1 1 300px">
             <span style="font-size:12px;color:var(--text2);font-weight:600;white-space:nowrap">Always CC</span>
@@ -1036,6 +1209,7 @@ function showNotifyModal(){
         <div style="flex:1 1 auto;overflow:auto;border:1px solid var(--border);border-radius:8px">
           <table style="width:100%;border-collapse:collapse;font-size:12px">
             <thead><tr style="background:var(--bg);position:sticky;top:0">
+              <th style="padding:6px 8px;text-align:left;font-size:10px;letter-spacing:.5px;color:var(--text2)">EMAIL</th>
               <th style="padding:6px 8px;text-align:left;font-size:10px;letter-spacing:.5px;color:var(--text2)">CUSTOMER</th>
               <th style="padding:6px 8px;text-align:left;font-size:10px;letter-spacing:.5px;color:var(--text2)">TO (one or more, comma separated)</th>
               <th style="padding:6px 8px;text-align:left;font-size:10px;letter-spacing:.5px;color:var(--text2)">CC</th>
@@ -4245,6 +4419,14 @@ function saveField(type, id, field, value) {
         _rec.reqDate = _t;
         db.ref(ROOT+'/outbound/'+id+'/reqDate').set(_t).catch(()=>{});
       }
+    } catch(e){}
+  }
+  // When a load is marked LOADED / DEPARTED, ask whether to email the recipients now
+  // (OK) or queue it to send later (Cancel). Fires only on a real status change.
+  if (path==='outbound' && field==='status' && (value==='LOADED' || value==='DEPARTED')) {
+    try {
+      const _prev = (((state.outbound||{})[id])||{}).status;
+      if ((_prev||'').toUpperCase() !== value) _stPromptSend(value==='LOADED' ? 'loaded' : 'departed', id);
     } catch(e){}
   }
   if (path==='outbound' && (field==='door' || field==='trailer')) checkDupAssignment(field, id, value);
