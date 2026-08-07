@@ -2766,7 +2766,6 @@ function rollSelected(type) {
     // Already shipped (Departed/Completed) — locked to its shipped date, never moved.
     if (branch==='outbound' ? rec.status==='DEPARTED' : rec.status==='COMPLETED') { skippedDone++; return; }
     updates[branch+'/'+id+'/reqDate']       = target;
-    updates[branch+'/'+id+'/manualReqDate']  = target;
     updates[branch+'/'+id+'/rolledFrom']     = fromDate;
     updates[branch+'/'+id+'/apptTime']       = '';   // rolled loads go to "No Appointment" on the new day
     updates[branch+'/'+id+'/updatedAt']      = Date.now();
@@ -5247,7 +5246,8 @@ function autoRollOutbound() {
     if (NO_AUTO_ROLL_CUSTOMERS.some(c => cust.indexOf(c) > -1)) return;   // excluded customers (e.g. Sci Games)
     const d = (r.reqDate||'').slice(0,10);
     if (!d || !eodPassed(d)) return;
-    if ((r.manualReqDate||'').slice(0,10) === d) return;   // user deliberately set this date — leave it
+    // NOTE: a non-departed load ALWAYS rolls once its date has passed — even if it was
+    // placed/rolled here by hand. Only DEPARTED loads are locked to their date (handled above).
     let newD = d, guard = 0;
     while (eodPassed(newD) && guard++ < 500) newD = nextBusinessDay(newD);
     if (newD !== d) updates[id] = { reqDate:newD, origReqDate: r.origReqDate || d, apptTime: '' };
