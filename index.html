@@ -554,8 +554,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-1';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807001;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-4';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807004;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -2037,7 +2037,9 @@ function sdIsScheduled(sid){
   // If that load is deleted, the row reverts to "Add to Schedule" so it can be
   // rescheduled — a lingering added-mark no longer counts as scheduled.
   const key = String(sid==null?'':sid).toUpperCase();
-  return Object.values(state.outbound||{}).some(o=>String(o.orderNum||'').toUpperCase()===key);
+  // A CANCELLED load does NOT count as scheduled — it stays on the board as a reference, but if the
+  // shipment comes back on a later report the row re-opens the "Add to Schedule" button.
+  return Object.values(state.outbound||{}).some(o=>String(o.orderNum||'').toUpperCase()===key && (o.status||'').toUpperCase()!=='CANCELLED');
 }
 
 // ── import (admin) ──
@@ -2088,8 +2090,39 @@ function commitShipDueImport(){
   const prevAdded = (state.shipdue && state.shipdue.added) || {};   // preserve "added" marks by shipment #
   const payload = { rows:_pendingShipDue.rows, added:prevAdded, importedAt:Date.now(),
                     importedBy:(state.user && state.user.label) || '' };
+
+  // ── Cancellation reconciliation ──────────────────────────────────────────────
+  // A shipment that was on the schedule but has fallen off BOTH the Not Processed and the
+  // Completely Processed lists (i.e. it is no longer anywhere in the new report) was cancelled
+  // or changed in SAP. Mark those Outbound loads CANCELLED — they stay on the board for reference
+  // but drop out of the totals. Scope: only loads that came from ShipDue (or whose Order # was in
+  // the previous report), and never touch a load that has already DEPARTED (shipped) or is already
+  // CANCELLED. This can never affect a manually-added outbound load.
+  const _upper   = v => String(v==null?'':v).toUpperCase();
+  const _newSids = new Set(_pendingShipDue.rows.map(r=>_upper(r._sid)));
+  const _prevSids= new Set(((state.shipdue&&state.shipdue.rows)||[]).map(r=>_upper(r._sid)));
+  const _cancelIds = [];
+  Object.entries(state.outbound||{}).forEach(([id,o])=>{
+    if (!o) return;
+    const st = _upper(o.status);
+    if (st==='DEPARTED' || st==='CANCELLED') return;                 // shipped or already cancelled — leave alone
+    const key = _upper(o.orderNum);
+    if (!key) return;
+    const tracked = o.source==='shipdue' || _prevSids.has(key);       // a ShipDue-tracked load
+    if (!tracked) return;
+    if (!_newSids.has(key)) _cancelIds.push(id);                      // no longer in the report → cancelled
+  });
+  _cancelIds.forEach(id=>{
+    if (state.outbound[id]){ state.outbound[id].status='CANCELLED'; state.outbound[id].ffStatus=null; }
+    db.ref(ROOT+'/outbound/'+id).update({ status:'CANCELLED', ffStatus:null, updatedAt:Date.now() }).catch(()=>{});
+  });
+
   db.ref(ROOT+'/shipdue').set(payload)
-    .then(()=>{ closeModal(); showAlert('ShipDue imported: '+payload.rows.length+' rows','success'); switchTab('sd'); })
+    .then(()=>{ closeModal();
+      showAlert('ShipDue imported: '+payload.rows.length+' rows'
+        + (_cancelIds.length ? ' · '+_cancelIds.length+' load'+(_cancelIds.length===1?'':'s')+' auto-cancelled (dropped from report)' : ''),
+        'success');
+      switchTab('sd'); })
     .catch(e=>showAlert('Import failed: '+e.message,'danger'));
   _pendingShipDue = null;
 }
@@ -2216,22 +2249,38 @@ function sdMatchCustomer(raw){
   });
   return best;
 }
+// ShipDue → calendar date basis. Every load schedules on its PICKING DATE (the pickup day),
+// EXCEPT Sci Games, which schedules on its DELIVERY DATE (kept from the original rule).
+function sdIsSciGames(r){
+  const raw = String((r&&r.customer)||'');
+  if (/SCI\s*GAMES|SCIENTIFIC\s*GAMES/i.test(raw)) return true;
+  return String(sdMatchCustomer(raw)||'').toUpperCase()==='SCI GAMES';
+}
+function sdSchedBasis(r){
+  return sdIsSciGames(r)
+    ? { date:(String((r&&r.delivDate)||'')).slice(0,10), field:'Delivery Date', label:'Delivery Date · Sci Games' }
+    : { date:(String((r&&r.pickDate) ||'')).slice(0,10), field:'Picking Date',  label:'Picking Date — pickup day' };
+}
 function sdAskAddToSchedule(sid){
   if (!requireAdmin()) return;
   const r = sdRowBySid(sid);
   if (!r){ showAlert('Row not found','warning'); return; }
-  const date = (r.delivDate||'').slice(0,10);
-  if (!date){ showAlert('This row has no Delivery Date, so it cannot be scheduled.','warning'); return; }
+  const _basis = sdSchedBasis(r);
+  const date = _basis.date;
+  if (!date){ showAlert('This row has no '+_basis.field+', so it cannot be scheduled.','warning'); return; }
   const _today = todayStr();
-  const _past  = date < _today;                      // delivery date already passed
-  const _eff   = _past ? _today : date;              // past deliveries schedule onto today
+  const _past  = date < _today;                      // basis (pickup/delivery) date already passed
+  const _eff   = _past ? _today : date;              // past dates schedule onto today
   const _warn  = _past
-    ? `<div style="margin:10px 0 0;padding:9px 11px;border:1.5px solid #b45309;background:rgba(180,83,9,.09);border-radius:7px;font-size:12px;color:#b45309"><b>Delivery date is prior to current date.</b> It will be added to today (${_today}), and the Picking Date will be set to today.</div>`
+    ? `<div style="margin:10px 0 0;padding:9px 11px;border:1.5px solid #b45309;background:rgba(180,83,9,.09);border-radius:7px;font-size:12px;color:#b45309"><b>${_basis.field} is prior to current date.</b> It will be added to today (${_today}).</div>`
     : '';
   // Already on the Outbound board? (same Shipment # as Order #). Report where, then ask.
   const existing = Object.entries(state.outbound||{})
-    .filter(([,o])=>String(o.orderNum||'').toUpperCase()===String(r.shipment).toUpperCase())
+    .filter(([,o])=>String(o.orderNum||'').toUpperCase()===String(r.shipment).toUpperCase() && (o.status||'').toUpperCase()!=='CANCELLED')
     .map(([id,o])=>({ id, date:(o.reqDate||'').slice(0,10), status:o.status||'' }));
+  // A previously-cancelled reference load for this shipment is not a blocking duplicate — re-adding
+  // reactivates the shipment and clears that old cancelled load (handled in sdDoAddToSchedule).
+  const _hadCancelled = Object.values(state.outbound||{}).some(o=>String(o.orderNum||'').toUpperCase()===String(r.shipment).toUpperCase() && (o.status||'').toUpperCase()==='CANCELLED');
   const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
   const _custRaw = r.customer||'';
   const _custTbl = sdMatchCustomer(_custRaw);
@@ -2241,6 +2290,9 @@ function sdAskAddToSchedule(sid){
          <b style="color:#b45309">Already scheduled.</b> Shipment ${esc(r.shipment)} is on the Outbound board:
          ${existing.map(e=>`<div style="margin-top:3px">&bull; ${esc(e.date)} &mdash; ${esc(e.status)}</div>`).join('')}
        </div>` : '';
+  const _reactivateNote = (_hadCancelled && !existing.length)
+    ? `<div style="margin:10px 0;padding:9px 11px;border:1.5px solid #166534;background:rgba(22,101,52,.09);border-radius:7px;font-size:12px;color:#166534"><b>Previously cancelled.</b> Shipment ${esc(r.shipment)} is on the board as a cancelled reference — adding it reactivates the shipment and clears that cancelled entry.</div>`
+    : '';
   const buttons = existing.length
     ? `<button class="sign-out-btn" onclick="closeModal()">Skip</button>
        <button class="sign-out-btn" onclick="sdDoAddToSchedule('${esc(sid)}',true)" style="background:#b45309;color:#fff;border-color:#b45309">Replace</button>`
@@ -2252,7 +2304,7 @@ function sdAskAddToSchedule(sid){
         <h2 style="margin:0 0 6px">Add to Schedule?</h2>
         <p style="color:var(--text2);font-size:12px;margin:0 0 6px">This creates an Outbound load under <b>Order Received</b>.</p>
         <div style="font-size:13px;line-height:1.7;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
-          <div><b>Date:</b> ${esc(_eff)} <span style="color:var(--text2)">${_past?('(today &mdash; Delivery Date '+esc(date)+' has passed)'):'(Delivery Date)'}</span></div>
+          <div><b>Date:</b> ${esc(_eff)} <span style="color:var(--text2)">${_past?('(today &mdash; '+_basis.field+' '+esc(date)+' has passed)'):('('+_basis.label+')')}</span></div>
           <div><b>Order #:</b> ${esc(r.shipment)} <span style="color:var(--text2)">(Shipment #)</span></div>
           <div><b>Customer:</b> ${esc(_cust)}${(_custTbl && _custTbl!==_custRaw)?` <span style="color:var(--text2)">(Customer Table &mdash; from ${esc(_custRaw)})</span>`:''}</div>
           <div><b>Destination:</b> ${esc(r.city||'')} <span style="color:var(--text2)">(City)</span></div>
@@ -2260,6 +2312,7 @@ function sdAskAddToSchedule(sid){
         </div>
         ${_warn}
         ${dupNote}
+        ${_reactivateNote}
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">${buttons}</div>
       </div>
     </div>`;
@@ -2269,10 +2322,19 @@ function sdDoAddToSchedule(sid, replace){
   const r = sdRowBySid(sid);
   if (!r){ closeModal(); return; }
   const _today = todayStr();
-  const _del   = (r.delivDate||'').slice(0,10);
-  const _past  = !!_del && _del < _today;            // delivery date already passed
-  const date   = _past ? _today : _del;              // past delivery dates schedule onto today
+  const _basis = sdSchedBasis(r).date;               // Picking Date for all loads; Delivery Date for Sci Games
+  const _past  = !!_basis && _basis < _today;        // basis date already passed
+  const date   = _past ? _today : _basis;            // past dates schedule onto today
   const coll = state.outbound || (state.outbound = {});
+
+  // Clear out any CANCELLED reference load(s) for this shipment first, so re-adding a shipment that
+  // came back on a later report reactivates it cleanly instead of leaving a duplicate behind.
+  Object.entries(coll).forEach(([id,o])=>{
+    if (String(o.orderNum||'').toUpperCase()===String(r.shipment).toUpperCase() && (o.status||'').toUpperCase()==='CANCELLED'){
+      delete coll[id];
+      db.ref(ROOT+'/outbound/'+id).remove().catch(()=>{});
+    }
+  });
 
   if (replace){
     Object.entries(coll).forEach(([id,o])=>{
