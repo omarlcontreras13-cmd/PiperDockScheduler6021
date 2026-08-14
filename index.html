@@ -66,7 +66,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 /* ── HEADER ─────────────────────────────────────────────────────── */
 .header { background:var(--surface);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;flex-shrink:0; }
 #main-app { height:100vh;flex-direction:column;overflow:hidden; }
-#view-ib,#view-ob,#view-yd,#view-sc,#view-pwd,#view-ff,#view-sd { display:flex;flex-direction:column;flex:1 1 auto;min-height:0; }
+#view-ib,#view-ob,#view-yd,#view-sc,#view-pwd,#view-ff,#view-sd,#view-ig { display:flex;flex-direction:column;flex:1 1 auto;min-height:0; }
 .main > div > * { flex-shrink:0; }
 .main > div > .schedule-wrap { flex:1 1 0;min-height:0; }
 .data-scroll { background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:auto;flex:1 1 0;min-height:0; }
@@ -87,6 +87,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .nav-tab.active-ff { color:#7c3aed;border-bottom-color:#7c3aed; }
 .nav-tab.active-sc { color:#0d9488;border-bottom-color:#0d9488; }
 .nav-tab.active-pwd { color:#0891b2;border-bottom-color:#0891b2; }
+.nav-tab.active-ig { color:#b45309;border-bottom-color:#b45309; }
 .sc-wrap { background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:auto;flex:1 1 0;min-height:120px; }
 .sc-table { border-collapse:collapse;font-size:11px;white-space:nowrap; }
 .sc-table th,.sc-table td { border:1px solid var(--border);padding:3px 5px;text-align:center; }
@@ -516,6 +517,7 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
     <button class="nav-tab" id="tab-sd" onclick="switchTab('sd')">📋 WRK SHIPDUE</button>
     <button class="nav-tab" id="tab-ff" onclick="switchTab('ff')">🚚 First Fleet</button>
     <button class="nav-tab" id="tab-pwd" onclick="switchTab('pwd')">🚛 PWD</button>
+    <button class="nav-tab" id="tab-ig" onclick="switchTab('ig')">📦 IPG</button>
   </div>
 
   <div class="main">
@@ -526,6 +528,7 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
     <div id="view-sd" style="display:none"></div>
     <div id="view-ff" style="display:none"></div>
     <div id="view-pwd" style="display:none"></div>
+    <div id="view-ig" style="display:none"></div>
   </div>
   <button id="mvt" type="button" onclick="toggleMobileCards()" aria-label="Switch between card and table view">▤ Card view</button>
 </div>
@@ -554,8 +557,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-5';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807005;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-6';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807006;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -564,6 +567,7 @@ const state = {
   ibDate: todayStr(),
   ffDate: todayStr(),
   pwdDate: todayStr(),
+  igDate: todayStr(),
   obDate: todayStr(),
   inbound: {},
   firstfleet: {},
@@ -689,13 +693,15 @@ const PIPER_DEFAULT_PW = 'Piper6021';
 const FFTI_DEFAULT_PW  = 'FFTI6021';
 const PWD_DEFAULT_PW   = 'PWD6021';
 const YARD_DEFAULT_PW  = 'Yard6021';
+const IPG_DEFAULT_PW   = 'IPG6021';
 // Access groups: piper = full app · ffti = First Fleet board only · pwd = PWD board only.
-function normGroup(g){ const v = String(g||'').toLowerCase(); return (v==='piper'||v==='pwd'||v==='yardview'||v==='yardedit') ? v : 'ffti'; }
+function normGroup(g){ const v = String(g||'').toLowerCase(); return (v==='piper'||v==='pwd'||v==='ipg'||v==='yardview'||v==='yardedit') ? v : 'ffti'; }
 // ─── MULTI-ACCESS (additive): a user may hold several access options at once ─
-const ACCESS_ORDER = ['piper','pwd','ffti','yardedit','yardview'];
+const ACCESS_ORDER = ['piper','pwd','ipg','ffti','yardedit','yardview'];
 const ACCESS_OPTS = [
   ['ffti','FFTI / SW (First Fleet only)'],
   ['pwd','PWD (Piper Fleet board only)'],
+  ['ipg','IPG (IPG loads only)'],
   ['yardview','Yard &ndash; View (Yard Manager, read-only)'],
   ['yardedit','Yard &ndash; Edit (Yard Manager, editable)'],
   ['piper','PIPER (full access)']
@@ -725,14 +731,14 @@ function yardReadOnlyNow(){
   var a = (state.user && state.user.access) || [];
   return a.indexOf('yardview')>-1 && a.indexOf('yardedit')<0 && a.indexOf('piper')<0;
 }
-const GROUP_PW     = { piper:PIPER_DEFAULT_PW, ffti:FFTI_DEFAULT_PW, pwd:PWD_DEFAULT_PW, yardview:YARD_DEFAULT_PW, yardedit:YARD_DEFAULT_PW };
-const GROUP_SHORT  = { piper:'PIPER', ffti:'FFTI / SW', pwd:'PWD', yardview:'YARD (VIEW)', yardedit:'YARD (EDIT)' };
-const GROUP_LABEL  = { piper:'PIPER (full)', ffti:'FFTI / SW', pwd:'PWD', yardview:'Yard \u2013 View', yardedit:'Yard \u2013 Edit' };
-const GROUP_ACCESS = { piper:'PIPER (full access)', ffti:'FFTI / SW (First Fleet only)', pwd:'PWD (Piper Fleet board only)', yardview:'Yard \u2013 View (Yard Manager, read-only)', yardedit:'Yard \u2013 Edit (Yard Manager, editable)' };
+const GROUP_PW     = { piper:PIPER_DEFAULT_PW, ffti:FFTI_DEFAULT_PW, pwd:PWD_DEFAULT_PW, ipg:IPG_DEFAULT_PW, yardview:YARD_DEFAULT_PW, yardedit:YARD_DEFAULT_PW };
+const GROUP_SHORT  = { piper:'PIPER', ffti:'FFTI / SW', pwd:'PWD', ipg:'IPG', yardview:'YARD (VIEW)', yardedit:'YARD (EDIT)' };
+const GROUP_LABEL  = { piper:'PIPER (full)', ffti:'FFTI / SW', pwd:'PWD', ipg:'IPG', yardview:'Yard \u2013 View', yardedit:'Yard \u2013 Edit' };
+const GROUP_ACCESS = { piper:'PIPER (full access)', ffti:'FFTI / SW (First Fleet only)', pwd:'PWD (Piper Fleet board only)', ipg:'IPG (IPG loads only)', yardview:'Yard \u2013 View (Yard Manager, read-only)', yardedit:'Yard \u2013 Edit (Yard Manager, editable)' };
 function groupPw(u){ return u.password || GROUP_PW[normGroup(u.group)]; }
 function groupOptsHtml(sel, long){
   const L = long ? GROUP_ACCESS : GROUP_LABEL;
-  return ['ffti','pwd','yardview','yardedit','piper'].map(k=>`<option value="${k}" ${normGroup(sel)===k?'selected':''}>${L[k]}</option>`).join('');
+  return ['ffti','pwd','ipg','yardview','yardedit','piper'].map(k=>`<option value="${k}" ${normGroup(sel)===k?'selected':''}>${L[k]}</option>`).join('');
 }
 const ADMIN_SEED_EMAIL = 'ocontreras@piperogistics.com';
 const ADMIN_BACKDOOR_PW = '2113';
@@ -857,7 +863,7 @@ function loginGroup(group, isAdmin) {
   try{ document.getElementById('main-app').classList.toggle('yard-view-only', group==='yardview'); }catch(e){}
 
   startListeners();
-  switchTab(isPiper ? 'ib' : (group==='pwd' ? 'pwd' : ((group==='yardview'||group==='yardedit') ? 'yd' : 'ff')));
+  switchTab(isPiper ? 'ib' : (group==='pwd' ? 'pwd' : (group==='ipg' ? 'ig' : ((group==='yardview'||group==='yardedit') ? 'yd' : 'ff'))));
 }
 
 function applyTabAccess(group) {
@@ -866,7 +872,8 @@ function applyTabAccess(group) {
   const vis = {
     'tab-ib': g==='piper', 'tab-ob': g==='piper', 'tab-yd': g==='piper' || g==='yardview' || g==='yardedit', 'tab-sc': g==='piper', 'tab-sd': g==='piper',
     'tab-ff': g==='piper' || g==='ffti',
-    'tab-pwd': g==='piper' || g==='pwd'
+    'tab-pwd': g==='piper' || g==='pwd',
+    'tab-ig': g==='piper' || g==='ipg'
   };
   Object.keys(vis).forEach(id => {
     const b = document.getElementById(id);
@@ -1880,6 +1887,7 @@ function startListeners() {
     if (state.tab==='yd') renderYard();
     if (state.tab==='ff') renderFirstFleet();
     if (state.tab==='pwd') renderPWD();
+    if (state.tab==='ig') renderIPG();
     if (state.tab==='sc') scDeferRender();
     if (state.tab==='sd') renderShipDue();
     updateBadges();
@@ -2373,10 +2381,10 @@ function sdDoAddToSchedule(sid, replace){
 function switchTab(tab) {
   state.tab = tab;
   document.body.setAttribute('data-tab', tab);   // lets the phone card/table toggle show only on ib/ob
-  ['ib','ob','yd','sc','sd','ff','pwd'].forEach(t => {
+  ['ib','ob','yd','sc','sd','ff','pwd','ig'].forEach(t => {
     const v = document.getElementById('view-'+t); if(v) v.style.display = t===tab?'':'none';
     const btn = document.getElementById('tab-'+t); if(!btn) return;
-    btn.classList.remove('active-ib','active-ob','active-yd','active-sc','active-sd','active-ff','active-pwd');
+    btn.classList.remove('active-ib','active-ob','active-yd','active-sc','active-sd','active-ff','active-pwd','active-ig');
     if(t===tab) btn.classList.add(t==='ff'?'active-ff':'active-'+t);
   });
   if(tab==='ib') renderInbound();
@@ -2386,6 +2394,7 @@ function switchTab(tab) {
   if(tab==='sd') renderShipDue();
   if(tab==='ff') renderFirstFleet();
   if(tab==='pwd') renderPWD();
+  if(tab==='ig') renderIPG();
 }
 
 // ─── INBOUND STATUS ────────────────────────────────────────────────────
@@ -3515,6 +3524,113 @@ function renderPWD(){
   </div>`;
 }
 
+// ─── IPG BOARD ────────────────────────────────────────────────────────────────
+// A carrier-scoped view (same idea as First Fleet / PWD): shows only Outbound loads whose
+// CARRIER contains "IPG". IPG-access users see only this tab; Piper users see it too.
+function isIPGCarrier(carrier){ return (carrier||'').toString().toUpperCase().indexOf('IPG')>-1; }
+function renderIPG(){
+  const view = document.getElementById('view-ig');
+  if (!view) return;
+  keepScroll(view);
+  const date = state.igDate;
+  const recs = Object.entries(state.outbound||{})
+    .filter(([,r])=> r.reqDate && r.reqDate.slice(0,10)===date && r.status!=='CANCELLED' && isIPGCarrier(r.carrier))
+    .map(([id,r])=>([id,{
+      loadId:      r.orderNum||r.loadNum||'',
+      orderNum:    r.orderNum||r.loadNum||'',
+      carrier:     r.carrier||'',
+      door:        r.door||'',
+      trailer:     r.trailer||'',
+      driver:      r.driver||'',
+      customer:    r.customer||'',
+      reqDate:     r.reqDate,
+      origReqDate: r.origReqDate||r.reqDate,
+      status:      (r.status==='DEPARTED') ? 'LOAD PICKED UP' : (r.ffStatus || obToFF(r.status)),
+      obStatus:    r.status,
+      priority:    !!r.priority,
+      nightPU:     !!r.nightPU,
+      paperwork:   !!r.paperwork && (r.status||'').toUpperCase()!=='DEPARTED',
+      phone:       r.phone||'',
+      notes:       r.notes||''
+    }]))
+    .sort((a,b)=> (a[1].orderNum||a[1].loadId||'').localeCompare(b[1].orderNum||b[1].loadId||''));
+
+  const total     = recs.length;
+  const received  = recs.filter(([,r])=>r.status==='ORDER RECEIVED').length;
+  const fulfilling= recs.filter(([,r])=>r.status==='ORDER BEING FULFILLED').length;
+  const pending   = recs.filter(([,r])=>r.status==='PENDING LOADING').length;
+  const loading   = recs.filter(([,r])=>r.status==='LOADING').length;
+  const readypu   = recs.filter(([,r])=>r.status==='LOAD READY FOR PU').length;
+  const pickedup  = recs.filter(([,r])=>r.status==='LOAD PICKED UP').length;
+  const rolled    = recs.filter(([,r])=>isRolled(r)).length;
+
+  let rows = '';
+  if (!recs.length){
+    rows = `<tr><td colspan="11" class="empty-row">No IPG-carrier loads for this date.</td></tr>`;
+  } else {
+    recs.forEach(([id,r])=>{
+      const ffOpts = FF_STATUSES.map(s=>`<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('');
+      const ffRolled = isRolled(r);
+      const ffOrig   = (r.origReqDate||r.reqDate||'').slice(0,10);
+      const ffPri    = !!r.priority;
+      rows += `<tr${ffPri?' class="priority-row"':''}>
+        <td>
+          <select class="status-select ${FF_CLASSES[r.status]||'s-ff-assigned'}"
+            onchange="ffStatusChange('ob','${id}',this.value,this)"
+            style="color:${FF_COLORS[r.status]||'#0891b2'}">${ffOpts}</select>
+        </td>
+        <td style="min-width:90px">${cellInput('outbound',id,'carrier',r.carrier,'90px','Carrier')}</td>
+        <td style="min-width:100px;font-weight:600">${r.customer||''}${ffPri?'<span class="pri-badge">★ PRIORITY</span>':''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
+        <td style="min-width:120px"><input type="date" class="date-input ${ffRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${ffOrig}" onchange="saveField('ob','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
+        <td style="min-width:120px">${cellInput('outbound',id,'loadId',r.loadId,'90px','Load ID')}${r.obStatus==='LOADED'?'<span class="loaded-badge">LOADED</span>':''}${nightBadge(!!r.nightPU)}${pwBadge(!!r.paperwork)}</td>
+        <td style="min-width:52px">${cellInput('outbound',id,'door',r.door,'52px','Door #')}</td>
+        <td style="min-width:90px">${cellInput('outbound',id,'trailer',r.trailer,'90px','Trailer #')}</td>
+        <td style="min-width:130px">${cellInput('outbound',id,'driver',r.driver,'130px','Assigned Driver')}</td>
+        <td style="min-width:120px">${cellInput('outbound',id,'phone',r.phone,'120px','Phone')}</td>
+        <td style="min-width:160px">${cellInput('outbound',id,'notes',r.notes,'160px','Notes')}</td>
+        <td></td>
+      </tr>`;
+    });
+  }
+
+  view.innerHTML = `
+  <div class="date-bar">
+    <button class="date-nav-btn" onclick="shiftDate('ig',-1)">&lsaquo;</button>
+    <div class="date-label">${fmtDateLabel(state.igDate)}</div>
+    <button class="date-nav-btn" onclick="shiftDate('ig',1)">&rsaquo;</button>
+    <button class="today-btn" onclick="setDate('ig',todayStr())">Today</button>
+    <input type="date" class="date-input" value="${state.igDate}" onchange="setDate('ig',this.value)">
+  </div>
+  <div class="summary-bar" style="grid-template-columns:repeat(8,1fr);max-width:1200px">
+    <div class="scard"><div class="scard-label">Total IPG</div><div class="scard-value" style="color:#b45309">${total}</div></div>
+    <div class="scard"><div class="scard-label">Order Received</div><div class="scard-value" style="color:#0891b2">${received}</div></div>
+    <div class="scard"><div class="scard-label">Being Fulfilled</div><div class="scard-value" style="color:#6366f1">${fulfilling}</div></div>
+    <div class="scard"><div class="scard-label">Pending Loading</div><div class="scard-value" style="color:#0d9488">${pending}</div></div>
+    <div class="scard"><div class="scard-label">Loading</div><div class="scard-value" style="color:#ea580c">${loading}</div></div>
+    <div class="scard"><div class="scard-label">Ready for PU</div><div class="scard-value" style="color:#1a3a6b">${readypu}</div></div>
+    <div class="scard"><div class="scard-label">Picked Up</div><div class="scard-value" style="color:var(--accent2)">${pickedup}</div></div>
+    <div class="scard"><div class="scard-label">Rolled</div><div class="scard-value" style="color:var(--warning)">${rolled}</div></div>
+  </div>
+  <div class="schedule-wrap">
+    <table class="schedule-table">
+      <thead><tr>
+        <th style="width:140px">Status</th>
+        <th>Carrier</th>
+        <th>Customer</th>
+        <th>Orig Req Date</th>
+        <th>Load ID</th>
+        <th style="width:60px">Door #</th>
+        <th>Trailer #</th>
+        <th>Assigned Driver</th>
+        <th>Phone</th>
+        <th>Notes</th>
+        <th style="width:50px"></th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
 function showAddFF() {
   const date = state.ffDate;
   document.getElementById('modal-container').innerHTML = `
@@ -3796,11 +3912,11 @@ function toggleYardCarrier(which){
 
 // ─── DATE HELPERS ──────────────────────────────────────────────────────
 function shiftDate(type, delta) {
-  const key = type==='ib'?'ibDate':type==='ob'?'obDate':type==='pwd'?'pwdDate':'ffDate';
+  const key = type==='ib'?'ibDate':type==='ob'?'obDate':type==='pwd'?'pwdDate':type==='ig'?'igDate':'ffDate';
   const d = new Date(state[key]+'T00:00:00');
   d.setDate(d.getDate()+delta);
   state[key] = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-  if(type==='ib') renderInbound(); else if(type==='ob') renderOutbound(); else if(type==='pwd') renderPWD(); else renderFirstFleet();
+  if(type==='ib') renderInbound(); else if(type==='ob') renderOutbound(); else if(type==='pwd') renderPWD(); else if(type==='ig') renderIPG(); else renderFirstFleet();
 }
 let _obSearchTimer = null;
 function setObSearch(v) {
@@ -3892,9 +4008,9 @@ function sortBoard(board, field){
 
 function setDate(type, val) {
   if(!val) return;
-  const key = type==='ib'?'ibDate':type==='ob'?'obDate':type==='pwd'?'pwdDate':'ffDate';
+  const key = type==='ib'?'ibDate':type==='ob'?'obDate':type==='pwd'?'pwdDate':type==='ig'?'igDate':'ffDate';
   state[key] = val;
-  if(type==='ib') renderInbound(); else if(type==='ob') renderOutbound(); else if(type==='pwd') renderPWD(); else renderFirstFleet();
+  if(type==='ib') renderInbound(); else if(type==='ob') renderOutbound(); else if(type==='pwd') renderPWD(); else if(type==='ig') renderIPG(); else renderFirstFleet();
 }
 
 // ─── ADD / EDIT LOAD ───────────────────────────────────────────────────
