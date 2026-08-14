@@ -554,8 +554,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-4';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807004;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-5';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807005;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -3062,14 +3062,14 @@ function iconList(tab) {
   const m = iconMap(tab);
   const set = [];
   Object.values(m).forEach(ic => { const v=(ic||'').toString().trim().toUpperCase(); if (v && set.indexOf(v)===-1) set.push(v); });
-  if (tab==='ib' && set.indexOf(ICON_OTHER)===-1) set.push(ICON_OTHER);
+  if (set.indexOf(ICON_OTHER)===-1) set.push(ICON_OTHER);   // OTHER catch-all chip always present (ib + ob)
   set.sort((a,b)=>{ if(a==='OTHER') return 1; if(b==='OTHER') return -1; return a.localeCompare(b); });
   return set;
 }
 function iconForCustomer(tab, customer) {
   const m = iconMap(tab);
   const cu = (customer||'').toString().trim().toUpperCase();
-  const miss = (tab==='ib') ? ICON_OTHER : null;   // outbound keeps its old null
+  const miss = ICON_OTHER;   // any customer not in the icon map falls into OTHER (inbound AND outbound)
   if (!cu) return miss;
   for (const k in m) if (k.toUpperCase()===cu) return (m[k]||'').toString().trim().toUpperCase();
   for (const k in m) { const ku=k.toUpperCase(); if (ku && (cu.indexOf(ku)>-1 || ku.indexOf(cu)>-1)) return (m[k]||'').toString().trim().toUpperCase(); }
