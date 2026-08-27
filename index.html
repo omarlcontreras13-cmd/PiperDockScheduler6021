@@ -557,8 +557,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-6';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807006;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-11';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807011;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -792,6 +792,35 @@ function acquireSession(key, label, onOk, onBusy) {
   });
 }
 
+// ── Persistent login ────────────────────────────────────────────────────────
+// Keep users signed in across a page reload (e.g. the auto-update hard refresh that fires on
+// every deploy). Only the identity is stored per-device in localStorage — never the password;
+// it is re-validated against the live roster on restore. Explicit Sign Out clears it.
+function persistAuth(obj){ try{ localStorage.setItem('dockAuth', JSON.stringify(Object.assign({at:Date.now()},obj))); }catch(e){} }
+function clearAuth(){ try{ localStorage.removeItem('dockAuth'); }catch(e){} }
+function _forceSession(key, label){
+  try { const ref = db.ref(ROOT+'/sessions/'+key); ref.set({ label:label||'', loginAt:Date.now() }); currentSessionRef = ref; ref.onDisconnect().remove(); } catch(e){}
+}
+function tryRestoreSession(){
+  if (state.user) return;
+  let saved=null; try{ saved=JSON.parse(localStorage.getItem('dockAuth')||'null'); }catch(e){}
+  if (!saved) return;
+  if (saved.admin){
+    if (typeof ensureAdminAccount==='function') ensureAdminAccount();
+    loginGroup('piper', true); state.user.label = ADMIN_SEED_EMAIL;
+    _forceSession(sessionKey(ADMIN_SEED_EMAIL), ADMIN_SEED_EMAIL);
+    return;
+  }
+  const email = (saved.email||'').toLowerCase();
+  const user = Object.values(state.authUsers||{}).find(u => (u.email||'').toLowerCase() === email);
+  if (!user) return;
+  const _al = userAccessList(user);
+  loginGroup(accessPrimary(_al), !!user.isAdmin);
+  state.user.access = _al; state.user.label = user.name || user.email;
+  applyMultiAccess(_al);
+  try{ document.getElementById('main-app').classList.toggle('yard-view-only', yardReadOnlyNow()); }catch(e){}
+  _forceSession(sessionKey(email), user.email);
+}
 function buildLoginScreen() {
   // reset the unified sign-in form each time the login screen is shown
   const em = document.getElementById('login-email'); if (em) em.value = '';
@@ -814,7 +843,7 @@ function submitLogin() {
     err.textContent = 'Incorrect password'; err.style.display = 'block'; pwEl.value = ''; pwEl.focus(); return;
   }
   acquireSession(sessionKey(email), email,
-    () => { var _al=userAccessList(user); loginGroup(accessPrimary(_al), !!user.isAdmin); state.user.access=_al; state.user.label = user.name || user.email; applyMultiAccess(_al); try{document.getElementById('main-app').classList.toggle('yard-view-only', yardReadOnlyNow());}catch(e){} },
+    () => { persistAuth({email:user.email}); var _al=userAccessList(user); loginGroup(accessPrimary(_al), !!user.isAdmin); state.user.access=_al; state.user.label = user.name || user.email; applyMultiAccess(_al); try{document.getElementById('main-app').classList.toggle('yard-view-only', yardReadOnlyNow());}catch(e){} },
     () => { err.textContent = 'This email is already signed in elsewhere'; err.style.display = 'block'; }
   );
 }
@@ -837,6 +866,7 @@ function submitAdmin() {
   ensureAdminAccount();          // best-effort: repair the roster account + password
   loginGroup('piper', true);     // log in directly as admin, roster-independent
   state.user.label = ADMIN_SEED_EMAIL;
+  persistAuth({admin:true});
 }
 
 function loginGroup(group, isAdmin) {
@@ -1862,6 +1892,7 @@ function startVersionWatch() {
 }
 
 function logout() {
+  clearAuth();
   if (currentSessionRef) {
     try { currentSessionRef.onDisconnect().cancel(); currentSessionRef.remove(); } catch(e){}
     currentSessionRef = null;
@@ -3030,11 +3061,13 @@ const DEFAULT_ICON_IB = {
   'ATL UPM':'ATL UPM','CATALYST':'CATALYST','IP':'IP','IPG - ITAPE':'IPG - ITAPE',
   'NEXUS':'NEXUS','WRK - PRATT':'WRK - PRATT','SMUR-WRK':'SMUR-WRK','TWIN RIVERS':'TWIN RIVERS'
 };
+// Shorter chip labels so the Outbound customer-filter bar fits on one line.
+const ICON_SHORT = { 'COVINGTON XDK':'COV XDK', 'NORCROSS XDK':'NOR XDK', 'LITHIA SPRINGS':'LITHIA', 'IPG - ITAPE':'IPG', 'TWIN RIVERS':'TWIN RIV' };
 const DEFAULT_ICON_OB = {
-  'ALL SOUTH':'OTHER','ATL UPM':'ATL UPM','ATLANTIC CONV':'OTHER','CATALYST':'CATALYST','CONWAY':'OTHER',
+  'ALL SOUTH':'OTHER','ATL UPM':'ATL UPM','ATLANTIC CONV':'OTHER','CATALYST':'CATALYST','CARDINAL HEALTH':'DOMTAR','CONWAY':'OTHER',
   'COVINGTON XDK':'COVINGTON XDK','HBH':'HBH','HOOD':'HOOD','IP':'OTHER','IPG - ITAPE':'IPG - ITAPE',
   'LANET - VALLEY':'OTHER','LITHIA SPRINGS':'LITHIA SPRINGS','MAXXON':'OTHER','MONTGOMEREY XDK':'OTHER',
-  'MPS':'OTHER','NORCROSS XDK':'NORCROSS XDK','PREGIS':'PREGIS','SCI GAMES':'SCI GAMES',
+  'MPS':'HBH','NORCROSS XDK':'NORCROSS XDK','PREGIS':'PREGIS','SCI GAMES':'SCI GAMES',
   'SOUTHERN STATES PKG':'OTHER','TWIN RIVERS':'TWIN RIVERS','WRK ATL SHEET':'OTHER',
   'WRK CONWAY':'OTHER','WRK HEBRON':'OTHER','WRK RECLAMATION':'OTHER'
 };
@@ -3095,7 +3128,7 @@ function custFilterBar(tab, recsDay, current, toggleFn, accentVar) {
     const active = !!current && current.toUpperCase()===ic;
     const esc = ic.replace(/'/g,"\\'");
     return `<div class="scard ff-cust-card${active?' active':''}" onclick="${toggleFn}('${esc}')" title="Filter to ${ic}">
-      <div class="scard-label" style="font-size:12px;letter-spacing:.2px;margin-bottom:3px;line-height:1.15">${ic}</div>
+      <div class="scard-label" style="font-size:11px;letter-spacing:.1px;margin-bottom:3px;line-height:1.15">${ICON_SHORT[ic]||ic}</div>
       <div class="scard-value" style="font-size:15px;line-height:1.1;color:${active?'#fff':accentVar}">${counts[ic]}</div>
     </div>`;
   }).join('');
@@ -3362,7 +3395,7 @@ function renderFirstFleet() {
 // Clone of the First Fleet screen for Piper's own fleet. Shows Outbound loads for
 // CATALYST / TWIN RIVERS / ATL UPM, with PWD-carrier loads on top and Other Carriers
 // on the bottom. Reuses the same status workflow, cards, and cell editors.
-const PWD_CUSTOMERS = ['CATALYST','TWIN RIVERS','ATL UPM'];
+const PWD_CUSTOMERS = ['CATALYST','TWIN RIVERS','ATL UPM','CARDINAL HEALTH'];
 function isPWDCarrier(carrier){
   const c = (carrier||'').toUpperCase();
   return c.indexOf('PWD')>-1 || c.indexOf('PIPER')>-1 || c.indexOf('OWN FLEET')>-1;
@@ -3378,7 +3411,7 @@ function renderPWD(){
 
   // Source: Outbound loads for the PWD customers on this date (not cancelled)
   const recsAll = Object.entries(state.outbound||{})
-    .filter(([,r])=> r.reqDate && r.reqDate.slice(0,10)===date && r.status!=='CANCELLED' && custs.some(full=>custMatches(r.customer, full)))
+    .filter(([,r])=> r.reqDate && r.reqDate.slice(0,10)===date && r.status!=='CANCELLED' && (custs.some(full=>custMatches(r.customer, full)) || isPWDCarrier(r.carrier)))
     .map(([id,r])=>([id, {
       _source:     'outbound',
       deliveryDate: r.reqDate,
@@ -4564,9 +4597,46 @@ function yardDamagedDoor(trailer){
   return null;
 }
 
+// ── Door / trailer conflict guards (hard stops) ─────────────────────────────
+// Trailer currently occupying a door: a live scheduled load's trailer wins, else the hand-keyed
+// manual trailer. Empty string when the door is free.
+function yardDoorActiveTrailer(num){
+  const held = yardDoorHolders(num).map(h=>h.trailer).filter(Boolean);
+  if (held.length) return String(held[held.length-1]).trim();
+  const d = ((state.yard&&state.yard.doors)||{})[num] || {};
+  return String(d.trailer||'').trim();
+}
+// The door where a trailer # is already active (manual entry OR a live scheduled load), excluding
+// the door being edited. Null when the trailer is free.
+function yardActiveTrailerDoor(trailer, exceptNum){
+  const t = String(trailer||'').trim().toUpperCase();
+  if (!t) return null;
+  const ex = String(exceptNum).trim();
+  const doors = (state.yard&&state.yard.doors)||{};
+  for (const dn in doors){ if (String(dn).trim()!==ex && String(doors[dn].trailer||'').trim().toUpperCase()===t) return String(dn).trim(); }
+  const chk = (r,isIB)=>{ const d=String(r.door||'').trim(); return d && d!==ex && yardHoldsDoor(r,isIB) && String(r.trailer||'').trim().toUpperCase()===t; };
+  const ob = state.outbound||{}; for (const id in ob){ if (chk(ob[id],false)) return String(ob[id].door).trim(); }
+  const ib = state.inbound||{};  for (const id in ib){ if (chk(ib[id],true))  return String(ib[id].door).trim(); }
+  return null;
+}
 function saveDoor(num) {
   const g = id=>document.getElementById(id);
   const U = id=>((g(id)||{}).value||'').toUpperCase();
+  // ── HARD STOP: never allow two DIFFERENT active trailers on one door, or the SAME trailer active
+  // on two doors. Prompt (red) and block the save; all existing logic below is left unchanged.
+  const _newTrailer = U('d-trailer');
+  if (_newTrailer) {
+    const _occ = yardDoorActiveTrailer(num);
+    if (_occ && _occ.toUpperCase() !== _newTrailer) {
+      showAlert('Door '+num+' is already in use by trailer '+_occ+'. Clear door '+num+' first, then assign a different trailer.','danger');
+      return;
+    }
+    const _other = yardActiveTrailerDoor(_newTrailer, num);
+    if (_other) {
+      showAlert('Trailer '+_newTrailer+' is already active on door '+_other+'. Clear it there before assigning it to door '+num+'.','danger');
+      return;
+    }
+  }
   const data = {
     trailer:  U('d-trailer'),
     carrier:  U('d-carrier'),
@@ -4671,7 +4741,7 @@ function clearRail(num) {
 const DEFAULT_REF_TABLE = {
   operators: ['ADRIAN','DENNIS','FERNANDO','LARRY','LUIS','JUNIOR','JOSH','TRAVIS','YOSIMAR'],
   customerIB: ['ATL UPM','CATALYST','IP','IPG - ITAPE','NEXUS','WRK - PRATT','SMUR-WRK','TWIN RIVERS'],
-  customerOB: ['ALL SOUTH','ATL UPM','ATLANTIC CONV','CATALYST','CONWAY','COVINGTON XDK','HBH','HOOD','IP','IPG - ITAPE','LANET - VALLEY','LITHIA SPRINGS','MAXXON','MONTGOMEREY XDK','MPS','NORCROSS XDK','PREGIS','SCI GAMES','TWIN RIVERS','WRK ATL SHEET','WRK CONWAY','WRK HEBRON','WRK RECLAMATION'],
+  customerOB: ['ALL SOUTH','ATL UPM','ATLANTIC CONV','CARDINAL HEALTH','CATALYST','CONWAY','COVINGTON XDK','HBH','HOOD','IP','IPG - ITAPE','LANET - VALLEY','LITHIA SPRINGS','MAXXON','MONTGOMEREY XDK','MPS','NORCROSS XDK','PREGIS','SCI GAMES','TWIN RIVERS','WRK ATL SHEET','WRK CONWAY','WRK HEBRON','WRK RECLAMATION'],
   door: ['15','16','17','18','19','20','21','22','23','24','25','26','27','28','29','30','31','32','33','34','35','36','37','38','39','40','41','42','43','44','45','46','47','48','49','50','51'],
   stageLane: ['23-00-00','23-01-00','23-02-00','23-03-00','23-04-00','23-05-00','23-06-00','23-07-00','23-08-00','23-09-00','23-10-00','23-11-00','23-12-00','23-13-00','23-14-00','23-15-00','23-16-00','23-17-00'],
   outStatus: ['ORDER RECEIVED','PICK TICKET CREATED','BEING PICKED','PICKED & STAGED','LOADING','LOADED','COMPLETED'],
@@ -4701,8 +4771,26 @@ function cellInput(type, id, field, value, width, ph, xstyle) {
     onblur="saveField('${type}','${id}','${field}',this.value.toUpperCase())"
     onkeydown="if(event.key==='Enter')this.blur()">`;
 }
+function _revertActiveBoard(){
+  try {
+    const t = state.tab;
+    if (t==='ob'  && typeof renderOutbound==='function')   return renderOutbound();
+    if (t==='ib'  && typeof renderInbound==='function')    return renderInbound();
+    if (t==='ff'  && typeof renderFirstFleet==='function') return renderFirstFleet();
+    if (t==='pwd' && typeof renderPWD==='function')        return renderPWD();
+    if (t==='ig'  && typeof renderIPG==='function')        return renderIPG();
+    if (typeof carrierViewFor==='function' && carrierViewFor(t) && typeof renderCarrierView==='function') return renderCarrierView(carrierViewFor(t));
+    if (typeof renderOutbound==='function') renderOutbound();
+  } catch(e){}
+}
 function saveField(type, id, field, value) {
   const path = type==='ib'?'inbound':type==='ob'?'outbound':type==='firstfleet'?'firstfleet':'outbound';
+  // HARD STOP: two active loads may never share a door or a trailer. Block the save and revert the
+  // field to its stored value (the duplicate the user just typed is discarded).
+  if (path==='outbound' && (field==='door' || field==='trailer') && checkDupAssignment(field, id, value)) {
+    _revertActiveBoard();
+    return;
+  }
   db.ref(ROOT+'/'+path+'/'+id+'/'+field).set(value)
     .catch(e=>console.warn('Field save error',e));
   if (path==='outbound' && field==='status' && value==='DEPARTED') {
@@ -4725,7 +4813,6 @@ function saveField(type, id, field, value) {
       if ((_prev||'').toUpperCase() !== value) _stPromptSend(value==='LOADED' ? 'loaded' : 'departed', id);
     } catch(e){}
   }
-  if (path==='outbound' && (field==='door' || field==='trailer')) checkDupAssignment(field, id, value);
   // Putting a trailer that's flagged damaged onto a load — check before it gets loaded.
   if (field==='trailer' && value) {
     const dmg = yardDamagedDoor(value);
@@ -4784,8 +4871,10 @@ function checkDupAssignment(field, id, value) {
   scan(state.inbound, 'ib');
   if (hit) {
     const who = (hit.customer || 'another load') + (hit.order ? ` (${hit.order})` : '') + (hit.side==='ib' ? ' — INBOUND' : '');
-    showAlert(`⚠ Duplicate ${field==='door'?'door':'trailer'} ${v} — already assigned to ${who}`, 'danger');
+    showAlert(`⚠ Duplicate ${field==='door'?'door':'trailer'} ${v} — already assigned to ${who}. Not saved — clear it there first.`, 'danger');
+    return hit;
   }
+  return null;
 }
 
 function closeModal() { document.getElementById('modal-container').innerHTML=''; }
@@ -5499,6 +5588,7 @@ function runQuickImport(ev) {
 db.ref(ROOT+'/authUsers').on('value', snap => {
   state.authUsers = snap.val() || {};
   ensureAdminSeed();
+  tryRestoreSession();
   if (document.getElementById('auth-users-tbody')) renderUsersTable();
 });
 db.ref(ROOT+'/sessions').on('value', snap => {
@@ -6961,6 +7051,7 @@ function msPrint(){
     }catch(_){}
   }, true);
 })();
+(function(){ let has=false; try{ has=!!localStorage.getItem('dockAuth'); }catch(e){} if(has){ const ls=document.getElementById('login-screen'); if(ls) ls.style.display='none'; setTimeout(function(){ if(!state.user){ const l=document.getElementById('login-screen'); if(l) l.style.display='flex'; } }, 6000); } })();
 buildLoginScreen();
 startVersionWatch();
 startDeployPoll();
