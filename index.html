@@ -557,8 +557,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-11';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807011;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-15';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807015;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -587,6 +587,7 @@ const state = {
   obCustFilter: null,
   iconHeaders: {},
   obSearch: '',
+  ibSearch: '',
   shipdue: null,
   sdFilter: 'Not Processed',
   ibColFilter: { customer:'', loadNum:'', unloader:'' },
@@ -2598,10 +2599,20 @@ function renderInbound() {
     <button class="roll-btn" onclick="rollSelected('ib')">Roll Loads</button>
     <button class="roll-btn ghost" onclick="exitRollMode('ib')">Cancel</button>
   </div>` : '';
+  const ibQuery = (state.ibSearch||'').trim().toUpperCase();
+  const ibSearching = ibQuery !== '' && !ibFiltering();   // header filters are day-only and take precedence over the all-day search
   const recsDay = Object.entries(state.inbound)
     .filter(([,r])=>r.reqDate&&r.reqDate.slice(0,10)===state.ibDate)
     .sort((a,b)=>(a[1].apptTime||'99:99').localeCompare(b[1].apptTime||'99:99'));
-  const recs = state.ibCustFilter ? recsDay.filter(([,r])=>iconForCustomer('ib', r.customer)===state.ibCustFilter) : recsDay;
+  let recs;
+  if (ibSearching) {
+    recs = Object.entries(state.inbound)
+      .filter(([,r])=>[r.loadNum,r.customer,r.trailer,r.carrier,r.door,r.unloader,r.notes]
+        .some(v=>String(v||'').toUpperCase().indexOf(ibQuery)>-1))
+      .sort((a,b)=> (String(a[1].reqDate||'').localeCompare(String(b[1].reqDate||'')) || (a[1].apptTime||'99:99').localeCompare(b[1].apptTime||'99:99')));
+  } else {
+    recs = state.ibCustFilter ? recsDay.filter(([,r])=>iconForCustomer('ib', r.customer)===state.ibCustFilter) : recsDay;
+  }
 
   const total   = recs.length;
   const arrived = recs.filter(([,r])=>r.status==='ARRIVED'||r.status==='UNLOADING'||r.status==='COMPLETED').length;
@@ -2667,7 +2678,12 @@ function renderInbound() {
         <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
       </tr>`;
 
-  if (state.ibCustFilter || ibFiltering() || ibSorting() || state.ibStatFilter) {
+  if (ibSearching) {
+    const ibShown = sortRecs(recs.filter(([,r])=>ibColMatch(r)&&ibStatMatch(r,state.ibStatFilter)), state.ibSort);
+    rows = ibShown.length
+      ? ibShown.map(([id,r])=>ibBookedRow(id,r)).join('')
+      : `<tr><td colspan="${ibCols}" class="empty-row">No loads match your search.</td></tr>`;
+  } else if (state.ibCustFilter || ibFiltering() || ibSorting() || state.ibStatFilter) {
     // Filtered/sorted: show matching booked loads only (no open slots).
     const ibShown = sortRecs(recs.filter(([,r])=>ibColMatch(r)&&ibStatMatch(r,state.ibStatFilter)), state.ibSort);
     rows = ibShown.length
@@ -2700,10 +2716,15 @@ function renderInbound() {
     <button class="date-nav-btn" onclick="shiftDate('ib',1)">›</button>
     <button class="today-btn" onclick="setDate('ib',todayStr())">Today</button>
     <input type="date" class="date-input" value="${state.ibDate}" onchange="setDate('ib',this.value)">
+    <input type="text" id="ib-search" class="date-input" placeholder="Find load — load #, customer (any day)"
+      value="${(state.ibSearch||'').replace(/"/g,'&quot;')}" oninput="setIbSearch(this.value)"
+      style="text-transform:uppercase;min-width:380px;width:380px;max-width:46vw;margin-left:8px">
+    ${ibSearching?`<button class="today-btn" onclick="clearIbSearch()">Clear</button>`:''}
     <button class="add-load-btn ib-btn" onclick="showAddLoad('ib')">＋ Add Inbound Load</button>
     ${ibRollToggle}
   </div>
   ${ibRollBar}
+  ${ibSearching?`<div style="background:rgba(217,119,6,0.1);border:1px solid rgba(217,119,6,0.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:13px;color:var(--warning)">Showing <strong>${total}</strong> load(s) matching "<strong>${ibQuery}</strong>" across all dates. <a href="#" onclick="clearIbSearch();return false;" style="color:var(--inbound);font-weight:700">Clear filter</a></div>`:''}
   <div class="summary-bar">
     ${statCard('ib','scheduled','Scheduled',total,'var(--inbound)')}
     ${statCard('ib','arrived','Arrived',arrived,'var(--warning)')}
@@ -2713,8 +2734,8 @@ function renderInbound() {
     ${statCard('ib','remaining','Remaining',total-complt,'var(--danger)')}
   </div>
   ${statNotice('ib')}
-  ${custFilterBar('ib', recsDay, state.ibCustFilter, 'toggleIBCust', 'var(--inbound)')}
-  ${custFilterNotice(state.ibCustFilter, 'toggleIBCust')}
+  ${ibSearching ? '' : custFilterBar('ib', recsDay, state.ibCustFilter, 'toggleIBCust', 'var(--inbound)')}
+  ${ibSearching ? '' : custFilterNotice(state.ibCustFilter, 'toggleIBCust')}
   <div class="schedule-wrap">
     <table class="schedule-table">
       <thead><tr>
@@ -3952,6 +3973,24 @@ function shiftDate(type, delta) {
   if(type==='ib') renderInbound(); else if(type==='ob') renderOutbound(); else if(type==='pwd') renderPWD(); else if(type==='ig') renderIPG(); else renderFirstFleet();
 }
 let _obSearchTimer = null;
+let _ibSearchTimer = null;
+function setIbSearch(v) {
+  state.ibSearch = v;
+  clearTimeout(_ibSearchTimer);
+  _ibSearchTimer = setTimeout(runIbSearch, 120);
+}
+function runIbSearch() {
+  const el0 = document.getElementById('ib-search');
+  const pos = el0 ? el0.selectionStart : null;
+  renderInbound();
+  const el = document.getElementById('ib-search');
+  if (el) { el.focus(); const L = el.value.length; const c = (pos==null?L:Math.min(pos,L)); try { el.setSelectionRange(c,c); } catch(e){} }
+}
+function clearIbSearch() {
+  clearTimeout(_ibSearchTimer);
+  state.ibSearch = '';
+  renderInbound();
+}
 function setObSearch(v) {
   state.obSearch = v;                       // keep state in sync instantly (input stays responsive)
   clearTimeout(_obSearchTimer);
@@ -5813,7 +5852,7 @@ function scoreGroup(customer){
   if (!c) return null;
   if (c.indexOf('WRK')>-1 || SC_WRK_MEMBERS.indexOf(c)>-1) return 'WRK';
   if (c.indexOf('CATALYST')>-1) return 'CAT';
-  if (c.indexOf('DOMTAR')>-1)   return 'DOM';
+  if (c.indexOf('DOMTAR')>-1 || iconForCustomer('ob', c)==='DOMTAR')   return 'DOM';
   if (c.indexOf('MAXXON')>-1)   return 'MAX';
   if (c.indexOf('TWIN')>-1)     return 'TWIN';
   if (c.indexOf('IPG')>-1)      return 'IPG';   // check IPG before IP (IPG contains "IP")
@@ -5854,11 +5893,11 @@ const SC_BOARDS = {
   '6021': { label:'6021', short:'6021', tag:'',
             title:'6021 \u00b7 PIPER WAREHOUSE DAILY SCORECARD',
             store:'scorecard', path:'/scorecard',
-            groups:SC_GROUPS_6021, tons:SC_TONS_6021, groupOf:scoreGroup, scope:null },
+            groups:SC_GROUPS_6021, tons:SC_TONS_6021, groupOf:scoreGroup, scope:null, fftiFromYard:true, pwdFromYard:true },
   'wrk':  { label:'SMURFIT WRK', short:'SMURFIT WESTROCK', tag:'-WRK',
             title:'SMURFIT WESTROCK \u00b7 PIPER WAREHOUSE DAILY SCORECARD',
             store:'scorecardWrk', path:'/scorecardWrk',
-            groups:SC_GROUPS_WRK, tons:SC_TONS_WRK, groupOf:wrkGroup, scope:isWrkCustomer }
+            groups:SC_GROUPS_WRK, tons:SC_TONS_WRK, groupOf:wrkGroup, scope:isWrkCustomer, fftiFromYard:true, pwdFromYard:false }
 };
 function scBoard(){ return SC_BOARDS[state.scBoard] || SC_BOARDS['6021']; }
 // Each board keeps its own manual figures (tons, rail, trailers) under its own Firebase path.
@@ -5896,6 +5935,26 @@ function scWeekNum(dstr){
 }
 function scIsWeekend(dstr){ const w=new Date(dstr+'T00:00:00').getDay(); return w===0||w===6; }
 
+// Live count of FFTI / PWD trailers currently sitting on the yard doors — the exact same
+// occupied-door-by-carrier tally the Yard Manager chips show, so the Scorecard can auto-fill
+// today's FFTI / PWD Trlrs from the yard instead of being hand-keyed.
+function yardCarrierCounts(){
+  const doors = (state.yard && state.yard.doors) || {};
+  const liveDoors = {};
+  Object.entries(state.inbound||{}).forEach(([id,r])=>{ if (yardHoldsDoor(r,true))  liveDoors[String(r.door).trim()]={carrier:r.carrier||'',trailer:r.trailer||''}; });
+  Object.entries(state.outbound||{}).forEach(([id,r])=>{ if (yardHoldsDoor(r,false)) liveDoors[String(r.door).trim()]={carrier:r.carrier||'',trailer:r.trailer||''}; });
+  let ffti=0, pwd=0;
+  Object.keys(DOOR_TYPES).map(Number).forEach(n=>{
+    const live = liveDoors[String(n)];
+    const eff  = live ? live : (doors[n]||{});
+    const isOccupied = !!(eff.trailer || live);
+    if (!isOccupied) return;
+    if (isFFTICarrier(eff.carrier)) ffti++;
+    if (isPWDCarrier(eff.carrier))  pwd++;
+  });
+  return { ffti, pwd };
+}
+
 // Everything except Tons is derived live from the Inbound / Outbound / Yard boards.
 function scDeriveDay(date){
   const ob = state.outbound||{}, ib = state.inbound||{};
@@ -5915,14 +5974,12 @@ function scDeriveDay(date){
     if (orig <  date && (!departed || shipDate >= date)) groups[g].prior++;    // rolled in, still pending at start of day
     if (departed && shipDate === date) groups[g].shipped++;                     // shipped today
   });
-  // Forward-looking mask: current + arrears (≤ today) carry real numbers. The NEXT
-  // subsequent (business) day shows only the pending carryover rolling in from today;
-  // every day beyond it stays 0 until that day is actually reached. Due Today for any
-  // future date is 0 until the day is applicable.
+  // Future dates are not reported until they arrive: every column (Due Today, Prior Pend, Due to
+  // Ship, Shipped, Balance) reads 0 for any date after today. Each day derives independently from
+  // the live loads, so the row fills in on its own once that date is actually reached.
   const today = todayStr();
   if (date > today) {
-    const nbd = nextBusinessDay(today);
-    SC_GROUPS.forEach(gr=>{ const x=groups[gr.key]; x.due=0; x.shipped=0; if (date!==nbd) x.prior=0; });
+    SC_GROUPS.forEach(gr=>{ const x=groups[gr.key]; x.due=0; x.prior=0; x.shipped=0; });
   }
   let totalShipped = 0;
   SC_GROUPS.forEach(gr=>{ const x=groups[gr.key]; x.dueToShip = x.due + x.prior; x.balance = x.dueToShip - x.shipped; totalShipped += x.shipped; });
@@ -5941,8 +5998,12 @@ function scDeriveDay(date){
   const railRecv    = scNum(rec.railRecv);
   const pendRail    = scNum(rec.pendRail);
   const railTransit = scNum(rec.railTransit);
-  const ffti        = scNum(rec.ffti);
-  const pwd         = scNum(rec.pwd);
+  // FFTI / PWD trailers auto-populate from the live Yard Manager totals for TODAY (frozen to the
+  // stored value once the day passes); the board flags decide which columns pull from the yard.
+  const _scToday    = (date === today);
+  const _yc         = _scToday ? yardCarrierCounts() : null;
+  const ffti        = (_scToday && B.fftiFromYard) ? _yc.ffti : scNum(rec.ffti);
+  const pwd         = (_scToday && B.pwdFromYard)  ? _yc.pwd  : scNum(rec.pwd);
   const railToTruck = railRecv*4;
   return { date, trkRecv, railRecv, railToTruck, pendRail, railTransit, ffti, pwd,
     groups, totalShipped, totalLoads: trkRecv+railToTruck+totalShipped };
@@ -6028,6 +6089,15 @@ function renderScorecard(){
   const month = state.scMonth;
   const rows = scComputeMonth(month);
   const today = todayStr();
+  // Freeze today's auto FFTI/PWD trailer counts to Firebase so the historical row keeps the last
+  // live yard value once the day rolls over. Value-equality gates the write so it converges.
+  (function(){
+    const B = scBoard();
+    if (month !== scMonthStr(today)) return;
+    const yc = yardCarrierCounts(), tr = scRec(today);
+    if (B.fftiFromYard && scNum(tr.ffti) !== yc.ffti) saveScore(today,'ffti',yc.ffti);
+    if (B.pwdFromYard  && scNum(tr.pwd)  !== yc.pwd)  saveScore(today,'pwd', yc.pwd);
+  })();
   const cell = v => Math.round((v||0)*100)/100;    // show 0 for no activity
   // Manual free-type cell (tons + the four receiving fields). Focus-selects for fast tabbing.
   const minp = (date,path,val)=>`<input class="sc-in" type="number" step="any" value="${val||0}" onfocus="this.select()" onkeydown="scTabNav(event,this)" onchange="saveScore('${date}','${path}',this.value)">`;
@@ -6077,8 +6147,12 @@ function renderScorecard(){
       <td>${minp(d,'railRecv',r.railRecv)}</td>
       <td>${minp(d,'pendRail',r.pendRail)}</td>
       <td>${minp(d,'railTransit',r.railTransit)}</td>
-      <td>${minp(d,'ffti',r.ffti)}</td>
-      <td>${minp(d,'pwd',r.pwd)}</td>
+      ${(scBoard().fftiFromYard && d===today)
+        ? `<td class="sc-calc" title="Auto: live FFTI trailers on the yard doors">${cell(r.ffti)}</td>`
+        : `<td>${minp(d,'ffti',r.ffti)}</td>`}
+      ${(scBoard().pwdFromYard && d===today)
+        ? `<td class="sc-calc" title="Auto: live PWD trailers on the yard doors">${cell(r.pwd)}</td>`
+        : `<td>${minp(d,'pwd',r.pwd)}</td>`}
       ${grpCells}
       <td class="sc-tot sc-gsep">${cell(r.totalShipped)}</td>
       <td class="sc-tot">${cell(r.totalLoads)}</td>
