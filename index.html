@@ -215,6 +215,7 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
 .s-loading     { background:#ffff00;color:#111;border:1px solid #d6d600;font-weight:800; }
 .s-loaded      { background:#caedfb;color:#111;border:1px solid #9cd3ee; }
 .s-departed    { background:#ffc000;color:#111;border:1px solid #d9a200;font-weight:800; }
+.s-del-customer{ background:#14532d;color:#ffe000;border:1px solid #0b3a1e;font-weight:800; }
 .s-cancelled   { background:#ffd1d1;color:#b91c1c;border:1px solid #f0a6a6;font-weight:800; }
 .s-ff-assigned { background:rgba(124,58,237,0.12);color:#7c3aed;border:1px solid rgba(124,58,237,0.3); }
 .s-ff-enroute  { background:rgba(217,119,6,0.12);color:var(--warning);border:1px solid rgba(217,119,6,0.3); }
@@ -560,8 +561,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-16';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807016;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-17';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807017;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -1130,13 +1131,24 @@ function _lpTestSend(){
 var _ST_FLUSH_TIMER = null;
 var ST_FLUSH_MS = 300000;   // deferred ("send later") items go out on this cycle — every 5 min
 var _stHintShown = false;   // one-time nudge if a prompt is suppressed by a missed setting
-function _stEnabledFor(kind){ const c=_lpCfg(); return kind==='loaded' ? !!c.stLoaded : !!c.stDeparted; }
-function _stCustEnabled(customer){ const m=(_lpCfg().stCust)||{}; return !!m[_lpCustKey(customer)]; }
-function _stToggleCust(key, on){ if (!requireAdmin()) return; db.ref(LP_SETTINGS()+'/stCust/'+key).set(!!on).then(function(){ showAlert(on?'Emails enabled for this customer':'Emails disabled for this customer','success'); }).catch(function(e){ showAlert('Could not update: '+e.message,'danger'); }); }
-function _stFlagKey(kind){ return kind==='loaded' ? 'stLoaded' : 'stDeparted'; }
-function _stStampKey(kind){ return kind==='loaded' ? 'notifiedLoaded' : 'notifiedDeparted'; }
+function _stEnabledFor(kind){ const c=_lpCfg(); return kind==='loaded' ? !!c.stLoaded : kind==='delivered' ? !!c.stDelivered : !!c.stDeparted; }
+function _stCustEnabled(customer, kind){ const m=(_lpCfg().stCust)||{}; const v=m[_lpCustKey(customer)];
+  if (v && typeof v==='object') return !!v[kind];   // per-kind selection
+  return !!v; }                                      // legacy boolean = all kinds on
+function _stToggleCust(key, kind, on){ if (!requireAdmin()) return;
+  const cur = ((_lpCfg().stCust)||{})[key];
+  var obj;
+  if (cur && typeof cur==='object') obj = Object.assign({}, cur);
+  else if (cur!=null) { var l=!!cur; obj={loaded:l,departed:l,delivered:l}; }   // migrate legacy bool
+  else obj = {loaded:false,departed:false,delivered:false};
+  obj[kind] = !!on;
+  db.ref(LP_SETTINGS()+'/stCust/'+key).set(obj)
+    .then(function(){ showAlert(on?'Notification enabled for this customer':'Notification disabled','success'); })
+    .catch(function(e){ showAlert('Could not update: '+e.message,'danger'); }); }
+function _stFlagKey(kind){ return kind==='loaded' ? 'stLoaded' : kind==='delivered' ? 'stDelivered' : 'stDeparted'; }
+function _stStampKey(kind){ return kind==='loaded' ? 'notifiedLoaded' : kind==='delivered' ? 'notifiedDelivered' : 'notifiedDeparted'; }
 function _stSubject(kind, r){
-  return (kind==='loaded' ? 'Shipment loaded — ' : 'Shipment departed — ')
+  return (kind==='loaded' ? 'Shipment loaded — ' : kind==='delivered' ? 'Shipment delivered to customer — ' : 'Shipment departed — ')
     + (r.customer||'Unknown customer') + (r.orderNum ? (' (Order ' + r.orderNum + ')') : '');
 }
 function _stBody(kind, r){
@@ -1147,6 +1159,8 @@ function _stBody(kind, r){
   L.push('');
   L.push(kind==='loaded'
     ? 'The outbound load below has been loaded and is ready to depart:'
+    : kind==='delivered'
+    ? 'The outbound load below has been delivered to the customer:'
     : 'The outbound load below has departed:');
   L.push('');
   L.push('  Customer:       ' + (r.customer||''));
@@ -1156,7 +1170,7 @@ function _stBody(kind, r){
   if (r.carrier)     L.push('  Carrier:        ' + r.carrier);
   if (r.trailer)     L.push('  Trailer:        ' + r.trailer);
   if (r.door)        L.push('  Door:           ' + r.door);
-  if (r.reqDate)     L.push((kind==='loaded' ? '  Ship date:      ' : '  Departure date: ') + String(r.reqDate).slice(0,10));
+  if (r.reqDate)     L.push((kind==='loaded' ? '  Ship date:      ' : kind==='delivered' ? '  Delivered date: ' : '  Departure date: ') + String(r.reqDate).slice(0,10));
   if (r.notes)       L.push('  Notes:          ' + r.notes);
   L.push('');
   L.push('If you have any questions about this shipment, please reply to this email.');
@@ -1198,13 +1212,13 @@ function _stPromptSend(kind, id){
   try {
     const r = (state.outbound||{})[id];
     if (!r) return;
-    const word  = kind==='loaded' ? 'LOADED' : 'DEPARTED';
-    const label = kind==='loaded' ? 'Loaded' : 'Departed';
+    const word  = kind==='loaded' ? 'LOADED' : kind==='delivered' ? 'DELIVERED' : 'DEPARTED';
+    const label = kind==='loaded' ? 'Loaded' : kind==='delivered' ? 'Delivered' : 'Departed';
     const rec = _lpRecipientsFor(r.customer);
     const to = rec.to||[], cc = rec.cc||[];
     const hasRecip = !!(to.length || cc.length);
     const kindOn = _stEnabledFor(kind);
-    const custOn = _stCustEnabled(r.customer);
+    const custOn = _stCustEnabled(r.customer, kind);
     if (!(kindOn && custOn && hasRecip)) {
       // No prompt will show. If this customer is set up with recipients, say WHY (once) so
       // a missed toggle / unticked box is visible instead of silent.
@@ -1289,7 +1303,11 @@ function showNotifyModal(){
     const k = _lpCustKey(c), row = map[k] || {};
     const none = !_lpEmails(row.to).length && !_lpEmails(row.cc).length;
     return '<tr style="border-bottom:1px solid var(--border)">'
-      + '<td style="padding:5px 8px;text-align:center"><input type="checkbox" '+(_stCustEnabled(c)?'checked':'')+' onchange="_stToggleCust(\''+k+'\',this.checked)" style="width:15px;height:15px;cursor:pointer" title="Email this customer when a load is LOADED / DEPARTED"></td>'
+      + '<td style="padding:5px 8px;white-space:nowrap;font-size:10px;color:var(--text2)">'
+        + '<label style="display:inline-flex;align-items:center;gap:3px;margin-right:7px;cursor:pointer" title="Email this customer on LOADED"><input type="checkbox" '+(_stCustEnabled(c,'loaded')?'checked':'')+' onchange="_stToggleCust(\''+k+'\',\'loaded\',this.checked)" style="width:14px;height:14px;cursor:pointer">Ld</label>'
+        + '<label style="display:inline-flex;align-items:center;gap:3px;margin-right:7px;cursor:pointer" title="Email this customer on DEPARTED"><input type="checkbox" '+(_stCustEnabled(c,'departed')?'checked':'')+' onchange="_stToggleCust(\''+k+'\',\'departed\',this.checked)" style="width:14px;height:14px;cursor:pointer">Dp</label>'
+        + '<label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer" title="Email this customer on DEL TO CUSTOMER (delivered)"><input type="checkbox" '+(_stCustEnabled(c,'delivered')?'checked':'')+' onchange="_stToggleCust(\''+k+'\',\'delivered\',this.checked)" style="width:14px;height:14px;cursor:pointer">Del</label>'
+      + '</td>'
       + '<td style="padding:5px 8px;font-weight:700;white-space:nowrap">'+esc(c)
         + (none ? ' <span style="font-size:9px;background:rgba(180,83,9,.14);color:#b45309;padding:1px 5px;border-radius:4px;font-weight:700">NOT SET</span>' : '')
       + '</td>'
@@ -1356,6 +1374,9 @@ function showNotifyModal(){
           <label style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;cursor:pointer">
             <input type="checkbox" ${cfg.stDeparted?'checked':''} onchange="_stSetEnabled('departed',this.checked)" style="width:16px;height:16px;cursor:pointer"> Prompt on DEPARTED (ask to send)
           </label>
+          <label style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;cursor:pointer">
+            <input type="checkbox" ${cfg.stDelivered?'checked':''} onchange="_stSetEnabled('delivered',this.checked)" style="width:16px;height:16px;cursor:pointer"> Prompt on DELIVERED (ask to send)
+          </label>
           <span style="font-size:11px;color:var(--text2)">One email to all recipients; Cancel = send later. Tick the customers below to enable &mdash; only ticked customers are emailed.</span>
         </div>
         <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:0 0 14px;flex:0 0 auto">
@@ -1375,7 +1396,7 @@ function showNotifyModal(){
         <div style="flex:1 1 auto;overflow:auto;border:1px solid var(--border);border-radius:8px">
           <table style="width:100%;border-collapse:collapse;font-size:12px">
             <thead><tr style="background:var(--bg);position:sticky;top:0">
-              <th style="padding:6px 8px;text-align:left;font-size:10px;letter-spacing:.5px;color:var(--text2)">EMAIL</th>
+              <th style="padding:6px 8px;text-align:left;font-size:10px;letter-spacing:.5px;color:var(--text2)">EMAIL &middot; Ld / Dp / Del</th>
               <th style="padding:6px 8px;text-align:left;font-size:10px;letter-spacing:.5px;color:var(--text2)">CUSTOMER</th>
               <th style="padding:6px 8px;text-align:left;font-size:10px;letter-spacing:.5px;color:var(--text2)">TO (one or more, comma separated)</th>
               <th style="padding:6px 8px;text-align:left;font-size:10px;letter-spacing:.5px;color:var(--text2)">CC</th>
@@ -3036,8 +3057,8 @@ function rollSelected(type) {
 
 // ─── FIRST FLEET ──────────────────────────────────────────────────────────────
 const FF_STATUSES = ['ORDER RECEIVED','ORDER BEING FULFILLED','ASSIGNED','PENDING LOADING','DRIVER IN ROUTE','LOADING','LOAD READY FOR PU','LOAD CANCELLED','LOAD PICKED UP'];
-const FF_CLASSES  = {'ORDER RECEIVED':'s-order-recv','ORDER BEING FULFILLED':'s-being-picked','ASSIGNED':'s-ff-assigned','PENDING LOADING':'s-picked-staged','DRIVER IN ROUTE':'s-ff-enroute','LOADING':'s-loading','LOAD READY FOR PU':'s-loaded','LOAD CANCELLED':'s-cancelled','LOAD PICKED UP':'s-departed'};
-const FF_COLORS   = {'ORDER RECEIVED':'#111','ORDER BEING FULFILLED':'#111','ASSIGNED':'#7c3aed','PENDING LOADING':'#111','DRIVER IN ROUTE':'var(--warning)','LOADING':'#111','LOAD READY FOR PU':'#111','LOAD CANCELLED':'#b91c1c','LOAD PICKED UP':'#111'};
+const FF_CLASSES  = {'ORDER RECEIVED':'s-order-recv','ORDER BEING FULFILLED':'s-being-picked','ASSIGNED':'s-ff-assigned','PENDING LOADING':'s-picked-staged','DRIVER IN ROUTE':'s-ff-enroute','LOADING':'s-loading','LOAD READY FOR PU':'s-loaded','LOAD CANCELLED':'s-cancelled','LOAD PICKED UP':'s-departed','DEL TO CUSTOMER':'s-del-customer'};
+const FF_COLORS   = {'ORDER RECEIVED':'#111','ORDER BEING FULFILLED':'#111','ASSIGNED':'#7c3aed','PENDING LOADING':'#111','DRIVER IN ROUTE':'var(--warning)','LOADING':'#111','LOAD READY FOR PU':'#111','LOAD CANCELLED':'#b91c1c','LOAD PICKED UP':'#111','DEL TO CUSTOMER':'#ffe000'};
 
 // Cross-reference: Outbound status → FFTI status (FFTI auto-follows Outbound)
 const OB_TO_FF = {
@@ -3062,7 +3083,7 @@ const FF_TO_OB = {
   'LOAD PICKED UP':'DEPARTED'
 };
 // FFTI-only statuses that have no Outbound equivalent — stored as an override
-const FF_MANUAL_ONLY = ['ASSIGNED','DRIVER IN ROUTE'];
+const FF_MANUAL_ONLY = ['ASSIGNED','DRIVER IN ROUTE','DEL TO CUSTOMER'];
 
 // Which Outbound customers are handled by First Fleet (visible under the FFTI tab).
 // Updatable via the table import. Defaults from the FFTI customer table.
@@ -3231,6 +3252,10 @@ function ffStatusChange(source, id, v, el) {
   }
   if (el) { el.className = 'status-select ' + (FF_CLASSES[v]||'s-ff-assigned'); el.style.color = FF_COLORS[v]||'#111'; }
   if (v === 'DRIVER IN ROUTE') promptDriverName(source, id);
+  if (v === 'DEL TO CUSTOMER' && source === 'ob') {
+    const r0 = (state.outbound||{})[id] || {};
+    if (r0.ffStatus !== 'DEL TO CUSTOMER' && !r0.notifiedDelivered) _stPromptSend('delivered', id);
+  }
 }
 
 function promptDriverName(source, id) {
@@ -3595,6 +3620,7 @@ function renderPWD(){
 // Mirrors the PWD board (customer card, PWD-carrier vs Other split, same status workflow).
 // The PWD tab is intentionally left unchanged — Domtar loads still appear there too.
 const DOMTAR_CUSTOMERS = ['CARDINAL HEALTH'];
+const DOMTAR_STATUSES  = FF_STATUSES.concat(['DEL TO CUSTOMER']);
 function toggleDTCust(full){ state.dtCustFilter = (state.dtCustFilter===full) ? null : full; renderDomtar(); }
 function dtFiltering(){ const f=state.dtColFilter||{}; return Object.keys(f).some(k=>(f[k]||'').trim()); }
 function dtColMatch(r){ return _ffLikeMatch(state.dtColFilter||{}, r); }
@@ -3622,7 +3648,7 @@ function renderDomtar(){
       customer:    r.customer||'',
       reqDate:     r.reqDate,
       origReqDate: r.origReqDate||r.reqDate,
-      status:      (r.status==='DEPARTED') ? 'LOAD PICKED UP' : (r.status==='CANCELLED') ? 'LOAD CANCELLED' : (r.ffStatus || obToFF(r.status)),
+      status:      (r.ffStatus==='DEL TO CUSTOMER') ? 'DEL TO CUSTOMER' : (r.status==='DEPARTED') ? 'LOAD PICKED UP' : (r.status==='CANCELLED') ? 'LOAD CANCELLED' : (r.ffStatus || obToFF(r.status)),
       obStatus:    r.status,
       priority:    !!r.priority,
       nightPU:     !!r.nightPU,
@@ -3687,7 +3713,7 @@ function renderDomtar(){
         rows += `<tr><td colspan="11" style="background:var(--surface2);padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--text2)">${grp==='PWD'?'PWD (PIPER FLEET)':'OTHER CARRIERS'} &nbsp;&middot;&nbsp; ${cnt}</td></tr>`;
         lastGroup = grp;
       }
-      const ffOpts = FF_STATUSES.map(s=>`<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('');
+      const ffOpts = DOMTAR_STATUSES.map(s=>`<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('');
       const ffRolled = isRolled(r);
       const ffOrig   = (r.origReqDate||r.reqDate||r.deliveryDate||'').slice(0,10);
       const ffPri    = !!r.priority;
