@@ -561,8 +561,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-18';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807018;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-20';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807020;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -805,16 +805,16 @@ function acquireSession(key, label, onOk, onBusy) {
 
 // ── Persistent login ────────────────────────────────────────────────────────
 // Keep users signed in across a page reload (e.g. the auto-update hard refresh that fires on
-// every deploy). Only the identity is stored per-device in localStorage — never the password;
+// every deploy). Only the identity is stored per-tab in sessionStorage — never the password;
 // it is re-validated against the live roster on restore. Explicit Sign Out clears it.
-function persistAuth(obj){ try{ localStorage.setItem('dockAuth', JSON.stringify(Object.assign({at:Date.now()},obj))); }catch(e){} }
-function clearAuth(){ try{ localStorage.removeItem('dockAuth'); }catch(e){} }
+function persistAuth(obj){ try{ sessionStorage.setItem('dockAuth', JSON.stringify(Object.assign({at:Date.now()},obj))); }catch(e){} }
+function clearAuth(){ try{ sessionStorage.removeItem('dockAuth'); }catch(e){} }
 function _forceSession(key, label){
   try { const ref = db.ref(ROOT+'/sessions/'+key); ref.set({ label:label||'', loginAt:Date.now() }); currentSessionRef = ref; ref.onDisconnect().remove(); } catch(e){}
 }
 function tryRestoreSession(){
   if (state.user) return;
-  let saved=null; try{ saved=JSON.parse(localStorage.getItem('dockAuth')||'null'); }catch(e){}
+  let saved=null; try{ saved=JSON.parse(sessionStorage.getItem('dockAuth')||'null'); }catch(e){}
   if (!saved) return;
   if (saved.admin){
     if (typeof ensureAdminAccount==='function') ensureAdminAccount();
@@ -1046,7 +1046,7 @@ function _lpSend(key){
   ref.update({ status:'sending', attempts:(item.attempts||0)+1, error:null });
   fetch(url, {
     method:'POST',
-    headers:{ 'Content-Type':'application/json' },
+    headers:{ 'Content-Type':'text/plain;charset=UTF-8' },   // 'simple' request = no CORS preflight to the webhook
     body: JSON.stringify({ to:item.to, cc:item.cc, subject:item.subject, body:item.body,
                            customer:item.customer, orderNum:item.orderNum, loadNum:item.loadNum,
                            trailer:item.trailer, door:item.door, reqDate:item.reqDate, site:ROOT })
@@ -7327,7 +7327,7 @@ function msPrint(){
     }catch(_){}
   }, true);
 })();
-(function(){ let has=false; try{ has=!!localStorage.getItem('dockAuth'); }catch(e){} if(has){ const ls=document.getElementById('login-screen'); if(ls) ls.style.display='none'; setTimeout(function(){ if(!state.user){ const l=document.getElementById('login-screen'); if(l) l.style.display='flex'; } }, 6000); } })();
+(function(){ let has=false; try{ has=!!sessionStorage.getItem('dockAuth'); }catch(e){} if(has){ const ls=document.getElementById('login-screen'); if(ls) ls.style.display='none'; setTimeout(function(){ if(!state.user){ const l=document.getElementById('login-screen'); if(l) l.style.display='flex'; } }, 6000); } })();
 buildLoginScreen();
 startVersionWatch();
 startDeployPoll();
