@@ -561,8 +561,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-17';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807017;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-18';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807018;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -1220,14 +1220,13 @@ function _stPromptSend(kind, id){
     const kindOn = _stEnabledFor(kind);
     const custOn = _stCustEnabled(r.customer, kind);
     if (!(kindOn && custOn && hasRecip)) {
-      // No prompt will show. If this customer is set up with recipients, say WHY (once) so
-      // a missed toggle / unticked box is visible instead of silent.
-      if (hasRecip && !_stHintShown) {
-        _stHintShown = true;
+      // Silent when the kind's prompt is intentionally OFF. But if it's ON and the email still
+      // didn't go, say exactly why (unticked customer / no recipients) instead of failing silently.
+      if (kindOn) {
         const why = [];
-        if (!kindOn) why.push('the "Prompt on ' + word + '" switch is off');
-        if (!custOn) why.push('"' + (r.customer||'this customer') + '" is not ticked in the EMAIL column');
-        if (why.length) showAlert('No email prompt shown: ' + why.join(' and ') + '. Open the Notify screen to fix it.','warning');
+        if (!custOn)   why.push('"' + (r.customer||'this customer') + '" is not ticked for ' + word + ' in the Notify screen');
+        if (!hasRecip) why.push('no TO / CC recipients are set for "' + (r.customer||'this customer') + '"');
+        if (why.length) showAlert(word + ' email not sent — ' + why.join('; ') + '. Open Notify to fix.','warning');
       }
       return;
     }
