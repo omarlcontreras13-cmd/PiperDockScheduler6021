@@ -561,8 +561,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-20';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807020;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-21';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807021;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -1208,6 +1208,47 @@ function _stOpenOutlook(kind, r, to, cc){
     document.body.appendChild(a); a.click(); a.remove();
   } catch(e){}
 }
+var _stPending = null;
+function _stShowPromptModal(kind, word, r, whoHtml, hasEndpoint){
+  const primaryTxt = hasEndpoint ? 'Send email now' : 'Open Outlook';
+  const secondTxt  = hasEndpoint ? 'Queue for later' : 'Skip';
+  const title = word.charAt(0) + word.slice(1).toLowerCase() + ' notification';
+  const mc = document.getElementById('modal-container');
+  if (!mc) return;
+  mc.innerHTML =
+    '<div class="modal-overlay" onclick="if(event.target===this)_stPromptChoose(false)">'
+    + '<div class="modal" style="max-width:470px">'
+    + '<h3 style="color:var(--accent2);margin:0 0 8px">'+title+'</h3>'
+    + '<p style="font-size:13px;margin:0 0 4px">This load is now <b>'+word+'</b>.</p>'
+    + '<p style="font-size:13px;color:var(--text2);margin:0 0 8px">Customer: <b>'+(r.customer||'')+'</b>'+(r.orderNum?(' &middot; Order '+r.orderNum):'')+'</p>'
+    + '<div style="font-size:12.5px;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin:0 0 6px;line-height:1.65">One email to:<br>'+whoHtml+'</div>'
+    + '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">'
+    + '<button class="sign-out-btn" onclick="_stPromptChoose(false)">'+secondTxt+'</button>'
+    + '<button class="sign-out-btn" style="background:var(--accent2);color:#fff;border-color:var(--accent2);font-weight:700" onclick="_stPromptChoose(true)">'+primaryTxt+'</button>'
+    + '</div></div></div>';
+}
+function _stPromptChoose(goPrimary){
+  const p = _stPending; _stPending = null;
+  try{ closeModal(); }catch(e){}
+  if (!p) return;
+  const kind = p.kind, id = p.id, hasEndpoint = p.hasEndpoint;
+  const r = (state.outbound||{})[id]; if (!r) return;
+  const rec = _lpRecipientsFor(r.customer);
+  const to = rec.to||[], cc = rec.cc||[];
+  const label = kind==='loaded'?'Loaded':kind==='delivered'?'Delivered':'Departed';
+  if (hasEndpoint){
+    const sendNow = !!goPrimary;
+    _stEnqueue(id, kind, r, !sendNow);
+    db.ref(ROOT+'/outbound/'+id+'/'+_stStampKey(kind)).set({ at:Date.now(), by:_lpWho(), deferred:!sendNow }).catch(function(){});
+    showAlert(sendNow ? (label+' notification sent for '+(r.customer||'load')) : (label+' notification queued \u2014 it will send shortly'),'success');
+  } else {
+    if (!goPrimary) return;   // Skip
+    _stEnqueue(id, kind, r, true);
+    _stOpenOutlook(kind, r, to, cc);
+    db.ref(ROOT+'/outbound/'+id+'/'+_stStampKey(kind)).set({ at:Date.now(), by:_lpWho(), manual:true }).catch(function(){});
+    showAlert(label+' \u2014 Outlook opened for '+(r.customer||'load')+'. (Also saved in the Outbox; click "Mark sent" once you send it.)','success');
+  }
+}
 function _stPromptSend(kind, id){
   try {
     const r = (state.outbound||{})[id];
@@ -1230,32 +1271,11 @@ function _stPromptSend(kind, id){
       }
       return;
     }
-    const who = to.map(function(a){ return '  ' + a; })
-      .concat(cc.map(function(a){ return '  ' + a + '  (cc)'; })).join('\n');
-    const head = 'This load is now ' + word + '.\n\n'
-      + 'Customer:  ' + (r.customer||'') + (r.orderNum ? ('     Order ' + r.orderNum) : '') + '\n\n';
+    const who = to.map(function(a){ return '\u2022 ' + a; })
+      .concat(cc.map(function(a){ return '\u2022 ' + a + ' (cc)'; })).join('<br>');
     const hasEndpoint = !!(_lpCfg().webhookUrl||'').trim();
-    if (hasEndpoint){
-      const msg = head + 'One email will be sent to these recipients:\n' + who + '\n\n'
-        + 'OK      = send the email now\n'
-        + 'Cancel  = queue it and send a little later';
-      const sendNow = confirm(msg);
-      _stEnqueue(id, kind, r, !sendNow);
-      db.ref(ROOT+'/outbound/'+id+'/'+_stStampKey(kind)).set({ at: Date.now(), by: _lpWho(), deferred: !sendNow }).catch(function(){});
-      showAlert(sendNow ? (label+' notification sent for '+(r.customer||'load'))
-                        : (label+' notification queued — it will send shortly'), 'success');
-    } else {
-      // No sending endpoint set: OK opens Outlook with the email ready to send, and keeps a
-      // copy in the Outbox as a record. Cancel skips this one.
-      const msg = head + 'Email these recipients now?\n' + who + '\n\n'
-        + 'OK      = open Outlook with the email ready to send\n'
-        + 'Cancel  = skip this one';
-      if (!confirm(msg)) return;
-      _stEnqueue(id, kind, r, true);
-      _stOpenOutlook(kind, r, to, cc);
-      db.ref(ROOT+'/outbound/'+id+'/'+_stStampKey(kind)).set({ at: Date.now(), by: _lpWho(), manual: true }).catch(function(){});
-      showAlert(label+' — Outlook opened for '+(r.customer||'load')+'. (Also saved in the Outbox; click "Mark sent" once you send it.)','success');
-    }
+    _stPending = { kind:kind, id:id, hasEndpoint:hasEndpoint };
+    _stShowPromptModal(kind, word, r, who, hasEndpoint);
   } catch(e){}
 }
 // Sends any of OUR deferred items whose time has come. Scoped to stDeferred+queued only,
