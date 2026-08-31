@@ -216,6 +216,8 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
 .s-loaded      { background:#caedfb;color:#111;border:1px solid #9cd3ee; }
 .s-departed    { background:#ffc000;color:#111;border:1px solid #d9a200;font-weight:800; }
 .s-del-customer{ background:#14532d;color:#ffe000;border:1px solid #0b3a1e;font-weight:800; }
+.notify-flag{ display:inline-block;margin:0;font-size:10px;font-weight:800;letter-spacing:.3px;color:#14532d;background:#ffe000;border:1px solid #d9c400;border-radius:6px;padding:2px 8px;cursor:pointer;vertical-align:middle;line-height:1.4 }
+.notify-flag:hover{ background:#ffd400 }
 .s-cancelled   { background:#ffd1d1;color:#b91c1c;border:1px solid #f0a6a6;font-weight:800; }
 .s-ff-assigned { background:rgba(124,58,237,0.12);color:#7c3aed;border:1px solid rgba(124,58,237,0.3); }
 .s-ff-enroute  { background:rgba(217,119,6,0.12);color:var(--warning);border:1px solid rgba(217,119,6,0.3); }
@@ -561,8 +563,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-22';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807022;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-27';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807027;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -1209,6 +1211,18 @@ function _stOpenOutlook(kind, r, to, cc){
   } catch(e){}
 }
 var _stPending = null;
+const _stNotifyBtn = (kind,id)=>`<button class="notify-flag" onclick="event.stopPropagation();_stNotifyNow('${kind}','${id}')" title="Open Outlook to email the notification recipients for this load">✉ Notify</button>`;
+function _stNotifyNow(kind, id){
+  const r = ((state.outbound||{})[id]) || ((state.firstfleet||{})[id]); if(!r) return;
+  const rec = _lpRecipientsFor(r.customer);
+  const to = rec.to||[], cc = rec.cc||[];
+  if (!to.length){ showAlert('No TO recipient set for "'+(r.customer||'this customer')+'" — add one in the Notify screen.','warning'); return; }
+  const hasEndpoint = !!(_lpCfg().webhookUrl||'').trim();
+  try { _stEnqueue(id, kind, r, false); } catch(e){}
+  if (!hasEndpoint) _stOpenOutlook(kind, r, to, cc);
+  const label = kind==='loaded'?'Loaded':kind==='delivered'?'Delivered':'Departed';
+  showAlert(hasEndpoint ? (label+' notification sent for '+(r.customer||'load')) : (label+' — Outlook opened for '+(r.customer||'load')),'success');
+}
 function _stShowPromptModal(kind, word, r, whoHtml, hasEndpoint){
   const primaryTxt = hasEndpoint ? 'Send email now' : 'Open Outlook';
   const secondTxt  = hasEndpoint ? 'Queue for later' : 'Skip';
@@ -1318,6 +1332,7 @@ _stStartFlusher();
 function showNotifyModal(){
   try{_stFlush();}catch(e){}
   if (!state.user || state.user.role !== 'admin') { showAlert('Admin only','warning'); return; }
+  let _lpScrollTop = 0; try{ const _lpsc = document.getElementById('lp-cust-scroll'); if (_lpsc) _lpScrollTop = _lpsc.scrollTop; }catch(e){}
   const cfg  = _lpCfg();
   const map  = cfg.recipients || {};
   const custs = refOpts('customerOB').slice().sort(function(a,b){ return String(a).localeCompare(String(b)); });
@@ -1417,7 +1432,7 @@ function showNotifyModal(){
           </div>
         </div>
 
-        <div style="flex:1 1 auto;overflow:auto;border:1px solid var(--border);border-radius:8px">
+        <div id="lp-cust-scroll" style="flex:1 1 auto;overflow:auto;border:1px solid var(--border);border-radius:8px">
           <table style="width:100%;border-collapse:collapse;font-size:12px">
             <thead><tr style="background:var(--bg);position:sticky;top:0">
               <th style="padding:6px 8px;text-align:left;font-size:10px;letter-spacing:.5px;color:var(--text2)">EMAIL &middot; Ld / Dp / Del</th>
@@ -1449,6 +1464,7 @@ function showNotifyModal(){
         </div>
       </div>
     </div>`;
+  try{ const _lpsc2 = document.getElementById('lp-cust-scroll'); if (_lpsc2) _lpsc2.scrollTop = _lpScrollTop; }catch(e){}
 }
 
 function showUsersModal() {
@@ -2880,7 +2896,7 @@ function renderOutbound() {
             onchange="saveField('ob','${id}','status',this.value);if(this.value==='DEPARTED'||this.value==='CANCELLED')saveField('ob','${id}','ffStatus',null);this.className='status-select '+(OB_CLASSES[this.value]||'s-order-recv')"
             style="color:${obStatusColor}">
             ${obOpts}
-          </select>${lsBtn('ob',id,r)}
+          </select>${lsBtn('ob',id,r)}${r.status==='DEPARTED'?('<div style="margin-top:4px">'+_stNotifyBtn('departed',id)+'</div>'):''}
         </td>
         <td style="min-width:155px">${cellSelect('ob',id,'customer',r.customer,refOpts('customerOB'),'150px','font-weight:700')}${obPri?'<span class="pri-badge">★ PRIORITY</span>':''}${isPF?'<span style="font-size:8px;background:rgba(26,58,107,0.12);color:var(--inbound);padding:1px 5px;border-radius:4px;margin-left:4px;font-weight:700">PF</span>':''}${obIsRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:150px">${cellInput('ob',id,'orderNum',r.orderNum,'115px','Order #','font-weight:700')}${(obManual && !obIsRolled)?'<span class="notexcel-badge">NEW ORDER</span>':''}${dupBadge('ob', obDups, r.orderNum, id)}${pwBadge(obPW)}${nightBadge(obNight)}</td>
@@ -3506,7 +3522,7 @@ function renderPWD(){
       customer:    r.customer||'',
       reqDate:     r.reqDate,
       origReqDate: r.origReqDate||r.reqDate,
-      status:      (r.status==='DEPARTED') ? 'LOAD PICKED UP' : (r.status==='CANCELLED') ? 'LOAD CANCELLED' : (r.ffStatus || obToFF(r.status)),
+      status:      (r.ffStatus==='DEL TO CUSTOMER') ? 'DEL TO CUSTOMER' : (r.status==='DEPARTED') ? 'LOAD PICKED UP' : (r.status==='CANCELLED') ? 'LOAD CANCELLED' : (r.ffStatus || obToFF(r.status)),
       obStatus:    r.status,
       priority:    !!r.priority,
       nightPU:     !!r.nightPU,
@@ -3571,7 +3587,7 @@ function renderPWD(){
         rows += `<tr><td colspan="11" style="background:var(--surface2);padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--text2)">${grp==='PWD'?'PWD (PIPER FLEET)':'OTHER CARRIERS'} &nbsp;&middot;&nbsp; ${cnt}</td></tr>`;
         lastGroup = grp;
       }
-      const ffOpts = FF_STATUSES.map(s=>`<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('');
+      const ffOpts = FF_STATUSES.concat(['DEL TO CUSTOMER']).map(s=>`<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('');
       const ffRolled = isRolled(r);
       const ffOrig   = (r.origReqDate||r.reqDate||r.deliveryDate||'').slice(0,10);
       const ffPri    = !!r.priority;
@@ -3581,7 +3597,7 @@ function renderPWD(){
             onchange="ffStatusChange('ob','${id}',this.value,this)"
             style="color:${FF_COLORS[r.status]||'#0891b2'}">
             ${ffOpts}
-          </select>
+          </select>${r.status==='DEL TO CUSTOMER'?('<div style="margin-top:4px">'+_stNotifyBtn('delivered',id)+'</div>'):''}
         </td>
         <td style="min-width:90px">${cellInput('outbound',id,'carrier',r.carrier,'90px','Carrier')}</td>
         <td style="min-width:100px;font-weight:600">${r.customer||''}${ffPri?'<span class="pri-badge">★ PRIORITY</span>':''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
@@ -3747,7 +3763,7 @@ function renderDomtar(){
             onchange="ffStatusChange('ob','${id}',this.value,this)"
             style="color:${FF_COLORS[r.status]||'#0891b2'}">
             ${ffOpts}
-          </select>
+          </select>${r.status==='DEL TO CUSTOMER'?('<div style="margin-top:4px">'+_stNotifyBtn('delivered',id)+'</div>'):''}
         </td>
         <td style="min-width:90px">${cellInput('outbound',id,'carrier',r.carrier,'90px','Carrier')}</td>
         <td style="min-width:100px;font-weight:600">${r.customer||''}${ffPri?'<span class="pri-badge">★ PRIORITY</span>':''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
@@ -5051,6 +5067,8 @@ function _revertActiveBoard(){
 }
 function saveField(type, id, field, value) {
   const path = type==='ib'?'inbound':type==='ob'?'outbound':type==='firstfleet'?'firstfleet':'outbound';
+  // Capture prior status BEFORE any write so the LOADED/DEPARTED notification transition is never missed.
+  const _prevStatus = (path==='outbound' && field==='status') ? (((state.outbound||{})[id])||{}).status : null;
   // HARD STOP: two active loads may never share a door or a trailer. Block the save and revert the
   // field to its stored value (the duplicate the user just typed is discarded).
   if (path==='outbound' && (field==='door' || field==='trailer') && checkDupAssignment(field, id, value)) {
@@ -5075,8 +5093,7 @@ function saveField(type, id, field, value) {
   // (OK) or queue it to send later (Cancel). Fires only on a real status change.
   if (path==='outbound' && field==='status' && (value==='LOADED' || value==='DEPARTED')) {
     try {
-      const _prev = (((state.outbound||{})[id])||{}).status;
-      if ((_prev||'').toUpperCase() !== value) _stPromptSend(value==='LOADED' ? 'loaded' : 'departed', id);
+      if ((_prevStatus||'').toUpperCase() !== (value||'').toUpperCase()) _stPromptSend(value==='LOADED' ? 'loaded' : 'departed', id);
     } catch(e){}
   }
   // Putting a trailer that's flagged damaged onto a load — check before it gets loaded.
