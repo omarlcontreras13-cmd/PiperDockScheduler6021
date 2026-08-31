@@ -563,8 +563,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-27';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807027;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-28';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807028;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -1999,6 +1999,7 @@ function startListeners() {
   db.ref(LP_SETTINGS()).on('value', snap => {
     state.notifyCfg = snap.val()||{};
     _lpScan();
+    if (state.tab==='ob') renderOutbound(); else if (state.tab==='pwd') renderPWD(); else if (state.tab==='domtar') renderDomtar();
     if (document.querySelector('#modal-container .modal') && document.getElementById('lp-test-addr')) showNotifyModal();
   });
   db.ref(LP_OUTBOX()).on('value', snap => {
@@ -2896,7 +2897,7 @@ function renderOutbound() {
             onchange="saveField('ob','${id}','status',this.value);if(this.value==='DEPARTED'||this.value==='CANCELLED')saveField('ob','${id}','ffStatus',null);this.className='status-select '+(OB_CLASSES[this.value]||'s-order-recv')"
             style="color:${obStatusColor}">
             ${obOpts}
-          </select>${lsBtn('ob',id,r)}${r.status==='DEPARTED'?('<div style="margin-top:4px">'+_stNotifyBtn('departed',id)+'</div>'):''}
+          </select>${lsBtn('ob',id,r)}${(r.status==='DEPARTED' && _stCustEnabled(r.customer,'departed'))?('<div style="margin-top:4px">'+_stNotifyBtn('departed',id)+'</div>'):''}
         </td>
         <td style="min-width:155px">${cellSelect('ob',id,'customer',r.customer,refOpts('customerOB'),'150px','font-weight:700')}${obPri?'<span class="pri-badge">★ PRIORITY</span>':''}${isPF?'<span style="font-size:8px;background:rgba(26,58,107,0.12);color:var(--inbound);padding:1px 5px;border-radius:4px;margin-left:4px;font-weight:700">PF</span>':''}${obIsRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:150px">${cellInput('ob',id,'orderNum',r.orderNum,'115px','Order #','font-weight:700')}${(obManual && !obIsRolled)?'<span class="notexcel-badge">NEW ORDER</span>':''}${dupBadge('ob', obDups, r.orderNum, id)}${pwBadge(obPW)}${nightBadge(obNight)}</td>
@@ -3597,7 +3598,7 @@ function renderPWD(){
             onchange="ffStatusChange('ob','${id}',this.value,this)"
             style="color:${FF_COLORS[r.status]||'#0891b2'}">
             ${ffOpts}
-          </select>${r.status==='DEL TO CUSTOMER'?('<div style="margin-top:4px">'+_stNotifyBtn('delivered',id)+'</div>'):''}
+          </select>${(r.status==='DEL TO CUSTOMER' && _stCustEnabled(r.customer,'delivered'))?('<div style="margin-top:4px">'+_stNotifyBtn('delivered',id)+'</div>'):''}
         </td>
         <td style="min-width:90px">${cellInput('outbound',id,'carrier',r.carrier,'90px','Carrier')}</td>
         <td style="min-width:100px;font-weight:600">${r.customer||''}${ffPri?'<span class="pri-badge">★ PRIORITY</span>':''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
@@ -3763,7 +3764,7 @@ function renderDomtar(){
             onchange="ffStatusChange('ob','${id}',this.value,this)"
             style="color:${FF_COLORS[r.status]||'#0891b2'}">
             ${ffOpts}
-          </select>${r.status==='DEL TO CUSTOMER'?('<div style="margin-top:4px">'+_stNotifyBtn('delivered',id)+'</div>'):''}
+          </select>${(r.status==='DEL TO CUSTOMER' && _stCustEnabled(r.customer,'delivered'))?('<div style="margin-top:4px">'+_stNotifyBtn('delivered',id)+'</div>'):''}
         </td>
         <td style="min-width:90px">${cellInput('outbound',id,'carrier',r.carrier,'90px','Carrier')}</td>
         <td style="min-width:100px;font-weight:600">${r.customer||''}${ffPri?'<span class="pri-badge">★ PRIORITY</span>':''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
