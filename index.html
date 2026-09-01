@@ -191,6 +191,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .dup-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#fff;background:#b91c1c;padding:1px 5px;border-radius:4px;vertical-align:middle;cursor:pointer;white-space:nowrap; }
 .dup-badge:hover { filter:brightness(1.15);text-decoration:underline; }
 .loaded-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#111;background:#86efac;padding:1px 5px;border-radius:4px;vertical-align:middle; }
+.delivered-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#ffe000;background:#14532d;border:1px solid #0b3a1e;padding:1px 6px;border-radius:4px;vertical-align:middle; }
 .notexcel-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#111;background:#fde047;padding:1px 5px;border-radius:4px;vertical-align:middle;white-space:nowrap; }
 .night-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#e8ecf7;background:#1e2a4a;border:1px solid #3b4c7a;padding:1px 5px;border-radius:4px;vertical-align:middle;white-space:nowrap; }
 .pw-badge { display:inline-block;margin-left:5px;font-size:8px;font-weight:800;letter-spacing:.5px;color:#0b2a5b;background:#bfdbfe;border:1px solid #60a5fa;padding:1px 5px;border-radius:4px;vertical-align:middle;white-space:nowrap; }
@@ -563,8 +564,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-28';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807028;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-34';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807034;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -906,7 +907,9 @@ function loginGroup(group, isAdmin) {
   try{ document.getElementById('main-app').classList.toggle('yard-view-only', group==='yardview'); }catch(e){}
 
   startListeners();
+  var _pv=null; try{ _pv=JSON.parse(sessionStorage.getItem('dockView')||'null'); }catch(e){}
   switchTab(isPiper ? 'ib' : (group==='pwd' ? 'pwd' : (group==='domtar' ? 'domtar' : (group==='ipg' ? 'ig' : ((group==='yardview'||group==='yardedit') ? 'yd' : 'ff')))));
+  try{ _restoreView(_pv); }catch(e){}
 }
 
 function applyTabAccess(group) {
@@ -1669,6 +1672,9 @@ function setNightPU(id, on) {
     .catch(e=>showAlert('Could not update night pick-up flag: '+e.message,'danger'));
 }
 function nightBadge(on){ return on ? '<span class="night-badge" title="Night pick-up">\u{1F319} NIGHT PU</span>' : ''; }
+function deliveredBadge(r){ return (r && (r.ffStatus==='DEL TO CUSTOMER' || r.status==='DEL TO CUSTOMER')) ? '<span class="delivered-badge" title="Delivered to customer">\u2714 LOAD DELIVERED</span>' : ''; }
+function pwBadgeShort(on){ return on ? '<span class="pw-badge" title="Paperwork is in the trailer">\u{1F4C4} BOL</span>' : ''; }
+function nightBadgeShort(on){ return on ? '<span class="night-badge" title="Night pick-up">\u{1F319} NT</span>' : ''; }
 
 function setPriority(id, on) {
   db.ref(ROOT+'/outbound/'+id+'/priority').set(!!on)
@@ -2483,6 +2489,17 @@ function sdDoAddToSchedule(sid, replace){
   renderShipDue();
 }
 
+function _saveView(){
+  try{ sessionStorage.setItem('dockView', JSON.stringify({
+    tab:state.tab, ibDate:state.ibDate, obDate:state.obDate, ffDate:state.ffDate,
+    pwdDate:state.pwdDate, dtDate:state.dtDate, igDate:state.igDate, scMonth:state.scMonth
+  })); }catch(e){}
+}
+function _restoreView(v){
+  if(!v) return;
+  ['ibDate','obDate','ffDate','pwdDate','dtDate','igDate','scMonth'].forEach(function(k){ if(v[k]) state[k]=v[k]; });
+  if(v.tab){ var btn=document.getElementById('tab-'+v.tab); if(btn && btn.style.display!=='none') switchTab(v.tab); }
+}
 function switchTab(tab) {
   state.tab = tab;
   document.body.setAttribute('data-tab', tab);   // lets the phone card/table toggle show only on ib/ob
@@ -2501,6 +2518,7 @@ function switchTab(tab) {
   if(tab==='pwd') renderPWD();
   if(tab==='ig') renderIPG();
   if(tab==='domtar') renderDomtar();
+  try{_saveView();}catch(e){}
 }
 
 // ─── INBOUND STATUS ────────────────────────────────────────────────────
@@ -2900,7 +2918,7 @@ function renderOutbound() {
           </select>${lsBtn('ob',id,r)}${(r.status==='DEPARTED' && _stCustEnabled(r.customer,'departed'))?('<div style="margin-top:4px">'+_stNotifyBtn('departed',id)+'</div>'):''}
         </td>
         <td style="min-width:155px">${cellSelect('ob',id,'customer',r.customer,refOpts('customerOB'),'150px','font-weight:700')}${obPri?'<span class="pri-badge">★ PRIORITY</span>':''}${isPF?'<span style="font-size:8px;background:rgba(26,58,107,0.12);color:var(--inbound);padding:1px 5px;border-radius:4px;margin-left:4px;font-weight:700">PF</span>':''}${obIsRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
-        <td style="min-width:150px">${cellInput('ob',id,'orderNum',r.orderNum,'115px','Order #','font-weight:700')}${(obManual && !obIsRolled)?'<span class="notexcel-badge">NEW ORDER</span>':''}${dupBadge('ob', obDups, r.orderNum, id)}${pwBadge(obPW)}${nightBadge(obNight)}</td>
+        <td style="min-width:150px">${cellInput('ob',id,'orderNum',r.orderNum,'115px','Order #','font-weight:700')}${(obManual && !obIsRolled)?'<span class="notexcel-badge">NEW ORDER</span>':''}${dupBadge('ob', obDups, r.orderNum, id)}${pwBadge(obPW)}${(r.ffStatus==='DEL TO CUSTOMER')?'':nightBadge(obNight)}${deliveredBadge(r)}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${obIsRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${obOrig}" onchange="saveRowDate('ob','${id}',this.value)" title="Original requested date (does not move when rolled)"></td>
         <td style="min-width:150px">${cellInput('ob',id,'destination',r.destination,'140px','Destination')}</td>
         <td style="min-width:70px"><span class="ib-appt-label">${effApptLabel(r)}</span></td>
@@ -3437,7 +3455,7 @@ function renderFirstFleet() {
         <td style="min-width:90px">${cellInput(saveType,id,'carrier',r.carrier,'90px','Carrier')}</td>
         <td style="min-width:100px;font-weight:600">${r.customer||''}${ffPri?'<span class="pri-badge">★ PRIORITY</span>':''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${ffRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${ffOrig}" onchange="saveField('${isOBSource?'ob':'firstfleet'}','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
-        <td style="min-width:120px">${cellInput(saveType,id,'loadId',r.loadId,'90px','Load ID')}${r.obStatus==='LOADED'?'<span class="loaded-badge">LOADED</span>':''}${nightBadge(!!r.nightPU)}${pwBadge(!!r.paperwork)}</td>
+        <td style="min-width:120px">${cellInput(saveType,id,'loadId',r.loadId,'150px','Load ID')}${r.obStatus==='LOADED'?'<span class="loaded-badge">LOADED</span>':''}${r.status==='DEL TO CUSTOMER'?'':nightBadgeShort(!!r.nightPU)}${pwBadgeShort(!!r.paperwork)}${deliveredBadge(r)}</td>
         <td style="min-width:52px">${cellInput(saveType,id,'door',r.door,'52px','Door #')}</td>
         <td style="min-width:90px">${cellInput(saveType,id,'trailer',r.trailer,'90px','Trailer #')}</td>
         <td style="min-width:130px">${cellInput(saveType,id,'driver',r.driver,'130px','Assigned Driver')}</td>
@@ -3603,7 +3621,7 @@ function renderPWD(){
         <td style="min-width:90px">${cellInput('outbound',id,'carrier',r.carrier,'90px','Carrier')}</td>
         <td style="min-width:100px;font-weight:600">${r.customer||''}${ffPri?'<span class="pri-badge">★ PRIORITY</span>':''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${ffRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${ffOrig}" onchange="saveField('ob','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
-        <td style="min-width:120px">${cellInput('outbound',id,'loadId',r.loadId,'90px','Load ID')}${r.obStatus==='LOADED'?'<span class="loaded-badge">LOADED</span>':''}${nightBadge(!!r.nightPU)}${pwBadge(!!r.paperwork)}</td>
+        <td style="min-width:120px">${cellInput('outbound',id,'loadId',r.loadId,'150px','Load ID')}${r.obStatus==='LOADED'?'<span class="loaded-badge">LOADED</span>':''}${r.status==='DEL TO CUSTOMER'?'':nightBadgeShort(!!r.nightPU)}${pwBadgeShort(!!r.paperwork)}${deliveredBadge(r)}</td>
         <td style="min-width:52px">${cellInput('outbound',id,'door',r.door,'52px','Door #')}</td>
         <td style="min-width:90px">${cellInput('outbound',id,'trailer',r.trailer,'90px','Trailer #')}</td>
         <td style="min-width:130px">${cellInput('outbound',id,'driver',r.driver,'130px','Assigned Driver')}</td>
@@ -3769,7 +3787,7 @@ function renderDomtar(){
         <td style="min-width:90px">${cellInput('outbound',id,'carrier',r.carrier,'90px','Carrier')}</td>
         <td style="min-width:100px;font-weight:600">${r.customer||''}${ffPri?'<span class="pri-badge">★ PRIORITY</span>':''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${ffRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${ffOrig}" onchange="saveField('ob','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
-        <td style="min-width:120px">${cellInput('outbound',id,'loadId',r.loadId,'90px','Load ID')}${r.obStatus==='LOADED'?'<span class="loaded-badge">LOADED</span>':''}${nightBadge(!!r.nightPU)}${pwBadge(!!r.paperwork)}</td>
+        <td style="min-width:120px">${cellInput('outbound',id,'loadId',r.loadId,'150px','Load ID')}${r.obStatus==='LOADED'?'<span class="loaded-badge">LOADED</span>':''}${r.status==='DEL TO CUSTOMER'?'':nightBadgeShort(!!r.nightPU)}${pwBadgeShort(!!r.paperwork)}${deliveredBadge(r)}</td>
         <td style="min-width:52px">${cellInput('outbound',id,'door',r.door,'52px','Door #')}</td>
         <td style="min-width:90px">${cellInput('outbound',id,'trailer',r.trailer,'90px','Trailer #')}</td>
         <td style="min-width:130px">${cellInput('outbound',id,'driver',r.driver,'130px','Assigned Driver')}</td>
@@ -3880,7 +3898,7 @@ function renderIPG(){
         <td style="min-width:90px">${cellInput('outbound',id,'carrier',r.carrier,'90px','Carrier')}</td>
         <td style="min-width:100px;font-weight:600">${r.customer||''}${ffPri?'<span class="pri-badge">★ PRIORITY</span>':''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${ffRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${ffOrig}" onchange="saveField('ob','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
-        <td style="min-width:120px">${cellInput('outbound',id,'loadId',r.loadId,'90px','Load ID')}${r.obStatus==='LOADED'?'<span class="loaded-badge">LOADED</span>':''}${nightBadge(!!r.nightPU)}${pwBadge(!!r.paperwork)}</td>
+        <td style="min-width:120px">${cellInput('outbound',id,'loadId',r.loadId,'150px','Load ID')}${r.obStatus==='LOADED'?'<span class="loaded-badge">LOADED</span>':''}${r.status==='DEL TO CUSTOMER'?'':nightBadgeShort(!!r.nightPU)}${pwBadgeShort(!!r.paperwork)}${deliveredBadge(r)}</td>
         <td style="min-width:52px">${cellInput('outbound',id,'door',r.door,'52px','Door #')}</td>
         <td style="min-width:90px">${cellInput('outbound',id,'trailer',r.trailer,'90px','Trailer #')}</td>
         <td style="min-width:130px">${cellInput('outbound',id,'driver',r.driver,'130px','Assigned Driver')}</td>
@@ -4215,6 +4233,7 @@ function shiftDate(type, delta) {
   d.setDate(d.getDate()+delta);
   state[key] = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
   if(type==='ib') renderInbound(); else if(type==='ob') renderOutbound(); else if(type==='pwd') renderPWD(); else if(type==='dt') renderDomtar(); else if(type==='ig') renderIPG(); else renderFirstFleet();
+  try{_saveView();}catch(e){}
 }
 let _obSearchTimer = null;
 let _ibSearchTimer = null;
@@ -4327,6 +4346,7 @@ function setDate(type, val) {
   const key = type==='ib'?'ibDate':type==='ob'?'obDate':type==='pwd'?'pwdDate':type==='dt'?'dtDate':type==='ig'?'igDate':'ffDate';
   state[key] = val;
   if(type==='ib') renderInbound(); else if(type==='ob') renderOutbound(); else if(type==='pwd') renderPWD(); else if(type==='dt') renderDomtar(); else if(type==='ig') renderIPG(); else renderFirstFleet();
+  try{_saveView();}catch(e){}
 }
 
 // ─── ADD / EDIT LOAD ───────────────────────────────────────────────────
