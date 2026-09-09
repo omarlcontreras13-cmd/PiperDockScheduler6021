@@ -564,8 +564,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-35';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807035;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-37';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807037;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -601,9 +601,9 @@ const state = {
   sdFilter: 'Not Processed',
   ibColFilter: { customer:'', loadNum:'', unloader:'' },
   obColFilter: { customer:'', orderNum:'', picker:'', loader:'', trailer:'' },
-  ffColFilter: { status:'', carrier:'', customer:'', origReqDate:'', loadId:'', door:'', trailer:'', driver:'', phone:'', notes:'' },
-  pwdColFilter: { status:'', carrier:'', customer:'', origReqDate:'', loadId:'', door:'', trailer:'', driver:'', phone:'', notes:'' },
-  dtColFilter: { status:'', carrier:'', customer:'', origReqDate:'', loadId:'', door:'', trailer:'', driver:'', phone:'', notes:'' },
+  ffColFilter: { status:'', carrier:'', customer:'', origReqDate:'', loadId:'', destination:'', door:'', trailer:'', driver:'', phone:'', notes:'' },
+  pwdColFilter: { status:'', carrier:'', customer:'', origReqDate:'', loadId:'', destination:'', door:'', trailer:'', driver:'', phone:'', notes:'' },
+  dtColFilter: { status:'', carrier:'', customer:'', origReqDate:'', loadId:'', destination:'', door:'', trailer:'', driver:'', phone:'', notes:'' },
   ibSort: { field:'', dir:1 },
   obSort: { field:'', dir:1 },
   ffSort: { field:'', dir:1 },
@@ -614,6 +614,7 @@ const state = {
   scorecard: {},
   scCollapsed: {},
   obFlagsHidden: false,
+  obApptHidden: false,
   scBoard: '6021',
   scorecardWrk: {},
   scHlRows: {},
@@ -1666,6 +1667,8 @@ function pwBadge(on){ return on ? '<span class="pw-badge" title="Paperwork is in
 // Session-scoped, mirroring the scorecard's column collapse.
 function obFlagsShown(){ return !state.obFlagsHidden; }
 function toggleObFlags(){ state.obFlagsHidden = !state.obFlagsHidden; renderOutbound(); }
+function obApptShown(){ return !state.obApptHidden; }
+function toggleObAppt(){ state.obApptHidden = !state.obApptHidden; renderOutbound(); }
 
 function setNightPU(id, on) {
   db.ref(ROOT+'/outbound/'+id+'/nightPU').set(!!on)
@@ -2921,6 +2924,7 @@ function renderOutbound() {
         <td style="min-width:165px">${cellInput('ob',id,'orderNum',r.orderNum,'150px','Order #','font-weight:700')}${(obManual && !obIsRolled)?'<span class="notexcel-badge">NEW ORDER</span>':''}${dupBadge('ob', obDups, r.orderNum, id)}${pwBadge(obPW)}${(r.ffStatus==='DEL TO CUSTOMER')?'':nightBadge(obNight)}${deliveredBadge(r)}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${obIsRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${obOrig}" onchange="saveRowDate('ob','${id}',this.value)" title="Original requested date (does not move when rolled)"></td>
         <td style="min-width:150px">${cellInput('ob',id,'destination',r.destination,'140px','Destination')}</td>
+        ${obApptShown()?`
         <td style="min-width:70px"><span class="ib-appt-label">${effApptLabel(r)}</span></td>
         <td>
           <input class="time-input" type="text" inputmode="numeric" placeholder="HH:MM"
@@ -2936,6 +2940,7 @@ function renderOutbound() {
         </td>
         <td>${dur}</td>
         <td style="min-width:60px">${obArrBadge}</td>
+        `:''}
         <td style="min-width:90px">${cellSelect('ob',id,'picker',r.picker,refOpts('operators'),'100px')}</td>
         <td style="min-width:80px">${cellSelect('ob',id,'stageLoc',r.stageLoc,refOpts('stageLane'),'95px')}</td>
         <td style="min-width:90px">${cellSelect('ob',id,'loader',r.loader,refOpts('operators'),'100px')}</td>
@@ -2950,14 +2955,14 @@ function renderOutbound() {
         </td>
       </tr>`;
   };
-  const obCols = (state.rollMode.ob?1:0) + (obFlagsShown()?22:19);
+  const obCols = (state.rollMode.ob?1:0) + (obFlagsShown()?22:19) - (obApptShown()?0:5);
   const obOpenRow = (label, bookArg) => `<tr class="ib-open-row">${state.rollMode.ob?'<td></td>':''}
         ${obFlagsShown()?'<td></td><td></td><td></td>':''}
         <td><span class="ib-open-badge">OPEN</span></td>
         <td><a class="book-link" onclick="showAddLoad('ob','${bookArg}')">+ Book</a></td>
         <td></td><td></td><td></td>
-        <td style="min-width:70px"><span class="ib-open-appt">${label}</span></td>
-        <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+        ${obApptShown()?`<td style="min-width:70px"><span class="ib-open-appt">${label}</span></td><td></td><td></td><td></td><td></td>`:''}
+        <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
       </tr>`;
 
   if (obSearching) {
@@ -3010,6 +3015,7 @@ function renderOutbound() {
     ${obSearching?`<button class="today-btn" onclick="clearObSearch()">Clear</button>`:''}
     <button class="add-load-btn ob-btn" onclick="showAddLoad('ob')">＋ Add Outbound Load</button>
     <button class="roll-toggle" onclick="toggleObFlags()" title="${state.obFlagsHidden?'Show':'Hide'} the Pri / Paper / Night check boxes — flagged loads keep their badge either way">${state.obFlagsHidden?'\u25B8':'\u25BE'} FLAGS</button>
+    <button class="roll-toggle" onclick="toggleObAppt()" title="${state.obApptHidden?'Show':'Hide'} the Appt, Time In, Time Out, Duration and Arr columns">${state.obApptHidden?'\u25B8':'\u25BE'} APPT / TIMES</button>
     ${obRollToggle}
   </div>
   ${obRollBar}
@@ -3039,11 +3045,13 @@ function renderOutbound() {
         ${thFilter('Order #','ob','orderNum')}
         ${thS('Req Date','ob','reqDate')}
         ${thS('Destination','ob','destination')}
+        ${obApptShown()?`
         ${thS('Appt','ob','apptTime')}
         ${thS('Time In','ob','timeIn')}
         ${thS('Time Out','ob','timeOut')}
         <th>Duration</th>
         <th>Arr</th>
+        `:''}
         ${thFilter('Picker','ob','picker')}
         ${thS('Stage Loc','ob','stageLoc')}
         ${thFilter('Loader','ob','loader')}
@@ -3362,6 +3370,7 @@ function renderFirstFleet() {
       _source:      'outbound',
       deliveryDate: r.reqDate,
       loadId:       r.orderNum||r.loadNum||'',
+      destination: r.destination||'',
       orderNum:     r.orderNum||r.loadNum||'',
       carrier:      r.carrier||'',
       door:         r.door||'',
@@ -3428,14 +3437,14 @@ function renderFirstFleet() {
 
   let rows = '';
   if (!recs.length) {
-    rows = `<tr><td colspan="11" class="empty-row">No First Fleet loads for this date.</td></tr>`;
+    rows = `<tr><td colspan="12" class="empty-row">No First Fleet loads for this date.</td></tr>`;
   } else {
     let lastGroup = null;
     recs.forEach(([id,r]) => {
       const grp = r._ffti ? 'FFTI' : 'OTHER';
       if (grp !== lastGroup) {
         const cnt = recs.filter(([,x])=>(x._ffti?'FFTI':'OTHER')===grp).length;
-        rows += `<tr><td colspan="11" style="background:var(--surface2);padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--text2)">${grp==='FFTI'?'FIRST FLEET (FFTI)':'OTHER CARRIERS'} &nbsp;&middot;&nbsp; ${cnt}</td></tr>`;
+        rows += `<tr><td colspan="12" style="background:var(--surface2);padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--text2)">${grp==='FFTI'?'FIRST FLEET (FFTI)':'OTHER CARRIERS'} &nbsp;&middot;&nbsp; ${cnt}</td></tr>`;
         lastGroup = grp;
       }
       const ffOpts = FF_STATUSES.map(s=>`<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('');
@@ -3456,6 +3465,7 @@ function renderFirstFleet() {
         <td style="min-width:100px;font-weight:600">${r.customer||''}${ffPri?'<span class="pri-badge">★ PRIORITY</span>':''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${ffRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${ffOrig}" onchange="saveField('${isOBSource?'ob':'firstfleet'}','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
         <td style="min-width:120px">${cellInput(saveType,id,'loadId',r.loadId,'150px','Load ID')}${r.obStatus==='LOADED'?'<span class="loaded-badge">LOADED</span>':''}${r.status==='DEL TO CUSTOMER'?'':nightBadgeShort(!!r.nightPU)}${pwBadgeShort(!!r.paperwork)}${deliveredBadge(r)}</td>
+        <td style="min-width:150px">${cellInput(saveType,id,'destination',r.destination,'150px','Destination')}</td>
         <td style="min-width:52px">${cellInput(saveType,id,'door',r.door,'52px','Door #')}</td>
         <td style="min-width:90px">${cellInput(saveType,id,'trailer',r.trailer,'90px','Trailer #')}</td>
         <td style="min-width:130px">${cellInput(saveType,id,'driver',r.driver,'130px','Assigned Driver')}</td>
@@ -3496,6 +3506,7 @@ function renderFirstFleet() {
         ${thFilter('Customer','ff','customer')}
         ${thFilter('Orig Req Date','ff','origReqDate')}
         ${thFilter('Load ID','ff','loadId')}
+        ${thFilter('Destination','ff','destination')}
         ${thFilter('Door #','ff','door','60px')}
         ${thFilter('Trailer #','ff','trailer')}
         ${thFilter('Assigned Driver','ff','driver')}
@@ -3533,6 +3544,7 @@ function renderPWD(){
       _source:     'outbound',
       deliveryDate: r.reqDate,
       loadId:      r.orderNum||r.loadNum||'',
+      destination: r.destination||'',
       orderNum:    r.orderNum||r.loadNum||'',
       carrier:     r.carrier||'',
       door:        r.door||'',
@@ -3596,14 +3608,14 @@ function renderPWD(){
 
   let rows = '';
   if (!recs.length) {
-    rows = `<tr><td colspan="11" class="empty-row">No PWD-customer loads for this date.</td></tr>`;
+    rows = `<tr><td colspan="12" class="empty-row">No PWD-customer loads for this date.</td></tr>`;
   } else {
     let lastGroup = null;
     recs.forEach(([id,r]) => {
       const grp = r._pwd ? 'PWD' : 'OTHER';
       if (grp !== lastGroup) {
         const cnt = recs.filter(([,x])=>(x._pwd?'PWD':'OTHER')===grp).length;
-        rows += `<tr><td colspan="11" style="background:var(--surface2);padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--text2)">${grp==='PWD'?'PWD (PIPER FLEET)':'OTHER CARRIERS'} &nbsp;&middot;&nbsp; ${cnt}</td></tr>`;
+        rows += `<tr><td colspan="12" style="background:var(--surface2);padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--text2)">${grp==='PWD'?'PWD (PIPER FLEET)':'OTHER CARRIERS'} &nbsp;&middot;&nbsp; ${cnt}</td></tr>`;
         lastGroup = grp;
       }
       const ffOpts = FF_STATUSES.concat(['DEL TO CUSTOMER']).map(s=>`<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('');
@@ -3622,6 +3634,7 @@ function renderPWD(){
         <td style="min-width:100px;font-weight:600">${r.customer||''}${ffPri?'<span class="pri-badge">★ PRIORITY</span>':''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${ffRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${ffOrig}" onchange="saveField('ob','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
         <td style="min-width:120px">${cellInput('outbound',id,'loadId',r.loadId,'150px','Load ID')}${r.obStatus==='LOADED'?'<span class="loaded-badge">LOADED</span>':''}${r.status==='DEL TO CUSTOMER'?'':nightBadgeShort(!!r.nightPU)}${pwBadgeShort(!!r.paperwork)}${deliveredBadge(r)}</td>
+        <td style="min-width:150px">${cellInput('outbound',id,'destination',r.destination,'150px','Destination')}</td>
         <td style="min-width:52px">${cellInput('outbound',id,'door',r.door,'52px','Door #')}</td>
         <td style="min-width:90px">${cellInput('outbound',id,'trailer',r.trailer,'90px','Trailer #')}</td>
         <td style="min-width:130px">${cellInput('outbound',id,'driver',r.driver,'130px','Assigned Driver')}</td>
@@ -3662,6 +3675,7 @@ function renderPWD(){
         ${thFilter('Customer','pwd','customer')}
         ${thFilter('Orig Req Date','pwd','origReqDate')}
         ${thFilter('Load ID','pwd','loadId')}
+        ${thFilter('Destination','pwd','destination')}
         ${thFilter('Door #','pwd','door','60px')}
         ${thFilter('Trailer #','pwd','trailer')}
         ${thFilter('Assigned Driver','pwd','driver')}
@@ -3699,6 +3713,7 @@ function renderDomtar(){
       _source:     'outbound',
       deliveryDate: r.reqDate,
       loadId:      r.orderNum||r.loadNum||'',
+      destination: r.destination||'',
       orderNum:    r.orderNum||r.loadNum||'',
       carrier:     r.carrier||'',
       door:        r.door||'',
@@ -3762,14 +3777,14 @@ function renderDomtar(){
 
   let rows = '';
   if (!recs.length) {
-    rows = `<tr><td colspan="11" class="empty-row">No DOMTAR / Cardinal Health loads for this date.</td></tr>`;
+    rows = `<tr><td colspan="12" class="empty-row">No DOMTAR / Cardinal Health loads for this date.</td></tr>`;
   } else {
     let lastGroup = null;
     recs.forEach(([id,r]) => {
       const grp = r._pwd ? 'PWD' : 'OTHER';
       if (grp !== lastGroup) {
         const cnt = recs.filter(([,x])=>(x._pwd?'PWD':'OTHER')===grp).length;
-        rows += `<tr><td colspan="11" style="background:var(--surface2);padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--text2)">${grp==='PWD'?'PWD (PIPER FLEET)':'OTHER CARRIERS'} &nbsp;&middot;&nbsp; ${cnt}</td></tr>`;
+        rows += `<tr><td colspan="12" style="background:var(--surface2);padding:7px 12px;font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--text2)">${grp==='PWD'?'PWD (PIPER FLEET)':'OTHER CARRIERS'} &nbsp;&middot;&nbsp; ${cnt}</td></tr>`;
         lastGroup = grp;
       }
       const ffOpts = DOMTAR_STATUSES.map(s=>`<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('');
@@ -3788,6 +3803,7 @@ function renderDomtar(){
         <td style="min-width:100px;font-weight:600">${r.customer||''}${ffPri?'<span class="pri-badge">★ PRIORITY</span>':''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${ffRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${ffOrig}" onchange="saveField('ob','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
         <td style="min-width:120px">${cellInput('outbound',id,'loadId',r.loadId,'150px','Load ID')}${r.obStatus==='LOADED'?'<span class="loaded-badge">LOADED</span>':''}${r.status==='DEL TO CUSTOMER'?'':nightBadgeShort(!!r.nightPU)}${pwBadgeShort(!!r.paperwork)}${deliveredBadge(r)}</td>
+        <td style="min-width:150px">${cellInput('outbound',id,'destination',r.destination,'150px','Destination')}</td>
         <td style="min-width:52px">${cellInput('outbound',id,'door',r.door,'52px','Door #')}</td>
         <td style="min-width:90px">${cellInput('outbound',id,'trailer',r.trailer,'90px','Trailer #')}</td>
         <td style="min-width:130px">${cellInput('outbound',id,'driver',r.driver,'130px','Assigned Driver')}</td>
@@ -3828,6 +3844,7 @@ function renderDomtar(){
         ${thFilter('Customer','dt','customer')}
         ${thFilter('Orig Req Date','dt','origReqDate')}
         ${thFilter('Load ID','dt','loadId')}
+        ${thFilter('Destination','dt','destination')}
         ${thFilter('Door #','dt','door','60px')}
         ${thFilter('Trailer #','dt','trailer')}
         ${thFilter('Assigned Driver','dt','driver')}
@@ -3853,6 +3870,7 @@ function renderIPG(){
     .filter(([,r])=> r.reqDate && r.reqDate.slice(0,10)===date && r.status!=='CANCELLED' && isIPGCarrier(r.carrier))
     .map(([id,r])=>([id,{
       loadId:      r.orderNum||r.loadNum||'',
+      destination: r.destination||'',
       orderNum:    r.orderNum||r.loadNum||'',
       carrier:     r.carrier||'',
       door:        r.door||'',
@@ -3882,7 +3900,7 @@ function renderIPG(){
 
   let rows = '';
   if (!recs.length){
-    rows = `<tr><td colspan="11" class="empty-row">No IPG-carrier loads for this date.</td></tr>`;
+    rows = `<tr><td colspan="12" class="empty-row">No IPG-carrier loads for this date.</td></tr>`;
   } else {
     recs.forEach(([id,r])=>{
       const ffOpts = FF_STATUSES.map(s=>`<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('');
@@ -3899,6 +3917,7 @@ function renderIPG(){
         <td style="min-width:100px;font-weight:600">${r.customer||''}${ffPri?'<span class="pri-badge">★ PRIORITY</span>':''}${ffRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${ffRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${ffOrig}" onchange="saveField('ob','${id}','origReqDate',this.value)" title="Original requested date (does not move when rolled)"></td>
         <td style="min-width:120px">${cellInput('outbound',id,'loadId',r.loadId,'150px','Load ID')}${r.obStatus==='LOADED'?'<span class="loaded-badge">LOADED</span>':''}${r.status==='DEL TO CUSTOMER'?'':nightBadgeShort(!!r.nightPU)}${pwBadgeShort(!!r.paperwork)}${deliveredBadge(r)}</td>
+        <td style="min-width:150px">${cellInput('outbound',id,'destination',r.destination,'150px','Destination')}</td>
         <td style="min-width:52px">${cellInput('outbound',id,'door',r.door,'52px','Door #')}</td>
         <td style="min-width:90px">${cellInput('outbound',id,'trailer',r.trailer,'90px','Trailer #')}</td>
         <td style="min-width:130px">${cellInput('outbound',id,'driver',r.driver,'130px','Assigned Driver')}</td>
@@ -3935,6 +3954,7 @@ function renderIPG(){
         <th>Customer</th>
         <th>Orig Req Date</th>
         <th>Load ID</th>
+        <th>Destination</th>
         <th style="width:60px">Door #</th>
         <th>Trailer #</th>
         <th>Assigned Driver</th>
@@ -4286,7 +4306,7 @@ function obFiltering(){ const f=state.obColFilter||{}; return !!((f.customer||''
 function obColMatch(r){ const f=state.obColFilter||{}; return _colHit(r.customer,f.customer) && _colHit(r.orderNum,f.orderNum) && _colHit(r.picker,f.picker) && _colHit(r.loader,f.loader) && _colHit(r.trailer,f.trailer); }
 function setObFilter(field, v){ state.obColFilter[field]=v; renderOutbound(); refocusFilter('ob-filter-'+field); }
 // FF / PWD share the same columns (status, carrier, customer, orig req date, load id, door, trailer, driver, notes)
-function _ffLikeMatch(f, r){ return _colHit(r.status,f.status) && _colHit(r.carrier,f.carrier) && _colHit(r.customer,f.customer) && _colHit((r.origReqDate||r.reqDate||'').slice(0,10),f.origReqDate) && _colHit(r.loadId,f.loadId) && _colHit(r.door,f.door) && _colHit(r.trailer,f.trailer) && _colHit(r.driver,f.driver) && _colHit(r.phone,f.phone) && _colHit(r.notes,f.notes); }
+function _ffLikeMatch(f, r){ return _colHit(r.status,f.status) && _colHit(r.carrier,f.carrier) && _colHit(r.customer,f.customer) && _colHit((r.origReqDate||r.reqDate||'').slice(0,10),f.origReqDate) && _colHit(r.loadId,f.loadId) && _colHit(r.destination,f.destination) && _colHit(r.door,f.door) && _colHit(r.trailer,f.trailer) && _colHit(r.driver,f.driver) && _colHit(r.phone,f.phone) && _colHit(r.notes,f.notes); }
 function ffFiltering(){ const f=state.ffColFilter||{}; return Object.keys(f).some(k=>(f[k]||'').trim()); }
 function ffColMatch(r){ return _ffLikeMatch(state.ffColFilter||{}, r); }
 function setFfFilter(field, v){ state.ffColFilter[field]=v; renderFirstFleet(); refocusFilter('ff-filter-'+field); }
@@ -5438,7 +5458,8 @@ const SC_HIST_FIELDS = {
 const SC_TONS_ALIASES = {
   'TWIN RIVERS':'TWIN', 'MAXXON':'MAX', 'NEXUS':'NEX', 'SMURFIT WESTROCK':'WRK', 'SMURFIT':'WRK',
   'CATALYST':'CAT', 'NORCROSS':'NOR', 'NORCROSS XDK':'NOR', 'COVINGTON':'COV', 'COVINGTON XDK':'COV',
-  'SCI GAMES':'SG', 'CONWAY':'CON', 'LANET':'LAN', 'LANET - VALLEY':'LAN', 'DOMTAR':'DOM'
+  'SCI GAMES':'SG', 'CONWAY':'CON', 'LANET':'LAN', 'LANET - VALLEY':'LAN', 'DOMTAR':'DOM',
+  'IPG TONS':'IPG', 'IPG BUND':'IPGB', 'IPG BUNDLES':'IPGB', 'IPG PLTS':'IPGP', 'IPG PALL':'IPGP', 'IPG PALLETS':'IPGP'
 };
 const SC_MONTH_NAMES = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
 
@@ -6088,8 +6109,23 @@ const SC_GROUPS_6021 = [
 // NEX (Nexus) is stored at 6021 but counted in PALLETS, not tons. It sits after MAX in the Tons
 // section and is flagged noTotal so it never lands in the Tons Total — pallets and tons don't add
 // up to anything. It has no load group, so the report surfaces it as its own line.
-const SC_TONS_6021 = SC_GROUPS_6021.map(g=>({ key:g.key, label:g.key }))
-  .concat([{ key:'NEX', label:'NEX', noTotal:true }]);
+// IPG is broken out into three Tons-section columns: IPG TONS (rolls into the Tons Total, same as
+// before), plus IPG BUND (bundles) and IPG PLTS (pallets) which are tracked but flagged noTotal so
+// they never land in the tons Total — bundles/pallets and tons don't add up. Load metrics still
+// key off the single 'IPG' group (SC_GROUPS_6021), so the Loads section is unchanged.
+const SC_TONS_6021 = [
+  { key:'WRK',  label:'WRK' },
+  { key:'CAT',  label:'CAT' },
+  { key:'DOM',  label:'DOM' },
+  { key:'UPM',  label:'UPM' },
+  { key:'TWIN', label:'TWIN' },
+  { key:'IPG',  label:'IPG TONS' },
+  { key:'IPGB', label:'IPG BUND', noTotal:true },
+  { key:'IPGP', label:'IPG PLTS', noTotal:true },
+  { key:'IP',   label:'IP' },
+  { key:'MAX',  label:'MAX' },
+  { key:'NEX',  label:'NEX', noTotal:true }
+];
 
 const SC_GROUPS_WRK = [
   {key:'NOR',    label:'NORCROSS XDK'},
@@ -6571,7 +6607,7 @@ function scReportHtml(){
     return `<tr><td class="lbl">${g.label}</td><td>${v.due}</td><td>${v.dueToShip}</td><td>${v.shipped}</td><td class="bal">${v.balance}</td><td>${Math.round(v.tons||0)}</td></tr>`;
   }).join('');
   const tonsOnlyRows = SC_TONS.filter(t=>!SC_GROUPS.some(g=>g.key===t.key)).map(t=>
-    `<tr><td class="lbl">${t.label} <span style="font-weight:400;opacity:.55">${t.noTotal?'(pallets — not in tons total)':'(tons only)'}</span></td><td>—</td><td>—</td><td>—</td><td class="bal">—</td><td>${Math.round((A.tonsBy||{})[t.key]||0)}</td></tr>`).join('');
+    `<tr><td class="lbl">${t.label} <span style="font-weight:400;opacity:.55">${t.noTotal?'(not in tons total)':'(tons only)'}</span></td><td>—</td><td>—</td><td>—</td><td class="bal">—</td><td>${Math.round((A.tonsBy||{})[t.key]||0)}</td></tr>`).join('');
   const custTotal = `<tr class="tot"><td class="lbl">TOTAL</td><td>${A.totalDue}</td><td>${A.totalDueToShip}</td><td>${A.totalShipped}</td><td class="bal">${A.totalPending}</td><td>${Math.round(A.tonsTotal||0)}</td></tr>`;
   const botIcons = [['Total Loads Shipped',A.totalShipped],['Total Loads Pending',A.totalPending],['Total Loads',A.totalLoads],['Total Tons',Math.round(A.tonsTotal||0)]]
     .map(([k,v])=>`<div class="fbox"><span>${k}</span><b>${v||0}</b></div>`).join('');
