@@ -66,7 +66,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 /* ── HEADER ─────────────────────────────────────────────────────── */
 .header { background:var(--surface);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;flex-shrink:0; }
 #main-app { height:100vh;flex-direction:column;overflow:hidden; }
-#view-ib,#view-ob,#view-yd,#view-sc,#view-pwd,#view-ff,#view-sd,#view-ig,#view-domtar { display:flex;flex-direction:column;flex:1 1 auto;min-height:0; }
+#view-ib,#view-ob,#view-yd,#view-sc,#view-pwd,#view-ff,#view-sd,#view-cat,#view-ig,#view-domtar { display:flex;flex-direction:column;flex:1 1 auto;min-height:0; }
 .main > div > * { flex-shrink:0; }
 .main > div > .schedule-wrap { flex:1 1 0;min-height:0; }
 .data-scroll { background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:auto;flex:1 1 0;min-height:0; }
@@ -89,6 +89,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .nav-tab.active-pwd { color:#0891b2;border-bottom-color:#0891b2; }
 .nav-tab.active-ig { color:#b45309;border-bottom-color:#b45309; }
 .nav-tab.active-domtar { color:#166534;border-bottom-color:#166534; }
+.nav-tab.active-cat { color:#be123c;border-bottom-color:#be123c; }
 .sc-wrap { background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:auto;flex:1 1 0;min-height:120px; }
 .sc-table { border-collapse:collapse;font-size:11px;white-space:nowrap; }
 .sc-table th,.sc-table td { border:1px solid var(--border);padding:3px 5px;text-align:center; }
@@ -177,6 +178,19 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 #view-sd .sd-gm { font-size:9.5px;font-weight:800;letter-spacing:.3px;padding:3px 9px;border-radius:999px;white-space:nowrap;display:inline-block; }
 #view-sd .sd-pills { display:flex;gap:8px;margin:0 0 14px;flex-wrap:wrap; }
 #view-sd .summary-bar { margin-bottom:16px; }
+#view-cat .sd-wrap { background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:auto;flex:1 1 0;min-height:0; }
+#view-cat .sd-table { width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px; }
+#view-cat .sd-table thead th { position:sticky;top:0;z-index:5;background:var(--surface2);padding:10px 12px;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--text2);font-weight:800;border-bottom:2px solid var(--border);white-space:nowrap;text-align:left; }
+#view-cat .sd-table tbody td { padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:middle;color:var(--text); }
+#view-cat .sd-table tbody tr:last-child td { border-bottom:none; }
+#view-cat .sd-table tbody tr:hover td { background:rgba(190,18,60,0.04); }
+#view-cat .sd-table td.sd-num { text-align:right;font-variant-numeric:tabular-nums; }
+#view-cat .sd-table td.sd-ship { font-weight:700; }
+#view-cat .sd-table th.sd-r, #view-cat .sd-table td.sd-r { text-align:right; }
+#view-cat .sd-table th.sd-c, #view-cat .sd-table td.sd-c { text-align:center; }
+#view-cat .sd-gm { font-size:9.5px;font-weight:800;letter-spacing:.3px;padding:3px 9px;border-radius:999px;white-space:nowrap;display:inline-block; }
+#view-cat .sd-pills { display:flex;gap:8px;margin:0 0 14px;flex-wrap:wrap; }
+#view-cat .summary-bar { margin-bottom:16px; }
 .col-filter { display:block;width:100%;min-width:0;box-sizing:border-box;margin-top:4px;font-size:11px;font-weight:500;letter-spacing:normal;text-transform:uppercase;color:var(--text);padding:3px 6px;border:1px solid var(--border);border-radius:5px;background:#fff; }
 .col-filter::placeholder { color:#aab2c5;font-weight:400;text-transform:none; }
 .roll-bar { display:flex;align-items:center;gap:12px;background:rgba(217,119,6,0.08);border:1px solid var(--warning);border-radius:10px;padding:10px 14px;margin-bottom:14px;flex-wrap:wrap; }
@@ -520,6 +534,7 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
     <button class="nav-tab" id="tab-yd" onclick="switchTab('yd')">🏗 Yard Manager</button>
     <button class="nav-tab" id="tab-sc" onclick="switchTab('sc')">📊 Scorecard</button>
     <button class="nav-tab" id="tab-sd" onclick="switchTab('sd')">📋 WRK SHIPDUE</button>
+    <button class="nav-tab" id="tab-cat" onclick="switchTab('cat')" style="display:none">🧾 CATALYST</button>
     <button class="nav-tab" id="tab-ff" onclick="switchTab('ff')">🚚 First Fleet</button>
     <button class="nav-tab" id="tab-pwd" onclick="switchTab('pwd')">🚛 PWD</button>
     <button class="nav-tab" id="tab-domtar" onclick="switchTab('domtar')">🌲 DOMTAR</button>
@@ -532,6 +547,7 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
     <div id="view-yd" style="display:none"></div>
     <div id="view-sc" style="display:none"></div>
     <div id="view-sd" style="display:none"></div>
+    <div id="view-cat" style="display:none"></div>
     <div id="view-ff" style="display:none"></div>
     <div id="view-pwd" style="display:none"></div>
     <div id="view-domtar" style="display:none"></div>
@@ -564,8 +580,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-37';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807037;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-48';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807048;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -598,6 +614,9 @@ const state = {
   obSearch: '',
   ibSearch: '',
   shipdue: null,
+  catOrders: null,
+  catInv: null,
+  catFilter: 'OKAY',
   sdFilter: 'Not Processed',
   ibColFilter: { customer:'', loadNum:'', unloader:'' },
   obColFilter: { customer:'', orderNum:'', picker:'', loader:'', trailer:'' },
@@ -2027,6 +2046,14 @@ function startListeners() {
     state.shipdue = snap.val()||null;
     if (state.tab==='sd') renderShipDue();
   });
+  db.ref(ROOT+'/catalystOrders').on('value', snap => {
+    state.catOrders = snap.val()||null;
+    if (state.tab==='cat') renderCatalyst();
+  });
+  db.ref(ROOT+'/catalystInv').on('value', snap => {
+    state.catInv = snap.val()||null;
+    if (state.tab==='cat') renderCatalyst();
+  });
   db.ref(ROOT+'/scorecardWrk').on('value', snap => {
     state.scorecardWrk = snap.val()||{};
     if (state.tab==='sc' && scBoard().store==='scorecardWrk') scDeferRender();
@@ -2075,6 +2102,561 @@ function updateBadges() {
 }
 
 // ─── TABS ──────────────────────────────────────────────────────────────
+// ─── CATALYST · DELIVERY SCHEDULE + LOAD BUILDER ─────────────────────────────
+// Two imports feed this tab. The Catalyst Delivery Schedule (orders / demand — a UTF-16
+// SAP CSV) and the Warehouse Detail Report (inventory / supply — .xlsx, aggregated by SKU).
+// Each order line's Material joins to inventory SKU so you can see, per line, how much is
+// due versus how much is on hand. "Build Load" creates an Outbound load (source 'catalyst')
+// for a chosen weight (defaults to a 44,000 LB truck) and can be run more than once per line,
+// so a big order splits across several trucks. Availability and remaining are derived LIVE
+// from the outbound board, so cancelling or deleting a built load returns the inventory on its
+// own — nothing is mutated on the snapshots. Data lives at ROOT/catalystOrders and
+// ROOT/catalystInv. 6021 only.
+
+const CAT_TRUCK_LB = 44000;   // default per-truck weight when splitting an order line
+
+function _catNorm(v){ return String(v==null?'':v).replace(/\s+/g,' ').trim(); }
+function _catUpper(v){ return _catNorm(v).toUpperCase(); }
+function _catNum(v){ if(v==null||v==='') return 0; const n=parseFloat(String(v).replace(/,/g,'').replace(/[^0-9.\-]/g,'')); return isNaN(n)?0:n; }
+function _catSku(v){ const m=String(v==null?'':v).match(/\d+/); return m?m[0]:_catUpper(v); }   // "58382 - STOCK" -> "58382"
+function _catDate(v){
+  if(v instanceof Date && !isNaN(v)) return v.getFullYear()+'-'+String(v.getMonth()+1).padStart(2,'0')+'-'+String(v.getDate()).padStart(2,'0');
+  const s=_catNorm(v); if(!s) return '';
+  let m=s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);   if(m) return m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');   // DD.MM.YYYY
+  m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);             if(m) return m[1]+'-'+m[2]+'-'+m[3];
+  m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);       if(m) return m[3]+'-'+m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0');
+  return s;
+}
+// Robust CSV parser (handles quoted fields with commas / doubled quotes).
+function _catParseCSV(text){
+  const rows=[]; let row=[], cur='', q=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(q){
+      if(c==='"'){ if(text[i+1]==='"'){cur+='"';i++;} else q=false; }
+      else cur+=c;
+    } else {
+      if(c==='"') q=true;
+      else if(c===','){ row.push(cur); cur=''; }
+      else if(c==='\r' || c==='\n'){ if(c==='\r' && text[i+1]==='\n') i++; row.push(cur); rows.push(row); row=[]; cur=''; }
+      else cur+=c;
+    }
+  }
+  if(cur!=='' || row.length){ row.push(cur); rows.push(row); }
+  return rows;
+}
+// Decode a file's bytes as UTF-16 (SAP export) or UTF-8, by BOM.
+function _catDecode(bytes){
+  if(bytes.length>=2 && bytes[0]===0xFF && bytes[1]===0xFE) return new TextDecoder('utf-16le').decode(bytes);
+  if(bytes.length>=2 && bytes[0]===0xFE && bytes[1]===0xFF) return new TextDecoder('utf-16be').decode(bytes);
+  if(bytes.length>=4){                       // BOM-less UTF-16 (SAP exports): many NUL bytes on one parity
+    let zOdd=0,zEven=0,n=Math.min(bytes.length,400);
+    for(let i=0;i<n;i++){ if(bytes[i]===0){ (i%2)?zOdd++:zEven++; } }
+    if(zOdd>n*0.15) return new TextDecoder('utf-16le').decode(bytes);
+    if(zEven>n*0.15) return new TextDecoder('utf-16be').decode(bytes);
+  }
+  return new TextDecoder('utf-8').decode(bytes);
+}
+
+// Orders CSV header (normalized) -> field key. Matched by name so column order can drift.
+const CAT_ORDER_COLS = {
+  'LOADG DATE':'loadDate','DLV.DATE':'delivDate','SOLDTONAME':'soldTo','BLOCK STA':'blockSta',
+  'SOLD-TO PT':'soldToPt','SHIP-TO':'shipToPt','SALES DOC.':'order','ITEM':'line','DP NOTES':'notes',
+  'PO NUMBER':'po','CUST. MAT.':'custMat','MATERIAL':'material','WIDTH (IN)':'width',
+  'ORD QTY MT':'qtyMt','ORDER QTY':'qty','SALES UNIT':'unit','DELIV.QTY':'delivQty',
+  'SHIPTONAME':'shipToName','NAME':'name','CITY':'city','REGION':'region','INVENTTYPE':'inventType',
+  'PEG S/M QT':'pegQt','AVAIL.INVT':'availInvt','DELIVERY BLOCK':'delivBlock','CREDIT STA':'creditSta',
+  'SHIPMENTS STATUS':'shipStatus'
+};
+function catParseOrders(text){
+  const grid=_catParseCSV(text).map(r=>r.map(c=>_catNorm(c)));
+  let hr=-1;
+  for(let i=0;i<Math.min(grid.length,10);i++){ if((grid[i]||[]).some(c=>_catUpper(c)==='SALES DOC.')){hr=i;break;} }
+  if(hr<0) return {rows:[], warnings:['No "Sales Doc." header row found.']};
+  const map={}; (grid[hr]||[]).forEach((c,ci)=>{ const k=CAT_ORDER_COLS[_catUpper(c)]; if(k) map[ci]=k; });
+  const out=[];
+  for(let r=hr+1;r<grid.length;r++){
+    const row=grid[r]||[]; const o={}; Object.keys(map).forEach(ci=>{ o[map[ci]]=row[ci]; });
+    const order=_catNorm(o.order); if(!order || !/^\d/.test(order)) continue;   // skip blank / subtotal rows
+    const line=_catNorm(o.line)||'1';
+    out.push({
+      order, line, _lid:order+'-'+line, po:_catNorm(o.po),
+      soldTo:_catNorm(o.soldTo), shipToName:_catNorm(o.shipToName)||_catNorm(o.name),
+      city:_catNorm(o.city), region:_catNorm(o.region), dest:(_catNorm(o.city)+(o.region?', '+_catNorm(o.region):'')),
+      material:_catNorm(o.material), sku:_catSku(o.material), custMat:_catNorm(o.custMat), width:_catNum(o.width),
+      unit:_catUpper(o.unit)||'LB', qty:_catNum(o.qty), qtyMt:_catNum(o.qtyMt),
+      availInvt:_catNum(o.availInvt), pegQt:_catNum(o.pegQt),
+      loadDate:_catDate(o.loadDate), delivDate:_catDate(o.delivDate),
+      blockSta:_catNorm(o.blockSta), delivBlock:_catNorm(o.delivBlock), creditSta:_catNorm(o.creditSta),
+      inventType:_catUpper(o.inventType), shipStatus:_catNorm(o.shipStatus), notes:_catNorm(o.notes)
+    });
+  }
+  return {rows:out, warnings:[]};
+}
+
+// Inventory workbook -> { skus: { SKU: {sku, rolls, lbs, width, locs} } } aggregated by SKU.
+function catParseInv(wb){
+  const out={skus:{}, rolls:0, warnings:[]};
+  const names=wb.SheetNames||[];
+  for(const name of names){
+    const grid=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,raw:true,defval:null,blankrows:false});
+    let hr=-1;
+    for(let i=0;i<Math.min(grid.length,15);i++){ if((grid[i]||[]).some(c=>_catUpper(c)==='SKU')){hr=i;break;} }
+    if(hr<0) continue;
+    const H={}; (grid[hr]||[]).forEach((c,ci)=>{ H[_catUpper(c)]=ci; });
+    const cSku=H['SKU'], cW=(H['FULL WEIGHT LBS']!=null?H['FULL WEIGHT LBS']:H['UNIQUE WEIGHT']),
+          cWid=H['WIDTH'], cStat=H['INVENTORY STATUS'], cLoc=H['LOCATION'];
+    if(cSku==null) continue;
+    for(let r=hr+1;r<grid.length;r++){
+      const row=grid[r]||[]; const skuRaw=row[cSku]; if(skuRaw==null || _catNorm(skuRaw)==='') continue;
+      const stat=_catUpper(cStat!=null?row[cStat]:''); if(stat && stat!=='AVAILABLE') continue;
+      const sku=_catSku(skuRaw);
+      const rec=out.skus[sku] || (out.skus[sku]={sku, rolls:0, lbs:0, width:_catNum(cWid!=null?row[cWid]:0), locs:{}});
+      rec.rolls+=1; out.rolls+=1; rec.lbs+=_catNum(cW!=null?row[cW]:0);
+      if(!rec.width) rec.width=_catNum(cWid!=null?row[cWid]:0);
+      const loc=_catNorm(cLoc!=null?row[cLoc]:''); if(loc) rec.locs[loc]=(rec.locs[loc]||0)+1;
+    }
+    return out;
+  }
+  out.warnings.push('No sheet with an "SKU" header was found.');
+  return out;
+}
+
+// ── live state accessors ──
+function catOrderRows(){ return (state.catOrders && Array.isArray(state.catOrders.rows)) ? state.catOrders.rows : []; }
+function catInvSkus(){ return (state.catInv && state.catInv.skus) ? state.catInv.skus : {}; }
+function catLineByLid(lid){ return catOrderRows().find(r=>r._lid===lid) || null; }
+// Committed = sum of built (live, non-cancelled) catalyst outbound loads, per line and per SKU.
+function catCommitted(){
+  const byLid={}, lbsBySku={}, rollsBySku={};
+  const add=(lid,sku,unit,w,q)=>{ unit=_catUpper(unit)||'LB';
+    if(lid) byLid[lid]=(byLid[lid]||0)+(unit==='PAC'?q:w);
+    if(sku){ lbsBySku[sku]=(lbsBySku[sku]||0)+w; rollsBySku[sku]=(rollsBySku[sku]||0)+q; } };
+  Object.values(state.outbound||{}).forEach(o=>{
+    if(o.source!=='catalyst' || o.catArchived || _catUpper(o.status)==='CANCELLED') return;
+    if(Array.isArray(o.catAlloc)) o.catAlloc.forEach(a=>add(a.lid,a.sku,a.unit,_catNum(a.weight),_catNum(a.qty)));
+    else add(o.catLid||'', o.catSku||'', o.catUnit, _catNum(o.catWeight), _catNum(o.catQty));   // legacy single-line loads
+  });
+  return {byLid, lbsBySku, rollsBySku};
+}
+// Remaining to load for a line, in its native unit (LB or PAC).
+function catRemaining(line, com){ return Math.max(0, (line.qty||0) - ((com||catCommitted()).byLid[line._lid]||0)); }
+// Available inventory for a SKU after live commitments.
+function catAvail(sku, com){
+  const inv=catInvSkus()[sku]; if(!inv) return null;
+  const c=com||catCommitted();
+  return { rolls:Math.max(0, inv.rolls-(c.rollsBySku[sku]||0)), lbs:Math.max(0, inv.lbs-(c.lbsBySku[sku]||0)),
+           rawRolls:inv.rolls, rawLbs:inv.lbs, width:inv.width };
+}
+
+// ── imports (admin) ──
+let _catPendOrders=null, _catPendInv=null;
+function showCatOrderImport(){
+  if(!requireAdmin()) return;
+  document.getElementById('modal-container').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal" style="max-width:560px">
+        <h2 style="margin:0 0 6px">Import Catalyst Delivery Schedule</h2>
+        <p style="color:var(--text2);font-size:12px;margin:0 0 14px">Select the Catalyst Delivery Schedule export (.csv). It replaces the current order list; loads you already built stay on the board and keep their inventory hold.</p>
+        <input type="file" id="cat-ofile" accept=".csv,.CSV,.txt" onchange="previewCatOrders(event)" style="display:block;width:100%;margin-bottom:12px;font-size:13px">
+        <div id="cat-opre" style="font-size:12px;color:var(--text2);min-height:20px"></div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+          <button class="sign-out-btn" onclick="closeModal()">Cancel</button>
+          <button class="sign-out-btn" id="cat-ogo" disabled onclick="commitCatOrders()" style="background:#be123c;color:#fff;border-color:#be123c;opacity:.5">Import Orders</button>
+        </div>
+      </div>
+    </div>`;
+}
+async function previewCatOrders(ev){
+  const file=ev.target.files && ev.target.files[0]; const box=document.getElementById('cat-opre'); const go=document.getElementById('cat-ogo');
+  if(!file) return; box.innerHTML='Reading…';
+  try{
+    const buf=await file.arrayBuffer(); const text=_catDecode(new Uint8Array(buf));
+    const res=catParseOrders(text); _catPendOrders=res;
+    if(!res.rows.length){ box.innerHTML='<span style="color:var(--danger)">No order rows found. '+(res.warnings[0]||'')+'</span>'; go.disabled=true; go.style.opacity=.5; return; }
+    const orders=new Set(res.rows.map(r=>r.order)).size;
+    const okay=res.rows.filter(r=>_catUpper(r.shipStatus).indexOf('OKAY')===0).length;
+    box.innerHTML=`<b>${res.rows.length}</b> lines &middot; <b>${orders}</b> orders &middot; <b>${okay}</b> Okay to Ship`;
+    go.disabled=false; go.style.opacity=1;
+  }catch(e){ box.innerHTML='<span style="color:var(--danger)">Could not read file: '+((e&&e.message)||e)+'</span>'; go.disabled=true; go.style.opacity=.5; }
+}
+function commitCatOrders(){
+  if(!requireAdmin() || !_catPendOrders || !_catPendOrders.rows.length) return;
+  const payload={ rows:_catPendOrders.rows, importedAt:Date.now(), importedBy:(state.user&&state.user.label)||'' };
+  state.catOrders=payload;
+  db.ref(ROOT+'/catalystOrders').set(payload)
+    .then(()=>{ const moved=catReconcileShipped(); closeModal(); showAlert('Catalyst orders imported: '+payload.rows.length+' lines'+(moved?(' \u00b7 '+moved+' shipped load(s) moved out'):'')); if(state.tab==='cat') renderCatalyst(); })
+    .catch(e=>showAlert('Import failed: '+((e&&e.message)||e)));
+  _catPendOrders=null;
+}
+function showCatInvImport(){
+  if(!requireAdmin()) return;
+  document.getElementById('modal-container').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal" style="max-width:560px">
+        <h2 style="margin:0 0 6px">Import Catalyst Inventory</h2>
+        <p style="color:var(--text2);font-size:12px;margin:0 0 14px">Select the Warehouse Detail Report (.xlsx). Rolls are totalled by SKU. Loads already built keep their hold against this new snapshot.</p>
+        <input type="file" id="cat-ifile" accept=".xlsx,.xlsm" onchange="previewCatInv(event)" style="display:block;width:100%;margin-bottom:12px;font-size:13px">
+        <div id="cat-ipre" style="font-size:12px;color:var(--text2);min-height:20px"></div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+          <button class="sign-out-btn" onclick="closeModal()">Cancel</button>
+          <button class="sign-out-btn" id="cat-igo" disabled onclick="commitCatInv()" style="background:#166534;color:#fff;border-color:#166534;opacity:.5">Import Inventory</button>
+        </div>
+      </div>
+    </div>`;
+}
+async function previewCatInv(ev){
+  const file=ev.target.files && ev.target.files[0]; const box=document.getElementById('cat-ipre'); const go=document.getElementById('cat-igo');
+  if(!file) return; box.innerHTML='Reading…';
+  try{
+    const buf=await file.arrayBuffer(); const wb=XLSX.read(new Uint8Array(buf),{type:'array',cellDates:true});
+    const res=catParseInv(wb); _catPendInv=res;
+    const nsk=Object.keys(res.skus).length;
+    if(!nsk){ box.innerHTML='<span style="color:var(--danger)">No inventory rows found. '+(res.warnings[0]||'')+'</span>'; go.disabled=true; go.style.opacity=.5; return; }
+    const lbs=Object.values(res.skus).reduce((s,x)=>s+x.lbs,0);
+    box.innerHTML=`<b>${res.rolls}</b> rolls &middot; <b>${nsk}</b> SKUs &middot; <b>${Math.round(lbs).toLocaleString()}</b> lbs available`;
+    go.disabled=false; go.style.opacity=1;
+  }catch(e){ box.innerHTML='<span style="color:var(--danger)">Could not read file: '+((e&&e.message)||e)+'</span>'; go.disabled=true; go.style.opacity=.5; }
+}
+function commitCatInv(){
+  if(!requireAdmin() || !_catPendInv || !Object.keys(_catPendInv.skus).length) return;
+  const payload={ skus:_catPendInv.skus, rolls:_catPendInv.rolls, importedAt:Date.now(), importedBy:(state.user&&state.user.label)||'' };
+  state.catInv=payload;
+  db.ref(ROOT+'/catalystInv').set(payload)
+    .then(()=>{ const moved=catReconcileShipped(); closeModal(); showAlert('Catalyst inventory imported: '+Object.keys(payload.skus).length+' SKUs'+(moved?(' \u00b7 '+moved+' shipped load(s) moved out'):'')); if(state.tab==='cat') renderCatalyst(); })
+    .catch(e=>showAlert('Import failed: '+((e&&e.message)||e)));
+  _catPendInv=null;
+}
+
+// ── build a load against a line ──
+function setCatFilter(v){ state.catFilter=v; renderCatalyst(); }
+// On import, "move out" catalyst loads already shipped (DEPARTED): the fresh order + inventory
+// snapshots already reflect those, so they must stop holding inventory or counting against orders.
+function catReconcileShipped(){
+  const ups={}; let n=0;
+  Object.entries(state.outbound||{}).forEach(([id,o])=>{
+    if(o && o.source==='catalyst' && !o.catArchived && _catUpper(o.status)==='DEPARTED'){ o.catArchived=true; ups['/outbound/'+id+'/catArchived']=true; n++; }
+  });
+  if(n) db.ref(ROOT).update(ups).catch(()=>{});
+  return n;
+}
+function catAskClear(){
+  if(!requireAdmin()) return;
+  const n=Object.values(state.outbound||{}).filter(o=>o&&o.source==='catalyst').length;
+  document.getElementById('modal-container').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal" style="max-width:460px">
+        <h2 style="margin:0 0 6px">Clear Catalyst Loads</h2>
+        <p style="color:var(--text2);font-size:12.5px;margin:0 0 14px">Removes <b>${n}</b> Catalyst-built load(s) from the Outbound board and returns all held inventory. Imported orders and inventory stay. This cannot be undone.</p>
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+          <button class="sign-out-btn" onclick="closeModal()">Cancel</button>
+          <button class="sign-out-btn" onclick="catDoClear()" style="background:#b91c1c;color:#fff;border-color:#b91c1c">Clear ${n} Load${n===1?'':'s'}</button>
+        </div>
+      </div>
+    </div>`;
+}
+function catDoClear(){
+  if(!requireAdmin()) return;
+  const ups={}; let n=0;
+  Object.entries(state.outbound||{}).forEach(([id,o])=>{ if(o&&o.source==='catalyst'){ delete state.outbound[id]; ups['/outbound/'+id]=null; n++; } });
+  if(n) db.ref(ROOT).update(ups).catch(()=>{});
+  closeModal(); showAlert('Cleared '+n+' Catalyst load(s)'); if(state.tab==='cat') renderCatalyst();
+}
+function catShipBucket(r){ return _catUpper(r.shipStatus).indexOf('OKAY')===0 ? 'OKAY' : 'HOLD'; }
+
+// Per-SKU average roll weight (lbs per pack), from the inventory snapshot.
+function _catPackWt(sku){ const inv=catInvSkus()[sku]; return (inv&&inv.rolls)? (inv.lbs/inv.rolls) : 0; }
+// Split a whole total into N as-even-as-possible integer parts (first `rem` parts get one extra).
+function _catSplit(total, N){ const out=[]; const base=Math.floor(total/N), rem=total-base*N; for(let t=0;t<N;t++) out.push(base+(t<rem?1:0)); return out; }
+function catBlocked(r){ return _catUpper(r.blockSta)==='BLOCKED' || !!(r.delivBlock) || (r.creditSta && _catUpper(r.creditSta)!=='RELEASED'); }
+// The order's lines that still have qty to load AND inventory to cover it. Only Okay-to-Ship,
+// unblocked lines are eligible. Weight is the common currency for truck sizing: LB lines ship
+// pounds, PAC lines convert packs → pounds via _catPackWt.
+function catOrderShippable(order, com){
+  com=com||catCommitted();
+  return catOrderRows().filter(r=>r.order===order && catShipBucket(r)==='OKAY' && !catBlocked(r)).map(r=>{
+    const isLB=r.unit!=='PAC'; const rem=catRemaining(r,com); const av=catAvail(r.sku,com);
+    const availNative = av ? (isLB?av.lbs:av.rolls) : 0;
+    const ship = Math.max(0, Math.min(rem, availNative));
+    const shipInt = isLB ? Math.round(ship) : Math.floor(ship);   // packs are whole
+    const packWt = isLB ? 1 : _catPackWt(r.sku);
+    return { line:r.line, lid:r._lid, sku:r.sku, unit:r.unit, isLB, rem, ship:shipInt, packWt,
+             shipLb: isLB?shipInt:Math.round(shipInt*packWt), availNative, cap: shipInt<rem };
+  }).filter(x=>x.ship>0);
+}
+// Even-split plan: N = enough weight-capped trucks to move everything shippable; each line's
+// quantity is spread as evenly as possible across all N trucks, so every truck is the same mix.
+const CAT_FILLER_PCT = 0.10;   // filler SKU rides ~10% of each truck alongside the primary
+// Template-style packing (Catalyst / Trimaco): run ONE primary SKU at a time (largest on-hand
+// volume first) and top each truck with ~10% of the small "filler" SKU, filling to the target.
+// When a primary depletes, move to the next; once the primaries are gone, ship the remaining
+// filler on its own (light) trucks. Reduces to a plain fill for single-SKU orders. Every truck is
+// capped at the target and the very last runs light.
+function catBuildPlan(order, target, com){
+  com=com||catCommitted(); target=Number(target)||CAT_TRUCK_LB;
+  const lines=catOrderShippable(order,com);
+  const totalLb=lines.reduce((s,l)=>s+l.shipLb,0);
+  const capped=lines.some(l=>l.cap);
+  if(totalLb<=0) return { lines, totalLb:0, N:0, target, trucks:[], capped, order:[], filler:null };
+  if(totalLb<=target){                              // whole order fits one truck — combine every line/SKU on it
+    const alloc=lines.filter(l=>l.ship>0).map(l=>({ lid:l.lid, sku:l.sku, line:l.line, unit:l.unit, isLB:l.isLB, packWt:l.packWt, amt:l.ship }));
+    return { lines, totalLb, N:1, target, trucks:[{ alloc, lb:Math.round(totalLb) }], capped, order:alloc.map(a=>a.sku), filler:null };
+  }
+
+  const rec={}; lines.forEach(l=>rec[l.lid]={ lid:l.lid, sku:l.sku, line:l.line, unit:l.unit, isLB:l.isLB, packWt:l.packWt, left:l.ship });
+  const sorted=lines.slice().sort((a,b)=>b.shipLb-a.shipLb);   // biggest volume first
+  let filler=null, primaries;
+  if(sorted.length>=2){ filler=rec[sorted[sorted.length-1].lid]; primaries=sorted.slice(0,-1).map(l=>rec[l.lid]); }
+  else primaries=sorted.map(l=>rec[l.lid]);
+  const fillerCapLb=target*CAT_FILLER_PCT;
+
+  const trucks=[];
+  const addPacks=(acc,l,capLb)=>{ let a=0; while(l.left>0 && (a+l.packWt)<=capLb+1e-6){ acc[l.lid]=(acc[l.lid]||0)+1; l.left--; a+=l.packWt; } return a; };
+  const addLB   =(acc,l,capLb)=>{ const add=Math.min(l.left, Math.floor(capLb)); if(add>0){ acc[l.lid]=(acc[l.lid]||0)+add; l.left-=add; return add; } return 0; };
+  const addFiller=(acc,l,capLb,truckCap,w)=>{ if(l.isLB) return addLB(acc,l,Math.min(capLb,truckCap-w)); let a=0; while(l.left>0 && a<capLb && (w+a+l.packWt)<=truckCap+1e-6){ acc[l.lid]=(acc[l.lid]||0)+1; l.left--; a+=l.packWt; } return a; };
+  const finalize=(acc)=>{ const alloc=Object.keys(acc).map(lid=>{ const l=rec[lid]; return { lid, sku:l.sku, line:l.line, unit:l.unit, isLB:l.isLB, packWt:l.packWt, amt:acc[lid] }; });
+    const lb=alloc.reduce((s,a)=>s+(a.isLB?a.amt:Math.round(a.amt*a.packWt)),0); if(alloc.length) trucks.push({ alloc, lb }); };
+
+  let guard=0;
+  primaries.forEach(P=>{
+    while(P.left>0 && guard++<20000){
+      const acc={}; let w=0;
+      if(filler && filler.left>0) w+=addFiller(acc, filler, fillerCapLb, target, w);   // reserve ~10% for filler
+      w += P.isLB ? addLB(acc,P,target-w) : addPacks(acc,P,target-w);                  // fill the rest with the primary
+      if(!acc[P.lid]){ if(P.isLB){ const add=Math.min(P.left,Math.floor(target)); if(add>0){acc[P.lid]=add;P.left-=add;w+=add;} } else if(P.left>0){ acc[P.lid]=1; P.left--; w+=P.packWt; } }
+      finalize(acc);
+    }
+  });
+  while(filler && filler.left>0 && guard++<20000){       // leftover filler ships on its own
+    const acc={}; (filler.isLB?addLB:addPacks)(acc, filler, target);
+    if(!Object.keys(acc).length && filler.left>0){ acc[filler.lid]=1; filler.left--; }
+    finalize(acc);
+  }
+  return { lines, totalLb, N:trucks.length, target, trucks, capped, order:primaries.map(p=>p.sku), filler:filler?filler.sku:null };
+}
+function catOrderMeta(order){ const ls=catOrderRows().filter(r=>r.order===order); const g=ls[0]||{}; return {g, ls}; }
+
+// ── build modal (order level) ──
+function catReplan(order){ const t=(document.getElementById('cat-target')||{}).value; catAskBuildOrder(order, t); }
+function catAskBuildOrder(order, target){
+  if(!requireAdmin()) return;
+  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const {g,ls}=catOrderMeta(order); if(!ls.length){ closeModal(); return; }
+  const tgt=Number(target)||CAT_TRUCK_LB;
+  const plan=catBuildPlan(order, tgt);
+  const dateEl=document.getElementById('cat-date');
+  const basis=(dateEl&&dateEl.value) || g.loadDate || g.delivDate || todayStr();
+  const fmt=iso=>{ const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m?(m[2]+'/'+m[3]+'/'+m[1]):(iso||''); };
+  const packLbl=a=> a.isLB ? (a.amt.toLocaleString()+' lb') : (a.amt+' pk / '+Math.round(a.amt*a.packWt).toLocaleString()+' lb');
+  const lineSummary = plan.lines.length
+    ? plan.lines.map(l=>`<div style="font-size:11.5px">Line ${esc(l.line)} &middot; SKU ${esc(l.sku)} &middot; ship <b>${l.isLB?(l.ship.toLocaleString()+' lb'):(l.ship+' pk / '+Math.round(l.shipLb).toLocaleString()+' lb')}</b>${l.cap?' <span style="color:var(--warning)">(limited by inventory)</span>':''}</div>`).join('')
+    : '<div style="color:var(--danger);font-size:12px">Nothing available to load for this order (no remaining qty or no inventory on hand).</div>';
+  const MAXSHOW=14;
+  const truckList = plan.trucks.slice(0,MAXSHOW).map((tk,i)=>`<tr>
+      <td style="padding:4px 8px;font-weight:700;white-space:nowrap">TRK ${i+1}</td>
+      <td style="padding:4px 8px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">${Math.round(tk.lb).toLocaleString()} lb</td>
+      <td style="padding:4px 8px;font-size:11px;color:var(--text2)">${tk.alloc.map(a=>esc(a.sku)+' '+packLbl(a)).join(' + ')}</td>
+    </tr>`).join('') + (plan.N>MAXSHOW?`<tr><td colspan="3" style="padding:4px 8px;color:var(--text2);font-style:italic">…and ${plan.N-MAXSHOW} more truck(s)</td></tr>`:'');
+  document.getElementById('modal-container').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal" style="max-width:640px">
+        <h2 style="margin:0 0 4px">Build Loads &middot; ${esc(order)}${g.po?(' &middot; PO '+esc(g.po)):''}</h2>
+        <p style="color:var(--text2);font-size:12px;margin:0 0 12px">${esc(g.shipToName||g.soldTo||'')} &mdash; ${esc(g.dest||'')} &middot; ${ls.length} line${ls.length>1?'s':''}. Trucks run one SKU at a time (largest on-hand first) topped with ~10% of the small SKU; the last truck carries the remainder.</p>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+          <label style="font-size:12px;font-weight:700">Truck target (LB)
+            <input id="cat-target" type="number" min="1000" step="1000" value="${tgt}" onchange="catReplan('${esc(order)}')" style="display:block;margin-top:4px;width:130px;padding:7px 8px;font-size:14px;border:1px solid var(--border);border-radius:7px">
+          </label>
+          <label style="font-size:12px;font-weight:700">Apply date (all trucks)
+            <input id="cat-date" type="date" value="${basis}" style="display:block;margin-top:4px;padding:7px 8px;font-size:13px;border:1px solid var(--border);border-radius:7px">
+          </label>
+          <div style="font-size:12px"><div style="color:var(--text2)">Plan</div><b>${plan.N} load${plan.N===1?'':'s'} &middot; ${Math.round(plan.totalLb).toLocaleString()} lb total</b></div>
+        </div>
+        <div style="margin-bottom:10px">${lineSummary}</div>
+        ${plan.N?`<div style="max-height:230px;overflow:auto;border:1px solid var(--border);border-radius:8px">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="background:var(--surface2)"><th style="text-align:left;padding:5px 8px">Truck</th><th style="text-align:right;padding:5px 8px">Weight</th><th style="text-align:left;padding:5px 8px">Contents (SKU · qty)</th></tr></thead>
+            <tbody>${truckList}</tbody>
+          </table></div>`:''}
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+          <button class="sign-out-btn" onclick="closeModal()">Cancel</button>
+          <button class="sign-out-btn" ${plan.N?'':'disabled'} onclick="catDoBuildOrder('${esc(order)}')" style="background:#be123c;color:#fff;border-color:#be123c;${plan.N?'':'opacity:.5'}">Build ${plan.N||''} Load${plan.N===1?'':'s'}</button>
+        </div>
+      </div>
+    </div>`;
+}
+function catDoBuildOrder(order){
+  if(!requireAdmin()) return;
+  const tgt=Number((document.getElementById('cat-target')||{}).value)||CAT_TRUCK_LB;
+  const date=(document.getElementById('cat-date')||{}).value || todayStr();
+  const {g}=catOrderMeta(order);
+  const plan=catBuildPlan(order, tgt);
+  if(!plan.N){ showAlert('Nothing available to load for this order.'); return; }
+  const coll=state.outbound||(state.outbound={});
+  let offset=Object.values(coll).filter(o=>o&&o.source==='catalyst'&&_catUpper(o.status)!=='CANCELLED'&&o.catOrder===order).length;
+  const updates={};
+  plan.trucks.forEach((tk,i)=>{
+    const trk=offset+i+1;
+    const loadId=(order+(g.po?(' '+g.po):'')+' TRK '+trk);
+    const alloc=tk.alloc.map(a=>({ lid:a.lid, sku:a.sku, line:a.line, unit:a.unit, weight:a.isLB?a.amt:0, qty:a.isLB?0:a.amt }));
+    const skusum=tk.alloc.map(a=>a.sku+' '+(a.isLB?(a.amt.toLocaleString()+'LB'):(a.amt+'PAC'))).join(' + ');
+    const rec={ orderNum:loadId, customer:'CATALYST', destination:g.dest||g.city||'', carrier:'',
+      reqDate:date, origReqDate:date, apptTime:'', door:'', trailer:'', phone:'', notes:skusum,
+      status:'ORDER RECEIVED', source:'catalyst', catOrder:order, catPo:g.po||'', catTruck:trk,
+      catAlloc:alloc, catTotalLb:Math.round(tk.lb), createdAt:Date.now(), updatedAt:Date.now() };
+    const key=db.ref().push().key; coll[key]=rec; updates['/outbound/'+key]=rec;
+  });
+  db.ref(ROOT).update(updates)
+    .then(()=>{ closeModal(); if(state.tab==='cat') renderCatalyst(); })
+    .catch(e=>showAlert('Could not build loads: '+((e&&e.message)||e)));
+}
+
+
+function renderCatalyst(){
+  const view=document.getElementById('view-cat'); if(!view) return;
+  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const fmt=iso=>{ const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m?(m[2]+'/'+m[3]+'/'+m[1]):(iso||''); };   // -> MM/DD/YYYY (US display)
+  const admin=!!(state.user && state.user.role==='admin');
+  const all=catOrderRows();
+  const com=catCommitted();
+  const filt=state.catFilter||'OKAY';
+  const okCount=all.filter(r=>catShipBucket(r)==='OKAY').length;
+  const holdCount=all.length-okCount;
+  const recs=(filt==='ALL')?all:all.filter(r=>catShipBucket(r)===filt);
+  const NCOLS=12;
+
+  // Hierarchy: Load Date  ->  Customer  ->  Order / PO  ->  line details (+ built trucks)
+  const byDate={}; const dateKeys=[];
+  recs.forEach(r=>{ const d=r.loadDate||''; if(!byDate[d]){ byDate[d]={}; dateKeys.push(d); }
+    const cust=r.shipToName||r.soldTo||'(unknown)'; (byDate[d][cust]=byDate[d][cust]||[]).push(r); });
+  dateKeys.sort((a,b)=> ((a===''?1:0)-(b===''?1:0)) || String(a).localeCompare(String(b)) );
+
+  const invReady=!!(state.catInv && Object.keys(catInvSkus()).length);
+  let totalRemLb=0, builtLoads=0;
+  Object.values(state.outbound||{}).forEach(o=>{ if(o.source==='catalyst' && !o.catArchived && _catUpper(o.status)!=='CANCELLED') builtLoads++; });
+
+  const truckRows=(ordNo)=>{
+    const trucks=Object.entries(state.outbound||{})
+      .filter(([,o])=>o.source==='catalyst' && o.catOrder===ordNo)
+      .sort((a,b)=>(a[1].catTruck||0)-(b[1].catTruck||0));
+    if(!trucks.length){
+      return `<tr><td></td><td colspan="${NCOLS-1}" style="padding:5px 14px 5px 48px;font-size:10.5px;color:var(--text2);font-style:italic">No loads built yet for this order.</td></tr>`;
+    }
+    return trucks.map(([id,o])=>{
+      const canc=_catUpper(o.status)==='CANCELLED';
+      const allocs=Array.isArray(o.catAlloc)?o.catAlloc:(o.catSku?[{sku:o.catSku,unit:o.catUnit,weight:o.catWeight,qty:o.catQty}]:[]);
+      const comp=allocs.map(a=>{ const isLB=_catUpper(a.unit)!=='PAC'; return esc(a.sku)+' '+(isLB?(Math.round(_catNum(a.weight)).toLocaleString()+'lb'):(_catNum(a.qty)+'pk')); }).join(' + ');
+      const lb=o.catTotalLb || allocs.reduce((s,a)=>s+_catNum(a.weight),0);
+      return `<tr style="background:rgba(190,18,60,.045)">
+        <td></td>
+        <td colspan="${NCOLS-1}" style="padding:5px 14px 5px 48px;font-size:11px;color:${canc?'var(--text2)':'var(--text)'}">
+          🚚 <b style="${canc?'text-decoration:line-through':''}">${esc(o.orderNum||'')}</b>
+          <span style="color:var(--text2)"> &middot; ${Math.round(lb).toLocaleString()} lb${comp?(' &middot; '+comp):''} &middot; ${fmt((o.reqDate||'').slice(0,10))}</span>
+          <span style="font-size:9px;font-weight:800;letter-spacing:.3px;margin-left:6px;padding:1px 7px;border-radius:999px;background:${canc?'rgba(120,120,120,.15)':'rgba(6,95,70,.12)'};color:${canc?'var(--text2)':'#065f46'}">${esc(o.status||'')}</span>
+        </td></tr>`;
+    }).join('');
+  };
+
+  let body='';
+  if(!recs.length){
+    body=`<tr><td colspan="${NCOLS}" style="padding:26px;text-align:center;color:var(--text2);font-size:13px">${all.length?'No orders for this filter.':'No Catalyst orders imported yet.'}</td></tr>`;
+  } else {
+    const shownTrucks={};
+    dateKeys.forEach(dk=>{
+      body+=`<tr><td colspan="${NCOLS}" style="background:#be123c;color:#fff;padding:9px 14px;font-size:12px;font-weight:800;letter-spacing:.5px">📅 LOAD DATE &middot; ${dk?esc(fmt(dk)):'No load date'}</td></tr>`;
+      const custs=Object.keys(byDate[dk]).sort();
+      custs.forEach(cust=>{
+        body+=`<tr><td colspan="${NCOLS}" style="background:var(--surface2);color:var(--text);padding:7px 14px 7px 26px;font-size:11.5px;font-weight:800;letter-spacing:.3px">${esc(cust)}</td></tr>`;
+        const ord={}; const ordKeys=[];
+        byDate[dk][cust].forEach(r=>{ if(!ord[r.order]){ ord[r.order]=[]; ordKeys.push(r.order); } ord[r.order].push(r); });
+        ordKeys.sort();
+        ordKeys.forEach(ordNo=>{
+          const lines=ord[ordNo]; const g=lines[0];
+          const plan=catBuildPlan(ordNo, CAT_TRUCK_LB, com);
+          const buildBtn = (admin && plan.N>0)
+            ? `<button class="btn" style="font-size:10px;padding:3px 10px;margin-left:10px" onclick="catAskBuildOrder('${esc(ordNo)}')">⚙ Build ${plan.N} Load${plan.N>1?'s':''}</button>`
+            : (admin && !plan.N ? '<span style="font-size:10px;color:var(--text2);margin-left:10px">nothing to build</span>' : '');
+          body+=`<tr><td colspan="${NCOLS}" style="background:rgba(0,0,0,.02);color:var(--text2);padding:6px 14px 6px 38px;font-size:11px;font-weight:700">
+            ${esc(ordNo)}${g.po?('<span style="font-weight:600"> &middot; PO '+esc(g.po)+'</span>'):''}
+            <span style="font-weight:600"> &middot; ${esc(g.dest||'')} &middot; ${lines.length} line${lines.length>1?'s':''}</span>
+            ${plan.N?('<span style="font-weight:600"> &middot; '+Math.round(plan.totalLb).toLocaleString()+' lb to ship</span>'):''}${buildBtn}</td></tr>`;
+          lines.forEach(r=>{
+            const rem=catRemaining(r, com); const built=(com.byLid[r._lid]||0);
+            const av=catAvail(r.sku, com);
+            const isLB=r.unit!=='PAC';
+            if(isLB){ totalRemLb+=rem; }
+            const bucket=catShipBucket(r);
+            const gmCol=bucket==='OKAY'?'#065f46':'#b45309', gmBg=bucket==='OKAY'?'rgba(6,95,70,.12)':'rgba(180,83,9,.12)';
+            const blocked = _catUpper(r.blockSta)==='BLOCKED' || (r.delivBlock||'') || (r.creditSta && _catUpper(r.creditSta)!=='RELEASED');
+            const availCell = av
+              ? ((av.lbs>0||av.rolls>0) ? Math.round(av.lbs).toLocaleString()+' lb<br><span style="color:var(--text2);font-size:10px">'+av.rolls+' pk'+(av.rawLbs!==av.lbs?(' · of '+Math.round(av.rawLbs).toLocaleString()+' lb / '+av.rawRolls+' pk'):'')+'</span>'
+                                         : '<span style="color:var(--danger)">0 available</span>')
+              : '<span style="color:var(--text2)">—</span>';
+            const action = rem<=0
+              ? '<span style="font-size:10px;font-weight:800;color:#065f46;background:rgba(6,95,70,.12);padding:3px 9px;border-radius:999px;white-space:nowrap">✓ LOADED</span>'
+              : '<span style="color:var(--text2);font-size:11px">—</span>';
+            body+=`<tr>
+              <td><span class="sd-gm" style="color:${gmCol};background:${gmBg}">${esc(r.shipStatus||'—')}</span>${blocked?'<br><span style="font-size:8.5px;font-weight:800;color:#b91c1c;background:rgba(185,28,28,.1);padding:1px 6px;border-radius:4px">BLOCKED</span>':''}</td>
+              <td style="white-space:nowrap">${esc(fmt(r.delivDate))}</td>
+              <td class="sd-c">${esc(r.line)}</td>
+              <td class="sd-ship" style="white-space:nowrap">${esc(r.sku)}${(r.material&&r.material!==r.sku)?('<br><span style="color:var(--text2);font-size:10px">'+esc(r.material)+'</span>'):''}</td>
+              <td class="sd-num">${r.width?r.width:''}</td>
+              <td class="sd-c">${esc(r.unit)}</td>
+              <td class="sd-num">${(r.qty||0).toLocaleString()}</td>
+              <td class="sd-num">${availCell}</td>
+              <td class="sd-num">${built?built.toLocaleString():'<span style=\"color:var(--text2)\">0</span>'}</td>
+              <td class="sd-num" style="font-weight:700;color:${rem>0?'var(--text)':'#065f46'}">${rem.toLocaleString()}</td>
+              <td style="white-space:nowrap">${action}</td>
+              <td style="white-space:nowrap;color:var(--text2);font-size:11px">${esc((r.notes||'').slice(0,40))}</td>
+            </tr>`;
+          });
+          if(!shownTrucks[ordNo]){ shownTrucks[ordNo]=true; body+=truckRows(ordNo); }
+        });
+      });
+    });
+  }
+
+  const oInfo = state.catOrders && state.catOrders.importedAt
+    ? 'Orders '+new Date(state.catOrders.importedAt).toLocaleString('en-US',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})
+    : 'No orders imported';
+  const iInfo = state.catInv && state.catInv.importedAt
+    ? 'Inventory '+new Date(state.catInv.importedAt).toLocaleString('en-US',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})
+    : 'No inventory imported';
+  const invAvailLbs = invReady ? Object.keys(catInvSkus()).reduce((s,sku)=>{ const a=catAvail(sku,com); return s+(a?a.lbs:0); },0) : 0;
+  const pill=(label,val,key,col)=>`<button class="sign-out-btn" onclick="setCatFilter('${key}')" style="background:${filt===key?col:'transparent'};color:${filt===key?'#fff':'var(--text)'};border-color:${col};font-size:12px">${label} (${val})</button>`;
+
+  view.innerHTML=`
+  <div class="date-nav" style="justify-content:flex-start;gap:10px;flex-wrap:wrap">
+    <h2 style="margin:0;font-size:19px">Catalyst &middot; Delivery &amp; Load Builder</h2>
+    ${admin?'<button class="sign-out-btn" onclick="showCatOrderImport()" style="background:#be123c;color:#fff;border-color:#be123c">⤓ Import Orders</button>':''}
+    ${admin?'<button class="sign-out-btn" onclick="showCatInvImport()" style="background:#166534;color:#fff;border-color:#166534">⤓ Import Inventory</button>':''}
+    ${admin?'<button class="sign-out-btn" onclick="catAskClear()" style="background:transparent;color:#b91c1c;border-color:#b91c1c">🗑 Clear Loads</button>':''}
+    <button class="sign-out-btn" onclick="renderCatalyst()" style="background:transparent">↻ Refresh</button>
+    <span style="font-size:11px;color:var(--text2)">${oInfo} &middot; ${iInfo}</span>
+  </div>
+  <div class="summary-bar" style="grid-template-columns:repeat(4,1fr);max-width:760px">
+    <div class="scard"><div class="scard-label">Lines shown</div><div class="scard-value">${recs.length}</div></div>
+    <div class="scard"><div class="scard-label">Remaining to load (LB)</div><div class="scard-value" style="color:var(--accent)">${Math.round(totalRemLb).toLocaleString()}</div></div>
+    <div class="scard"><div class="scard-label">Inventory avail (LB)</div><div class="scard-value" style="color:#166534">${invReady?Math.round(invAvailLbs).toLocaleString():'—'}</div></div>
+    <div class="scard"><div class="scard-label">Loads built</div><div class="scard-value" style="color:#be123c">${builtLoads}</div></div>
+  </div>
+  ${invReady?'':'<div style="background:rgba(180,83,9,.1);border:1px solid rgba(180,83,9,.3);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:var(--warning)">No inventory imported yet — import the Warehouse Detail Report to see available stock and build loads against it.</div>'}
+  <div class="sd-pills">
+    ${pill('Okay to Ship', okCount, 'OKAY', '#065f46')}
+    ${pill('On Hold', holdCount, 'HOLD', '#b45309')}
+    ${pill('All', all.length, 'ALL', '#1a3a6b')}
+  </div>
+  <div class="sd-wrap">
+    <table class="sd-table">
+      <thead><tr>
+        <th>Ship Status</th><th>Deliv. Date</th><th class="sd-c">Line</th><th>SKU</th>
+        <th class="sd-r">Width</th><th class="sd-c">Unit</th><th class="sd-r">Order Qty</th><th class="sd-r">Inv Avail</th>
+        <th class="sd-r">Loaded</th><th class="sd-r">Remaining</th><th></th><th>Notes</th>
+      </tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  </div>`;
+}
+
 // ─── WRK SHIPDUE ─────────────────────────────────────────────────────────────
 // Imports the SAP "ShipDue" export (WRK orders — HBH, Sci Games, Conway, Lanet, MPS,
 // WestRock and others) and shows it as a read-only summary on its own tab. Rows can be
@@ -2503,13 +3085,38 @@ function _restoreView(v){
   ['ibDate','obDate','ffDate','pwdDate','dtDate','igDate','scMonth'].forEach(function(k){ if(v[k]) state[k]=v[k]; });
   if(v.tab){ var btn=document.getElementById('tab-'+v.tab); if(btn && btn.style.display!=='none') switchTab(v.tab); }
 }
+// Export the currently-shown board (the visible table in a view) to an .xlsx for reporting.
+// Reads live input/select values, keeps the on-screen columns/rows, and writes section labels.
+function exportViewToExcel(viewId, label){
+  try{
+    if(typeof XLSX==='undefined'){ showAlert('Excel library not loaded.'); return; }
+    const view=document.getElementById(viewId); if(!view){ return; }
+    const table=view.querySelector('table'); if(!table){ showAlert('Nothing to export.'); return; }
+    const clean=el=>{ const c=el.cloneNode(true); c.querySelectorAll('input,select,textarea,button').forEach(e=>e.remove()); return (c.textContent||'').replace(/\s+/g,' ').trim(); };
+    const bodyCell=td=>{ const f=td.querySelector('input,select,textarea'); if(f){ if(f.type==='checkbox') return f.checked?'Y':''; if((f.value||'').trim()) return f.value.trim(); } return clean(td); };
+    const aoa=[];
+    const thead=table.querySelector('thead');
+    if(thead){ let best=null, bs=-1; thead.querySelectorAll('tr').forEach(tr=>{ const cells=[...tr.children]; const sc=cells.reduce((s,th)=>s+(clean(th)?1:0),0); if(sc>bs){ bs=sc; best=cells; } });
+      if(best) aoa.push(best.map(clean)); }
+    const tbody=table.querySelector('tbody')||table;
+    [...tbody.children].forEach(tr=>{ const cells=[...tr.children]; if(!cells.length) return;
+      if(cells.length===1 && cells[0].hasAttribute('colspan')){ const t=clean(cells[0]); if(t) aoa.push([t]); return; }
+      aoa.push(cells.map(bodyCell)); });
+    if(aoa.length<2){ showAlert('Nothing to export for the current view.'); return; }
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Loads');
+    const d=new Date(), p=n=>('0'+n).slice(-2);
+    XLSX.writeFile(wb, (label||'Export')+'_'+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes())+'.xlsx');
+  }catch(e){ showAlert('Export failed: '+((e&&e.message)||e)); }
+}
+
 function switchTab(tab) {
   state.tab = tab;
   document.body.setAttribute('data-tab', tab);   // lets the phone card/table toggle show only on ib/ob
-  ['ib','ob','yd','sc','sd','ff','pwd','ig','domtar'].forEach(t => {
+  ['ib','ob','yd','sc','sd','cat','ff','pwd','ig','domtar'].forEach(t => {
     const v = document.getElementById('view-'+t); if(v) v.style.display = t===tab?'':'none';
     const btn = document.getElementById('tab-'+t); if(!btn) return;
-    btn.classList.remove('active-ib','active-ob','active-yd','active-sc','active-sd','active-ff','active-pwd','active-ig','active-domtar');
+    btn.classList.remove('active-ib','active-ob','active-yd','active-sc','active-sd','active-cat','active-ff','active-pwd','active-ig','active-domtar');
     if(t===tab) btn.classList.add(t==='ff'?'active-ff':'active-'+t);
   });
   if(tab==='ib') renderInbound();
@@ -2517,6 +3124,7 @@ function switchTab(tab) {
   if(tab==='yd') renderYard();
   if(tab==='sc') renderScorecard();
   if(tab==='sd') renderShipDue();
+  if(tab==='cat') renderCatalyst();
   if(tab==='ff') renderFirstFleet();
   if(tab==='pwd') renderPWD();
   if(tab==='ig') renderIPG();
@@ -2816,6 +3424,7 @@ function renderInbound() {
       style="text-transform:uppercase;min-width:380px;width:380px;max-width:46vw;margin-left:8px">
     ${ibSearching?`<button class="today-btn" onclick="clearIbSearch()">Clear</button>`:''}
     <button class="add-load-btn ib-btn" onclick="showAddLoad('ib')">＋ Add Inbound Load</button>
+    <button class="today-btn" title="Export the current view to Excel" onclick="exportViewToExcel('view-ib','6021_Inbound')" style="background:#166534;color:#fff;border-color:#166534">⤓ Excel</button>
     ${ibRollToggle}
   </div>
   ${ibRollBar}
@@ -3014,6 +3623,7 @@ function renderOutbound() {
       style="text-transform:uppercase;min-width:380px;width:380px;max-width:46vw;margin-left:8px">
     ${obSearching?`<button class="today-btn" onclick="clearObSearch()">Clear</button>`:''}
     <button class="add-load-btn ob-btn" onclick="showAddLoad('ob')">＋ Add Outbound Load</button>
+    <button class="today-btn" title="Export the current view to Excel" onclick="exportViewToExcel('view-ob','6021_Outbound')" style="background:#166534;color:#fff;border-color:#166534">⤓ Excel</button>
     <button class="roll-toggle" onclick="toggleObFlags()" title="${state.obFlagsHidden?'Show':'Hide'} the Pri / Paper / Night check boxes — flagged loads keep their badge either way">${state.obFlagsHidden?'\u25B8':'\u25BE'} FLAGS</button>
     <button class="roll-toggle" onclick="toggleObAppt()" title="${state.obApptHidden?'Show':'Hide'} the Appt, Time In, Time Out, Duration and Arr columns">${state.obApptHidden?'\u25B8':'\u25BE'} APPT / TIMES</button>
     ${obRollToggle}
@@ -3483,6 +4093,7 @@ function renderFirstFleet() {
     <button class="date-nav-btn" onclick="shiftDate('ff',1)">&rsaquo;</button>
     <button class="today-btn" onclick="setDate('ff',todayStr())">Today</button>
     <input type="date" class="date-input" value="${state.ffDate}" onchange="setDate('ff',this.value)">
+    <button class="today-btn" title="Export the current view to Excel" onclick="exportViewToExcel('view-ff','6021_FirstFleet')" style="background:#166534;color:#fff;border-color:#166534">⤓ Excel</button>
   </div>
   <div class="summary-bar" style="grid-template-columns:repeat(${yesCustomers.length},1fr);max-width:1150px;margin-bottom:6px">
     ${ffCustCards}
@@ -3652,6 +4263,7 @@ function renderPWD(){
     <button class="date-nav-btn" onclick="shiftDate('pwd',1)">&rsaquo;</button>
     <button class="today-btn" onclick="setDate('pwd',todayStr())">Today</button>
     <input type="date" class="date-input" value="${state.pwdDate}" onchange="setDate('pwd',this.value)">
+    <button class="today-btn" title="Export the current view to Excel" onclick="exportViewToExcel('view-pwd','6021_PWD')" style="background:#166534;color:#fff;border-color:#166534">⤓ Excel</button>
   </div>
   <div class="summary-bar" style="grid-template-columns:repeat(${custs.length},1fr);max-width:720px;margin-bottom:6px">
     ${custCards}
@@ -3821,6 +4433,7 @@ function renderDomtar(){
     <button class="date-nav-btn" onclick="shiftDate('dt',1)">&rsaquo;</button>
     <button class="today-btn" onclick="setDate('dt',todayStr())">Today</button>
     <input type="date" class="date-input" value="${state.dtDate}" onchange="setDate('dt',this.value)">
+    <button class="today-btn" title="Export the current view to Excel" onclick="exportViewToExcel('view-domtar','6021_DOMTAR')" style="background:#166534;color:#fff;border-color:#166534">⤓ Excel</button>
   </div>
   <div class="summary-bar" style="grid-template-columns:repeat(${custs.length},1fr);max-width:720px;margin-bottom:6px">
     ${custCards}
@@ -3935,6 +4548,7 @@ function renderIPG(){
     <button class="date-nav-btn" onclick="shiftDate('ig',1)">&rsaquo;</button>
     <button class="today-btn" onclick="setDate('ig',todayStr())">Today</button>
     <input type="date" class="date-input" value="${state.igDate}" onchange="setDate('ig',this.value)">
+    <button class="today-btn" title="Export the current view to Excel" onclick="exportViewToExcel('view-ig','6021_IPG')" style="background:#166534;color:#fff;border-color:#166534">⤓ Excel</button>
   </div>
   <div class="summary-bar" style="grid-template-columns:repeat(8,1fr);max-width:1200px">
     <div class="scard"><div class="scard-label">Total IPG</div><div class="scard-value" style="color:#b45309">${total}</div></div>
