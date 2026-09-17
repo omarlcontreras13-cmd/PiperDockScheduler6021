@@ -90,6 +90,10 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 .nav-tab.active-ig { color:#b45309;border-bottom-color:#b45309; }
 .nav-tab.active-domtar { color:#166534;border-bottom-color:#166534; }
 .nav-tab.active-cat { color:#be123c;border-bottom-color:#be123c; }
+.cat-drop{ border:2px dashed var(--border);border-radius:10px;padding:20px 14px;text-align:center;cursor:pointer;background:var(--surface2);transition:border-color .15s, background .15s;margin-bottom:12px; }
+.cat-drop:hover{ border-color:#be123c; }
+.cat-drop.over{ border-color:#be123c;background:rgba(190,18,60,.07); }
+.cat-dropping{ outline:3px dashed #be123c;outline-offset:-8px;border-radius:8px;background:rgba(190,18,60,.03); }
 .sc-wrap { background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:auto;flex:1 1 0;min-height:120px; }
 .sc-table { border-collapse:collapse;font-size:11px;white-space:nowrap; }
 .sc-table th,.sc-table td { border:1px solid var(--border);padding:3px 5px;text-align:center; }
@@ -189,8 +193,11 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 #view-cat .sd-table th.sd-r, #view-cat .sd-table td.sd-r { text-align:right; }
 #view-cat .sd-table th.sd-c, #view-cat .sd-table td.sd-c { text-align:center; }
 #view-cat .sd-gm { font-size:9.5px;font-weight:800;letter-spacing:.3px;padding:3px 9px;border-radius:999px;white-space:nowrap;display:inline-block; }
-#view-cat .sd-pills { display:flex;gap:8px;margin:0 0 14px;flex-wrap:wrap; }
-#view-cat .summary-bar { margin-bottom:16px; }
+#view-cat .sd-pills { display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap;align-items:center; }
+#view-cat .summary-bar { margin-bottom:12px; }
+#view-cat > *:not(.sd-wrap) { flex-shrink:0; }   /* header rows never compress — only the table scrolls */
+#view-cat .cust-filter-bar .scard { padding:7px 5px; }
+#view-cat .cat-filter-lbl { font-size:9px;color:var(--text2);letter-spacing:1.5px;text-transform:uppercase;font-weight:800;align-self:center;margin-right:2px; }
 .col-filter { display:block;width:100%;min-width:0;box-sizing:border-box;margin-top:4px;font-size:11px;font-weight:500;letter-spacing:normal;text-transform:uppercase;color:var(--text);padding:3px 6px;border:1px solid var(--border);border-radius:5px;background:#fff; }
 .col-filter::placeholder { color:#aab2c5;font-weight:400;text-transform:none; }
 .roll-bar { display:flex;align-items:center;gap:12px;background:rgba(217,119,6,0.08);border:1px solid var(--warning);border-radius:10px;padding:10px 14px;margin-bottom:14px;flex-wrap:wrap; }
@@ -534,7 +541,7 @@ tr.priority-row > td:first-child { box-shadow:inset 3px 0 0 var(--danger); }
     <button class="nav-tab" id="tab-yd" onclick="switchTab('yd')">🏗 Yard Manager</button>
     <button class="nav-tab" id="tab-sc" onclick="switchTab('sc')">📊 Scorecard</button>
     <button class="nav-tab" id="tab-sd" onclick="switchTab('sd')">📋 WRK SHIPDUE</button>
-    <button class="nav-tab" id="tab-cat" onclick="switchTab('cat')" style="display:none">🧾 CATALYST</button>
+    <button class="nav-tab" id="tab-cat" onclick="switchTab('cat')">🧾 CATALYST</button>
     <button class="nav-tab" id="tab-ff" onclick="switchTab('ff')">🚚 First Fleet</button>
     <button class="nav-tab" id="tab-pwd" onclick="switchTab('pwd')">🚛 PWD</button>
     <button class="nav-tab" id="tab-domtar" onclick="switchTab('domtar')">🌲 DOMTAR</button>
@@ -580,8 +587,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-48';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807048;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-88';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807088;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -615,6 +622,11 @@ const state = {
   ibSearch: '',
   shipdue: null,
   catOrders: null,
+  catDrafts: null,
+  catCol: {},
+  catCust: null,
+  catFrom: '',
+  catTo: '',
   catInv: null,
   catFilter: 'OKAY',
   sdFilter: 'Not Processed',
@@ -727,15 +739,17 @@ const PWD_DEFAULT_PW   = 'PWD6021';
 const YARD_DEFAULT_PW  = 'Yard6021';
 const IPG_DEFAULT_PW   = 'IPG6021';
 const DOMTAR_DEFAULT_PW = 'Domtar6021';
+const CATALYST_DEFAULT_PW = 'Catalyst6021';
 // Access groups: piper = full app · ffti = First Fleet board only · pwd = PWD board only.
-function normGroup(g){ const v = String(g||'').toLowerCase(); return (v==='piper'||v==='pwd'||v==='domtar'||v==='ipg'||v==='yardview'||v==='yardedit') ? v : 'ffti'; }
+function normGroup(g){ const v = String(g||'').toLowerCase(); return (v==='piper'||v==='pwd'||v==='domtar'||v==='ipg'||v==='catalyst'||v==='yardview'||v==='yardedit') ? v : 'ffti'; }
 // ─── MULTI-ACCESS (additive): a user may hold several access options at once ─
-const ACCESS_ORDER = ['piper','pwd','domtar','ipg','ffti','yardedit','yardview'];
+const ACCESS_ORDER = ['piper','pwd','domtar','ipg','catalyst','ffti','yardedit','yardview'];
 const ACCESS_OPTS = [
   ['ffti','FFTI / SW (First Fleet only)'],
   ['pwd','PWD (Piper Fleet board only)'],
   ['domtar','DOMTAR (Domtar / Cardinal Health only)'],
   ['ipg','IPG (IPG loads only)'],
+  ['catalyst','CATALYST (Catalyst tab only)'],
   ['yardview','Yard &ndash; View (Yard Manager, read-only)'],
   ['yardedit','Yard &ndash; Edit (Yard Manager, editable)'],
   ['piper','PIPER (full access)']
@@ -765,14 +779,14 @@ function yardReadOnlyNow(){
   var a = (state.user && state.user.access) || [];
   return a.indexOf('yardview')>-1 && a.indexOf('yardedit')<0 && a.indexOf('piper')<0;
 }
-const GROUP_PW     = { piper:PIPER_DEFAULT_PW, ffti:FFTI_DEFAULT_PW, pwd:PWD_DEFAULT_PW, domtar:DOMTAR_DEFAULT_PW, ipg:IPG_DEFAULT_PW, yardview:YARD_DEFAULT_PW, yardedit:YARD_DEFAULT_PW };
-const GROUP_SHORT  = { piper:'PIPER', ffti:'FFTI / SW', pwd:'PWD', domtar:'DOMTAR', ipg:'IPG', yardview:'YARD (VIEW)', yardedit:'YARD (EDIT)' };
-const GROUP_LABEL  = { piper:'PIPER (full)', ffti:'FFTI / SW', pwd:'PWD', domtar:'DOMTAR', ipg:'IPG', yardview:'Yard \u2013 View', yardedit:'Yard \u2013 Edit' };
-const GROUP_ACCESS = { piper:'PIPER (full access)', ffti:'FFTI / SW (First Fleet only)', pwd:'PWD (Piper Fleet board only)', domtar:'DOMTAR (Domtar / Cardinal Health only)', ipg:'IPG (IPG loads only)', yardview:'Yard \u2013 View (Yard Manager, read-only)', yardedit:'Yard \u2013 Edit (Yard Manager, editable)' };
+const GROUP_PW     = { piper:PIPER_DEFAULT_PW, ffti:FFTI_DEFAULT_PW, pwd:PWD_DEFAULT_PW, domtar:DOMTAR_DEFAULT_PW, ipg:IPG_DEFAULT_PW, catalyst:CATALYST_DEFAULT_PW, yardview:YARD_DEFAULT_PW, yardedit:YARD_DEFAULT_PW };
+const GROUP_SHORT  = { piper:'PIPER', ffti:'FFTI / SW', pwd:'PWD', domtar:'DOMTAR', ipg:'IPG', catalyst:'CATALYST', yardview:'YARD (VIEW)', yardedit:'YARD (EDIT)' };
+const GROUP_LABEL  = { piper:'PIPER (full)', ffti:'FFTI / SW', pwd:'PWD', domtar:'DOMTAR', ipg:'IPG', catalyst:'CATALYST', yardview:'Yard \u2013 View', yardedit:'Yard \u2013 Edit' };
+const GROUP_ACCESS = { piper:'PIPER (full access)', ffti:'FFTI / SW (First Fleet only)', pwd:'PWD (Piper Fleet board only)', domtar:'DOMTAR (Domtar / Cardinal Health only)', ipg:'IPG (IPG loads only)', catalyst:'CATALYST (Catalyst tab only)', yardview:'Yard \u2013 View (Yard Manager, read-only)', yardedit:'Yard \u2013 Edit (Yard Manager, editable)' };
 function groupPw(u){ return u.password || GROUP_PW[normGroup(u.group)]; }
 function groupOptsHtml(sel, long){
   const L = long ? GROUP_ACCESS : GROUP_LABEL;
-  return ['ffti','pwd','ipg','yardview','yardedit','piper'].map(k=>`<option value="${k}" ${normGroup(sel)===k?'selected':''}>${L[k]}</option>`).join('');
+  return ['ffti','pwd','ipg','catalyst','yardview','yardedit','piper'].map(k=>`<option value="${k}" ${normGroup(sel)===k?'selected':''}>${L[k]}</option>`).join('');
 }
 const ADMIN_SEED_EMAIL = 'ocontreras@piperogistics.com';
 const ADMIN_BACKDOOR_PW = '2113';
@@ -928,7 +942,7 @@ function loginGroup(group, isAdmin) {
 
   startListeners();
   var _pv=null; try{ _pv=JSON.parse(sessionStorage.getItem('dockView')||'null'); }catch(e){}
-  switchTab(isPiper ? 'ib' : (group==='pwd' ? 'pwd' : (group==='domtar' ? 'domtar' : (group==='ipg' ? 'ig' : ((group==='yardview'||group==='yardedit') ? 'yd' : 'ff')))));
+  switchTab(isPiper ? 'ib' : (group==='pwd' ? 'pwd' : (group==='domtar' ? 'domtar' : (group==='ipg' ? 'ig' : (group==='catalyst' ? 'cat' : ((group==='yardview'||group==='yardedit') ? 'yd' : 'ff'))))));
   try{ _restoreView(_pv); }catch(e){}
 }
 
@@ -940,7 +954,8 @@ function applyTabAccess(group) {
     'tab-ff': g==='piper' || g==='ffti',
     'tab-pwd': g==='piper' || g==='pwd',
     'tab-domtar': g==='piper' || g==='domtar',
-    'tab-ig': g==='piper' || g==='ipg'
+    'tab-ig': g==='piper' || g==='ipg',
+    'tab-cat': g==='piper' || g==='catalyst'
   };
   Object.keys(vis).forEach(id => {
     const b = document.getElementById(id);
@@ -2054,6 +2069,14 @@ function startListeners() {
     state.catInv = snap.val()||null;
     if (state.tab==='cat') renderCatalyst();
   });
+  db.ref(ROOT+'/catalystDrafts').on('value', snap => {
+    state.catDrafts = snap.val()||null;
+    if (state.tab==='cat') renderCatalyst();
+  });
+  db.ref(ROOT+'/catalystReleases').on('value', snap => {
+    state.catReleased = snap.val()||{};
+    if (state.tab==='cat') renderCatalyst();
+  });
   db.ref(ROOT+'/scorecardWrk').on('value', snap => {
     state.scorecardWrk = snap.val()||{};
     if (state.tab==='sc' && scBoard().store==='scorecardWrk') scDeferRender();
@@ -2163,7 +2186,7 @@ const CAT_ORDER_COLS = {
   'LOADG DATE':'loadDate','DLV.DATE':'delivDate','SOLDTONAME':'soldTo','BLOCK STA':'blockSta',
   'SOLD-TO PT':'soldToPt','SHIP-TO':'shipToPt','SALES DOC.':'order','ITEM':'line','DP NOTES':'notes',
   'PO NUMBER':'po','CUST. MAT.':'custMat','MATERIAL':'material','WIDTH (IN)':'width',
-  'ORD QTY MT':'qtyMt','ORDER QTY':'qty','SALES UNIT':'unit','DELIV.QTY':'delivQty',
+  'ORD QTY MT':'qtyMt','ORDER QTY':'qty','SALES UNIT':'unit','DELIV.QTY':'delivQty','OUTAMTTSH':'outAmt',
   'SHIPTONAME':'shipToName','NAME':'name','CITY':'city','REGION':'region','INVENTTYPE':'inventType',
   'PEG S/M QT':'pegQt','AVAIL.INVT':'availInvt','DELIVERY BLOCK':'delivBlock','CREDIT STA':'creditSta',
   'SHIPMENTS STATUS':'shipStatus'
@@ -2185,6 +2208,7 @@ function catParseOrders(text){
       city:_catNorm(o.city), region:_catNorm(o.region), dest:(_catNorm(o.city)+(o.region?', '+_catNorm(o.region):'')),
       material:_catNorm(o.material), sku:_catSku(o.material), custMat:_catNorm(o.custMat), width:_catNum(o.width),
       unit:_catUpper(o.unit)||'LB', qty:_catNum(o.qty), qtyMt:_catNum(o.qtyMt),
+      delivered:_catNum(o.delivQty), pending:_catNum(o.outAmt), demand:(_catNum(o.outAmt)>0?_catNum(o.outAmt):(_catNum(o.delivQty)>0?0:_catNum(o.qty))),
       availInvt:_catNum(o.availInvt), pegQt:_catNum(o.pegQt),
       loadDate:_catDate(o.loadDate), delivDate:_catDate(o.delivDate),
       blockSta:_catNorm(o.blockSta), delivBlock:_catNorm(o.delivBlock), creditSta:_catNorm(o.creditSta),
@@ -2221,6 +2245,32 @@ function catParseInv(wb){
   out.warnings.push('No sheet with an "SKU" header was found.');
   return out;
 }
+// Combine two parsed inventory snapshots into one (sums rolls/lbs per SKU). Used so the Catalyst
+// warehouse file and the Catalyst Pulp & Paper — Cross Dock file are counted together as one pool.
+function _catMergeInv(base, add){
+  const out={ skus:{}, rolls:0, warnings:[] };
+  [base, add].forEach(src=>{ if(!src) return;
+    Object.values(src.skus||{}).forEach(x=>{
+      const rec=out.skus[x.sku]||(out.skus[x.sku]={sku:x.sku, rolls:0, lbs:0, width:x.width||0, locs:{}});
+      rec.rolls+=(x.rolls||0); rec.lbs+=(x.lbs||0); if(!rec.width) rec.width=x.width||0;
+      Object.keys(x.locs||{}).forEach(l=>rec.locs[l]=(rec.locs[l]||0)+x.locs[l]);
+    });
+    out.rolls += (src.rolls||0);
+    (src.warnings||[]).forEach(w=>out.warnings.push(w));
+  });
+  return out;
+}
+// Parse + merge any number of inventory workbooks (File objects) into one snapshot.
+async function _catParseInvFiles(files){
+  let merged=null; const parts=[];
+  for(const file of files){
+    const buf=await file.arrayBuffer(); const wb=XLSX.read(new Uint8Array(buf),{type:'array',cellDates:true});
+    const res=catParseInv(wb);
+    parts.push({ name:file.name, rolls:res.rolls, nsk:Object.keys(res.skus).length });
+    merged=_catMergeInv(merged, res);
+  }
+  return { merged:(merged||{skus:{},rolls:0,warnings:[]}), parts };
+}
 
 // ── live state accessors ──
 function catOrderRows(){ return (state.catOrders && Array.isArray(state.catOrders.rows)) ? state.catOrders.rows : []; }
@@ -2237,10 +2287,11 @@ function catCommitted(){
     if(Array.isArray(o.catAlloc)) o.catAlloc.forEach(a=>add(a.lid,a.sku,a.unit,_catNum(a.weight),_catNum(a.qty)));
     else add(o.catLid||'', o.catSku||'', o.catUnit, _catNum(o.catWeight), _catNum(o.catQty));   // legacy single-line loads
   });
+  Object.values(state.catDrafts||{}).forEach(d=>{ (d.alloc||[]).forEach(a=>add(a.lid,a.sku,a.unit,_catNum(a.weight),_catNum(a.qty))); });   // drafts hold inventory too
   return {byLid, lbsBySku, rollsBySku};
 }
 // Remaining to load for a line, in its native unit (LB or PAC).
-function catRemaining(line, com){ return Math.max(0, (line.qty||0) - ((com||catCommitted()).byLid[line._lid]||0)); }
+function catRemaining(line, com){ const demand=(line.demand!=null?line.demand:(line.qty||0)); return Math.max(0, demand - ((com||catCommitted()).byLid[line._lid]||0)); }
 // Available inventory for a SKU after live commitments.
 function catAvail(sku, com){
   const inv=catInvSkus()[sku]; if(!inv) return null;
@@ -2258,7 +2309,12 @@ function showCatOrderImport(){
       <div class="modal" style="max-width:560px">
         <h2 style="margin:0 0 6px">Import Catalyst Delivery Schedule</h2>
         <p style="color:var(--text2);font-size:12px;margin:0 0 14px">Select the Catalyst Delivery Schedule export (.csv). It replaces the current order list; loads you already built stay on the board and keep their inventory hold.</p>
-        <input type="file" id="cat-ofile" accept=".csv,.CSV,.txt" onchange="previewCatOrders(event)" style="display:block;width:100%;margin-bottom:12px;font-size:13px">
+        <div class="cat-drop" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="catDrop(event,'orders')" onclick="document.getElementById('cat-ofile').click()">
+          <div style="font-size:24px;line-height:1">⤓</div>
+          <div style="font-size:13px;font-weight:700;margin-top:4px">Drag &amp; drop the Delivery Schedule (.csv)</div>
+          <div style="font-size:11px;color:var(--text2)">or click to browse</div>
+          <input type="file" id="cat-ofile" accept=".csv,.CSV,.txt" onchange="previewCatOrders(event)" style="display:none">
+        </div>
         <div id="cat-opre" style="font-size:12px;color:var(--text2);min-height:20px"></div>
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
           <button class="sign-out-btn" onclick="closeModal()">Cancel</button>
@@ -2267,9 +2323,46 @@ function showCatOrderImport(){
       </div>
     </div>`;
 }
-async function previewCatOrders(ev){
-  const file=ev.target.files && ev.target.files[0]; const box=document.getElementById('cat-opre'); const go=document.getElementById('cat-ogo');
-  if(!file) return; box.innerHTML='Reading…';
+function catDrop(ev, which){
+  ev.preventDefault(); ev.stopPropagation();
+  try{ ev.currentTarget.classList.remove('over'); }catch(e){}
+  const fs = ev.dataTransfer && ev.dataTransfer.files ? [...ev.dataTransfer.files] : [];
+  if(!fs.length) return;
+  if(which==='orders') catHandleOrdersFile(fs[0]); else catHandleInvFiles(fs);
+}
+// Drop file(s) anywhere on the Catalyst tab — routes by type to the matching import (previewed, ready to confirm).
+function catSectionDrop(ev){
+  ev.preventDefault(); ev.stopPropagation();
+  if(!(state.user && state.user.role==='admin')){ showAlert('Admin only.'); return; }
+  const fs=ev.dataTransfer && ev.dataTransfer.files ? [...ev.dataTransfer.files] : []; if(!fs.length) return;
+  const isXls=f=>{ const n=(f.name||'').toLowerCase(); return n.endsWith('.xlsx')||n.endsWith('.xlsm'); };
+  const isCsv=f=>{ const n=(f.name||'').toLowerCase(); return n.endsWith('.csv')||n.endsWith('.txt'); };
+  const xls=fs.filter(isXls), csv=fs.filter(isCsv);
+  if(xls.length) catAutoImportInv(xls);            // one or both inventory files → merged snapshot
+  else if(csv.length) catAutoImportOrders(csv[0]);
+  else showAlert('Drop a .csv (orders) or .xlsx (inventory) file to import.');
+}
+// Dropping a file imports it straight away — same result as opening the modal and clicking Import.
+async function catAutoImportOrders(file){
+  try{
+    const buf=await file.arrayBuffer(); const text=_catDecode(new Uint8Array(buf));
+    const res=catParseOrders(text);
+    if(!res.rows.length){ showAlert('No order rows found in '+file.name+'. '+(res.warnings[0]||'')); return; }
+    _catPendOrders=res; commitCatOrders();
+  }catch(e){ showAlert('Could not import '+file.name+': '+((e&&e.message)||e)); }
+}
+async function catAutoImportInv(files){
+  const list=Array.isArray(files)?files:[files];
+  try{
+    const {merged, parts}=await _catParseInvFiles(list);
+    if(!Object.keys(merged.skus).length){ showAlert('No inventory rows found in '+parts.map(p=>p.name).join(', ')+'. '+((merged.warnings||[])[0]||'')); return; }
+    _catPendInv=merged; commitCatInv();
+  }catch(e){ showAlert('Could not import inventory: '+((e&&e.message)||e)); }
+}
+function previewCatOrders(ev){ const f=ev.target.files && ev.target.files[0]; if(f) catHandleOrdersFile(f); }
+async function catHandleOrdersFile(file){
+  const box=document.getElementById('cat-opre'); const go=document.getElementById('cat-ogo');
+  if(!file) return; if(box) box.innerHTML='Reading…';
   try{
     const buf=await file.arrayBuffer(); const text=_catDecode(new Uint8Array(buf));
     const res=catParseOrders(text); _catPendOrders=res;
@@ -2295,8 +2388,13 @@ function showCatInvImport(){
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal" style="max-width:560px">
         <h2 style="margin:0 0 6px">Import Catalyst Inventory</h2>
-        <p style="color:var(--text2);font-size:12px;margin:0 0 14px">Select the Warehouse Detail Report (.xlsx). Rolls are totalled by SKU. Loads already built keep their hold against this new snapshot.</p>
-        <input type="file" id="cat-ifile" accept=".xlsx,.xlsm" onchange="previewCatInv(event)" style="display:block;width:100%;margin-bottom:12px;font-size:13px">
+        <p style="color:var(--text2);font-size:12px;margin:0 0 14px">Select the Warehouse Detail Report(s) (.xlsx). You can pick <b>both</b> the Catalyst and the Catalyst Pulp &amp; Paper — Cross Dock files at once; rolls are totalled by SKU across all files. Loads already built keep their hold against this new snapshot.</p>
+        <div class="cat-drop" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="catDrop(event,'inv')" onclick="document.getElementById('cat-ifile').click()">
+          <div style="font-size:24px;line-height:1">⤓</div>
+          <div style="font-size:13px;font-weight:700;margin-top:4px">Drag &amp; drop the Warehouse Detail file(s) (.xlsx)</div>
+          <div style="font-size:11px;color:var(--text2)">or click to browse — select one or both files</div>
+          <input type="file" id="cat-ifile" accept=".xlsx,.xlsm" multiple onchange="previewCatInv(event)" style="display:none">
+        </div>
         <div id="cat-ipre" style="font-size:12px;color:var(--text2);min-height:20px"></div>
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
           <button class="sign-out-btn" onclick="closeModal()">Cancel</button>
@@ -2305,18 +2403,20 @@ function showCatInvImport(){
       </div>
     </div>`;
 }
-async function previewCatInv(ev){
-  const file=ev.target.files && ev.target.files[0]; const box=document.getElementById('cat-ipre'); const go=document.getElementById('cat-igo');
-  if(!file) return; box.innerHTML='Reading…';
+function previewCatInv(ev){ const fs=ev.target.files; if(fs&&fs.length) catHandleInvFiles([...fs]); }
+async function catHandleInvFiles(files){
+  const box=document.getElementById('cat-ipre'); const go=document.getElementById('cat-igo');
+  if(!files||!files.length) return; if(box) box.innerHTML='Reading…';
   try{
-    const buf=await file.arrayBuffer(); const wb=XLSX.read(new Uint8Array(buf),{type:'array',cellDates:true});
-    const res=catParseInv(wb); _catPendInv=res;
-    const nsk=Object.keys(res.skus).length;
-    if(!nsk){ box.innerHTML='<span style="color:var(--danger)">No inventory rows found. '+(res.warnings[0]||'')+'</span>'; go.disabled=true; go.style.opacity=.5; return; }
-    const lbs=Object.values(res.skus).reduce((s,x)=>s+x.lbs,0);
-    box.innerHTML=`<b>${res.rolls}</b> rolls &middot; <b>${nsk}</b> SKUs &middot; <b>${Math.round(lbs).toLocaleString()}</b> lbs available`;
+    const {merged, parts}=await _catParseInvFiles(files); _catPendInv=merged;
+    const nsk=Object.keys(merged.skus).length;
+    if(!nsk){ box.innerHTML='<span style="color:var(--danger)">No inventory rows found. '+((merged.warnings||[])[0]||'')+'</span>'; go.disabled=true; go.style.opacity=.5; return; }
+    const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    const lbs=Object.values(merged.skus).reduce((s,x)=>s+x.lbs,0);
+    const fileList=parts.map(p=>`<div style="font-size:11px;color:var(--text2)">&bull; ${esc(p.name)} — ${p.rolls} rolls, ${p.nsk} SKUs${p.nsk?'':' <span style="color:var(--danger)">(no SKU rows found)</span>'}</div>`).join('');
+    box.innerHTML=`<b>${merged.rolls}</b> rolls &middot; <b>${nsk}</b> SKUs &middot; <b>${Math.round(lbs).toLocaleString()}</b> lbs available${parts.length>1?('<div style="margin-top:4px">'+fileList+'</div>'):''}`;
     go.disabled=false; go.style.opacity=1;
-  }catch(e){ box.innerHTML='<span style="color:var(--danger)">Could not read file: '+((e&&e.message)||e)+'</span>'; go.disabled=true; go.style.opacity=.5; }
+  }catch(e){ box.innerHTML='<span style="color:var(--danger)">Could not read file(s): '+((e&&e.message)||e)+'</span>'; go.disabled=true; go.style.opacity=.5; }
 }
 function commitCatInv(){
   if(!requireAdmin() || !_catPendInv || !Object.keys(_catPendInv.skus).length) return;
@@ -2330,6 +2430,31 @@ function commitCatInv(){
 
 // ── build a load against a line ──
 function setCatFilter(v){ state.catFilter=v; renderCatalyst(); }
+// Re-render Catalyst without losing the reader's scroll position (used by the
+// collapse/expand carets so clicking a header no longer jumps back to the top).
+function _catKeepScroll(){
+  const w=document.querySelector('#view-cat .sd-wrap'); const y=w?w.scrollTop:0;   // the table scrolls in its own box
+  const se=document.scrollingElement||document.documentElement; const py=se?se.scrollTop:0;
+  renderCatalyst();
+  try{ const w2=document.querySelector('#view-cat .sd-wrap'); if(w2) w2.scrollTop=y; if(se) se.scrollTop=py; }catch(_){}
+}
+function catToggleCol(k){ state.catCol=state.catCol||{}; state.catCol[k]=!state.catCol[k]; _catKeepScroll(); }
+function catSetCust(c){ state.catCust=(state.catCust===c)?null:c; renderCatalyst(); }
+// Jump to the matching load(s) on the Outbound tab (searches all dates by order number).
+function catGoToOutbound(order){ state.obSearch=String(order||''); switchTab('ob'); }
+// Short label for the customer filter cards (keeps the row on one line; full name in the tooltip).
+function catCustShort(n){
+  let s=String(n||'').toUpperCase().replace(/[.,]/g,' ').replace(/\s*-\s*/g,' ')
+        .replace(/\b(INC|CORP|CORPORATION|LLC|LTD|CO|COMPANY|THE)\b/g,' ').replace(/\s+/g,' ').trim();
+  const toks=s.split(' '); let out='';
+  for(const t of toks){ if(!out) out=t; else if((out+' '+t).length<=12) out+=' '+t; else break; }
+  return out || String(n||'').toUpperCase().slice(0,12);
+}
+function catSetRange(which,v){ if(which==='from') state.catFrom=v||''; else state.catTo=v||''; renderCatalyst(); }
+function catClearRange(){ state.catFrom=''; state.catTo=''; renderCatalyst(); }
+// Collapse / expand every Load-Date and Order header at once.
+function catCollapseAll(){ const rows=catOrderRows(); const col={}; rows.forEach(r=>{ col['D:'+(r.loadDate||'')]=true; col['O:'+r.order]=true; }); state.catCol=col; _catKeepScroll(); }
+function catExpandAll(){ state.catCol={}; _catKeepScroll(); }
 // On import, "move out" catalyst loads already shipped (DEPARTED): the fresh order + inventory
 // snapshots already reflect those, so they must stop holding inventory or counting against orders.
 function catReconcileShipped(){
@@ -2342,7 +2467,7 @@ function catReconcileShipped(){
 }
 function catAskClear(){
   if(!requireAdmin()) return;
-  const n=Object.values(state.outbound||{}).filter(o=>o&&o.source==='catalyst').length;
+  const n=Object.values(state.outbound||{}).filter(o=>o&&o.source==='catalyst').length + Object.keys(state.catDrafts||{}).length;
   document.getElementById('modal-container').innerHTML = `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal" style="max-width:460px">
@@ -2359,8 +2484,9 @@ function catDoClear(){
   if(!requireAdmin()) return;
   const ups={}; let n=0;
   Object.entries(state.outbound||{}).forEach(([id,o])=>{ if(o&&o.source==='catalyst'){ delete state.outbound[id]; ups['/outbound/'+id]=null; n++; } });
-  if(n) db.ref(ROOT).update(ups).catch(()=>{});
-  closeModal(); showAlert('Cleared '+n+' Catalyst load(s)'); if(state.tab==='cat') renderCatalyst();
+  Object.keys(state.catDrafts||{}).forEach(id=>{ ups['/catalystDrafts/'+id]=null; n++; }); state.catDrafts={};
+  if(Object.keys(ups).length) db.ref(ROOT).update(ups).catch(()=>{});
+  closeModal(); showAlert('Cleared '+n+' Catalyst load(s) / draft(s)'); if(state.tab==='cat') renderCatalyst();
 }
 function catShipBucket(r){ return _catUpper(r.shipStatus).indexOf('OKAY')===0 ? 'OKAY' : 'HOLD'; }
 
@@ -2368,13 +2494,31 @@ function catShipBucket(r){ return _catUpper(r.shipStatus).indexOf('OKAY')===0 ? 
 function _catPackWt(sku){ const inv=catInvSkus()[sku]; return (inv&&inv.rolls)? (inv.lbs/inv.rolls) : 0; }
 // Split a whole total into N as-even-as-possible integer parts (first `rem` parts get one extra).
 function _catSplit(total, N){ const out=[]; const base=Math.floor(total/N), rem=total-base*N; for(let t=0;t<N;t++) out.push(base+(t<rem?1:0)); return out; }
-function catBlocked(r){ return _catUpper(r.blockSta)==='BLOCKED' || !!(r.delivBlock) || (r.creditSta && _catUpper(r.creditSta)!=='RELEASED'); }
+// Manual release: an admin can override a block/hold so the order becomes buildable. Keyed by order.
+function _relKey(order){ return String(order==null?'':order).replace(/[.#$\[\]\/]/g,'_'); }
+function catReleased(order){ return !!(state.catReleased && state.catReleased[_relKey(order)]); }
+// Raw (source-data) block/hold, before any manual release.
+function catBlockedRaw(r){ return _catUpper(r.blockSta)==='BLOCKED' || !!(r.delivBlock) || (r.creditSta && _catUpper(r.creditSta)!=='RELEASED'); }
+// DP Notes can carry a hold instruction (make-and-hold, do not ship/release) even when the SAP
+// Shipments Status says Okay to Ship — honor the note and keep the line off the builder.
+function catNoteHoldRaw(r){ return /DO NOT SHIP|DO NOT RELEASE|DO NOT DELIVER|MAKE[\s-]*AND[\s-]*HOLD|HOLD ORDER|ON HOLD/i.test((r.notes||'')); }
+// Effective block/hold — a manually released order is treated as neither.
+function catBlocked(r){ return catBlockedRaw(r) && !(r && catReleased(r.order)); }
+function catNoteHold(r){ return catNoteHoldRaw(r) && !(r && catReleased(r.order)); }
+// Any raw hold/block on the order's lines (used to decide whether a Release control is offered).
+function catHasRawHold(lines){ return (lines||[]).some(r=>catNoteHoldRaw(r)||catBlockedRaw(r)); }
+function catReleaseOrder(order){ if(!requireAdmin()) return; const k=_relKey(order); state.catReleased=state.catReleased||{};
+  state.catReleased[k]={ at:Date.now(), by:(state.user&&state.user.label)||'', order:String(order==null?'':order) };
+  db.ref(ROOT+'/catalystReleases/'+k).set(state.catReleased[k]).catch(()=>{}); if(state.tab==='cat') renderCatalyst(); }
+function catUnreleaseOrder(order){ if(!requireAdmin()) return; const k=_relKey(order); if(state.catReleased) delete state.catReleased[k];
+  db.ref(ROOT+'/catalystReleases/'+k).remove().catch(()=>{}); if(state.tab==='cat') renderCatalyst(); }
 // The order's lines that still have qty to load AND inventory to cover it. Only Okay-to-Ship,
 // unblocked lines are eligible. Weight is the common currency for truck sizing: LB lines ship
 // pounds, PAC lines convert packs → pounds via _catPackWt.
 function catOrderShippable(order, com){
   com=com||catCommitted();
-  return catOrderRows().filter(r=>r.order===order && catShipBucket(r)==='OKAY' && !catBlocked(r)).map(r=>{
+  const _rel=catReleased(order);
+  return catOrderRows().filter(r=>r.order===order && (_rel||catShipBucket(r)==='OKAY') && !catBlocked(r) && !catNoteHold(r)).map(r=>{
     const isLB=r.unit!=='PAC'; const rem=catRemaining(r,com); const av=catAvail(r.sku,com);
     const availNative = av ? (isLB?av.lbs:av.rolls) : 0;
     const ship = Math.max(0, Math.min(rem, availNative));
@@ -2383,6 +2527,20 @@ function catOrderShippable(order, com){
     return { line:r.line, lid:r._lid, sku:r.sku, unit:r.unit, isLB, rem, ship:shipInt, packWt,
              shipLb: isLB?shipInt:Math.round(shipInt*packWt), availNative, cap: shipInt<rem };
   }).filter(x=>x.ship>0);
+}
+// Coverage: are ALL of the order's buildable lines fully on hand? If any line is short on packs
+// (or lbs), the order is blocked from building until inventory catches up.
+function catOrderCoverage(order, com){
+  com=com||catCommitted();
+  const _rel=catReleased(order);
+  const lines=catOrderRows().filter(r=>r.order===order && (_rel||catShipBucket(r)==='OKAY') && !catBlocked(r) && !catNoteHold(r)).map(r=>{
+    const isLB=r.unit!=='PAC'; const rem=catRemaining(r,com); const av=catAvail(r.sku,com);
+    const remI=isLB?Math.round(rem):Math.floor(rem);
+    const avI =av?(isLB?Math.floor(av.lbs):Math.floor(av.rolls)):0;
+    return { sku:r.sku, unit:r.unit, isLB, rem:remI, avail:avI, short:Math.max(0, remI-avI) };
+  }).filter(x=>x.rem>0);
+  const short=lines.filter(l=>l.short>0);
+  return { lines, short, hasWork:lines.length>0, covered:(lines.length>0 && short.length===0) };
 }
 // Even-split plan: N = enough weight-capped trucks to move everything shippable; each line's
 // quantity is spread as evenly as possible across all N trucks, so every truck is the same mix.
@@ -2394,13 +2552,16 @@ const CAT_FILLER_PCT = 0.10;   // filler SKU rides ~10% of each truck alongside 
 // capped at the target and the very last runs light.
 function catBuildPlan(order, target, com){
   com=com||catCommitted(); target=Number(target)||CAT_TRUCK_LB;
+  const cov=catOrderCoverage(order,com);
+  if(!cov.hasWork) return { lines:[], totalLb:0, N:0, target, trucks:[], capped:false, order:[], filler:null, blocked:false, covered:false, short:[] };
+  if(!cov.covered) return { lines:[], totalLb:0, N:0, target, trucks:[], capped:false, order:[], filler:null, blocked:true,  covered:false, short:cov.short };
   const lines=catOrderShippable(order,com);
   const totalLb=lines.reduce((s,l)=>s+l.shipLb,0);
   const capped=lines.some(l=>l.cap);
-  if(totalLb<=0) return { lines, totalLb:0, N:0, target, trucks:[], capped, order:[], filler:null };
+  if(totalLb<=0) return { lines, totalLb:0, N:0, target, trucks:[], capped, order:[], filler:null, blocked:false, covered:false, short:[] };
   if(totalLb<=target){                              // whole order fits one truck — combine every line/SKU on it
     const alloc=lines.filter(l=>l.ship>0).map(l=>({ lid:l.lid, sku:l.sku, line:l.line, unit:l.unit, isLB:l.isLB, packWt:l.packWt, amt:l.ship }));
-    return { lines, totalLb, N:1, target, trucks:[{ alloc, lb:Math.round(totalLb) }], capped, order:alloc.map(a=>a.sku), filler:null };
+    return { lines, totalLb, N:1, target, trucks:[{ alloc, lb:Math.round(totalLb) }], capped, order:alloc.map(a=>a.sku), filler:null, blocked:false, covered:true, short:[] };
   }
 
   const rec={}; lines.forEach(l=>rec[l.lid]={ lid:l.lid, sku:l.sku, line:l.line, unit:l.unit, isLB:l.isLB, packWt:l.packWt, left:l.ship });
@@ -2432,9 +2593,27 @@ function catBuildPlan(order, target, com){
     if(!Object.keys(acc).length && filler.left>0){ acc[filler.lid]=1; filler.left--; }
     finalize(acc);
   }
-  return { lines, totalLb, N:trucks.length, target, trucks, capped, order:primaries.map(p=>p.sku), filler:filler?filler.sku:null };
+  return { lines, totalLb, N:trucks.length, target, trucks, capped, order:primaries.map(p=>p.sku), filler:filler?filler.sku:null, blocked:false, covered:true, short:[] };
 }
 function catOrderMeta(order){ const ls=catOrderRows().filter(r=>r.order===order); const g=ls[0]||{}; return {g, ls}; }
+// Existing (non-cancelled) Outbound loads that already reference this Order (and PO if given).
+// Loose match: the Catalyst order/PO fields, or the order/PO number appearing in the load id/notes.
+// Used to warn before building so the same order isn't loaded onto the calendar twice.
+function catOutboundDup(order, po){
+  const norm=s=>_catUpper(s).replace(/[^A-Z0-9]/g,'');   // ignore spaces/dashes: "406077-278454W" == "406077 278454W"
+  const nO=norm(order), nP=norm(po||'');
+  if(!nO) return [];
+  return Object.values(state.outbound||{}).filter(o=>{
+    if(_catUpper(o.status)==='CANCELLED') return false;
+    const hayId=norm(o.orderNum), hayCO=norm(o.catOrder), hayCP=norm(o.catPo), hayN=norm(o.notes);
+    const orderHit=(hayCO===nO) || hayId.indexOf(nO)>-1 || hayN.indexOf(nO)>-1;
+    if(!orderHit) return false;
+    return nP ? ((hayCP===nP) || hayId.indexOf(nP)>-1 || hayN.indexOf(nP)>-1) : true;
+  });
+}
+// Count of EXTERNAL (non-Catalyst-built) Outbound loads already scheduled for this order. The build
+// plan already accounts for Catalyst-built loads, so only these need netting out of a new build.
+function catExtLoadCount(order, po){ return catOutboundDup(order, po).filter(o=>_catUpper(o.source||'')!=='CATALYST').length; }
 
 // ── build modal (order level) ──
 function catReplan(order){ const t=(document.getElementById('cat-target')||{}).value; catAskBuildOrder(order, t); }
@@ -2451,17 +2630,31 @@ function catAskBuildOrder(order, target){
   const lineSummary = plan.lines.length
     ? plan.lines.map(l=>`<div style="font-size:11.5px">Line ${esc(l.line)} &middot; SKU ${esc(l.sku)} &middot; ship <b>${l.isLB?(l.ship.toLocaleString()+' lb'):(l.ship+' pk / '+Math.round(l.shipLb).toLocaleString()+' lb')}</b>${l.cap?' <span style="color:var(--warning)">(limited by inventory)</span>':''}</div>`).join('')
     : '<div style="color:var(--danger);font-size:12px">Nothing available to load for this order (no remaining qty or no inventory on hand).</div>';
+  const dups=catOutboundDup(order, g.po);
+  const dupWarn = dups.length ? `<div style="background:rgba(185,28,28,.1);border:1px solid rgba(185,28,28,.45);border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:12px;color:#b91c1c">
+      ⚠ <b>Possible duplicate.</b> ${dups.length} load${dups.length>1?'s':''} already on the Outbound calendar for order ${esc(order)}${g.po?(' / PO '+esc(g.po)):''}:
+      <div style="margin-top:5px;color:var(--text);font-weight:600;line-height:1.5">${dups.slice(0,6).map(o=>'🚚 '+esc(o.orderNum||'')+' &middot; '+esc(fmt((o.reqDate||'').slice(0,10)))+(o.status?(' &middot; '+esc(o.status)):'')).join('<br>')}${dups.length>6?('<br>…and '+(dups.length-6)+' more'):''}</div>
+      Review before building so you don't load it twice.</div>` : '';
+  // Net out loads already scheduled on Outbound: build only the balance, numbered after them.
+  const ext=catExtLoadCount(order, g.po);
+  const base=catNextTruck(order)+ext;
+  const buildTrucks=plan.trucks.slice(ext);
+  const netN=buildTrucks.length;
+  const buildLb=buildTrucks.reduce((s,t)=>s+t.lb,0);
+  const single=(netN===1 && base===1);
+  const schedNote = ext>0 ? `<div style="background:rgba(22,101,52,.08);border:1px solid rgba(22,101,52,.3);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:#166534"><b>${ext} load${ext>1?'s':''} already scheduled on Outbound.</b> Building the remaining <b>${netN}</b>, numbered from TRK ${base}.</div>` : '';
   const MAXSHOW=14;
-  const truckList = plan.trucks.slice(0,MAXSHOW).map((tk,i)=>`<tr>
-      <td style="padding:4px 8px;font-weight:700;white-space:nowrap">TRK ${i+1}</td>
+  const truckList = buildTrucks.slice(0,MAXSHOW).map((tk,i)=>`<tr>
+      <td style="padding:4px 8px;font-weight:700;white-space:nowrap">${single?'Load':('TRK '+(base+i))}</td>
       <td style="padding:4px 8px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">${Math.round(tk.lb).toLocaleString()} lb</td>
       <td style="padding:4px 8px;font-size:11px;color:var(--text2)">${tk.alloc.map(a=>esc(a.sku)+' '+packLbl(a)).join(' + ')}</td>
-    </tr>`).join('') + (plan.N>MAXSHOW?`<tr><td colspan="3" style="padding:4px 8px;color:var(--text2);font-style:italic">…and ${plan.N-MAXSHOW} more truck(s)</td></tr>`:'');
+    </tr>`).join('') + (netN>MAXSHOW?`<tr><td colspan="3" style="padding:4px 8px;color:var(--text2);font-style:italic">…and ${netN-MAXSHOW} more truck(s)</td></tr>`:'');
   document.getElementById('modal-container').innerHTML = `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal" style="max-width:640px">
         <h2 style="margin:0 0 4px">Build Loads &middot; ${esc(order)}${g.po?(' &middot; PO '+esc(g.po)):''}</h2>
         <p style="color:var(--text2);font-size:12px;margin:0 0 12px">${esc(g.shipToName||g.soldTo||'')} &mdash; ${esc(g.dest||'')} &middot; ${ls.length} line${ls.length>1?'s':''}. Trucks run one SKU at a time (largest on-hand first) topped with ~10% of the small SKU; the last truck carries the remainder.</p>
+        ${dupWarn}${schedNote}
         <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
           <label style="font-size:12px;font-weight:700">Truck target (LB)
             <input id="cat-target" type="number" min="1000" step="1000" value="${tgt}" onchange="catReplan('${esc(order)}')" style="display:block;margin-top:4px;width:130px;padding:7px 8px;font-size:14px;border:1px solid var(--border);border-radius:7px">
@@ -2469,45 +2662,157 @@ function catAskBuildOrder(order, target){
           <label style="font-size:12px;font-weight:700">Apply date (all trucks)
             <input id="cat-date" type="date" value="${basis}" style="display:block;margin-top:4px;padding:7px 8px;font-size:13px;border:1px solid var(--border);border-radius:7px">
           </label>
-          <div style="font-size:12px"><div style="color:var(--text2)">Plan</div><b>${plan.N} load${plan.N===1?'':'s'} &middot; ${Math.round(plan.totalLb).toLocaleString()} lb total</b></div>
+          <div style="font-size:12px"><div style="color:var(--text2)">Plan</div><b>${netN} load${netN===1?'':'s'} &middot; ${Math.round(buildLb).toLocaleString()} lb total</b></div>
         </div>
         <div style="margin-bottom:10px">${lineSummary}</div>
-        ${plan.N?`<div style="max-height:230px;overflow:auto;border:1px solid var(--border);border-radius:8px">
+        ${netN?`<div style="max-height:230px;overflow:auto;border:1px solid var(--border);border-radius:8px">
           <table style="width:100%;border-collapse:collapse;font-size:12px">
             <thead><tr style="background:var(--surface2)"><th style="text-align:left;padding:5px 8px">Truck</th><th style="text-align:right;padding:5px 8px">Weight</th><th style="text-align:left;padding:5px 8px">Contents (SKU · qty)</th></tr></thead>
             <tbody>${truckList}</tbody>
-          </table></div>`:''}
+          </table></div>`:'<div style="font-size:12px;color:#166534;font-weight:700">Everything is already scheduled on Outbound — nothing to build.</div>'}
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
           <button class="sign-out-btn" onclick="closeModal()">Cancel</button>
-          <button class="sign-out-btn" ${plan.N?'':'disabled'} onclick="catDoBuildOrder('${esc(order)}')" style="background:#be123c;color:#fff;border-color:#be123c;${plan.N?'':'opacity:.5'}">Build ${plan.N||''} Load${plan.N===1?'':'s'}</button>
+          <button class="sign-out-btn" ${netN?'':'disabled'} onclick="${dups.length?`catAskBuildDup('${esc(order)}')`:`catDoBuildOrder('${esc(order)}')`}" style="background:#be123c;color:#fff;border-color:#be123c;${netN?'':'opacity:.5'}">Build ${netN||''} Load${netN===1?'':'s'}</button>
         </div>
       </div>
     </div>`;
 }
-function catDoBuildOrder(order){
+// Next truck number for an order across existing drafts AND posted loads (so numbering never collides).
+function catNextTruck(order){
+  let mx=0;
+  Object.values(state.catDrafts||{}).forEach(d=>{ if(d.order===order && (d.truck||0)>mx) mx=d.truck; });
+  Object.values(state.outbound||{}).forEach(o=>{ if(o.source==='catalyst' && o.catOrder===order && _catUpper(o.status)!=='CANCELLED' && (o.catTruck||0)>mx) mx=o.catTruck; });
+  return mx+1;
+}
+// Build DRAFT loads — held in the Catalyst summary (reserving inventory) but NOT on the Outbound calendar
+// until you Post them. Review, then post.
+function catDoBuildOrder(order, opts){
   if(!requireAdmin()) return;
-  const tgt=Number((document.getElementById('cat-target')||{}).value)||CAT_TRUCK_LB;
-  const date=(document.getElementById('cat-date')||{}).value || todayStr();
-  const {g}=catOrderMeta(order);
+  opts=opts||{};
+  const tgt=Number(opts.target||(document.getElementById('cat-target')||{}).value)||CAT_TRUCK_LB;
+  const date=opts.date||(document.getElementById('cat-date')||{}).value || todayStr();
+  const {g,ls}=catOrderMeta(order);
+  // Loads post to the calendar on the DELIVERY date (earliest across the order's lines); the Catalyst
+  // summary still groups by load date. Stored on the draft so posting uses it as the reqDate.
+  const _deliv=(ls||[]).map(r=>r.delivDate).filter(Boolean).sort()[0] || g.delivDate || date;
   const plan=catBuildPlan(order, tgt);
   if(!plan.N){ showAlert('Nothing available to load for this order.'); return; }
-  const coll=state.outbound||(state.outbound={});
-  let offset=Object.values(coll).filter(o=>o&&o.source==='catalyst'&&_catUpper(o.status)!=='CANCELLED'&&o.catOrder===order).length;
+  // Net out loads already scheduled on Outbound: skip that many trucks and number after them.
+  const ext=catExtLoadCount(order, g.po);
+  const buildTrucks=plan.trucks.slice(ext);
+  if(!buildTrucks.length){ showAlert('This order is already fully scheduled on the Outbound calendar.'); return; }
+  const drafts=state.catDrafts||(state.catDrafts={});
+  let base=catNextTruck(order)+ext;
+  const single=(buildTrucks.length===1 && base===1);   // lone first load — no "TRK 1" suffix
   const updates={};
-  plan.trucks.forEach((tk,i)=>{
-    const trk=offset+i+1;
-    const loadId=(order+(g.po?(' '+g.po):'')+' TRK '+trk);
-    const alloc=tk.alloc.map(a=>({ lid:a.lid, sku:a.sku, line:a.line, unit:a.unit, weight:a.isLB?a.amt:0, qty:a.isLB?0:a.amt }));
-    const skusum=tk.alloc.map(a=>a.sku+' '+(a.isLB?(a.amt.toLocaleString()+'LB'):(a.amt+'PAC'))).join(' + ');
-    const rec={ orderNum:loadId, customer:'CATALYST', destination:g.dest||g.city||'', carrier:'',
-      reqDate:date, origReqDate:date, apptTime:'', door:'', trailer:'', phone:'', notes:skusum,
-      status:'ORDER RECEIVED', source:'catalyst', catOrder:order, catPo:g.po||'', catTruck:trk,
-      catAlloc:alloc, catTotalLb:Math.round(tk.lb), createdAt:Date.now(), updatedAt:Date.now() };
-    const key=db.ref().push().key; coll[key]=rec; updates['/outbound/'+key]=rec;
+  buildTrucks.forEach((tk,i)=>{
+    const trk=base+i;
+    const loadId=(order+(g.po?(' '+g.po):'')+(single?'':(' TRK '+trk)));
+    const alloc=tk.alloc.map(a=>({ lid:a.lid, sku:a.sku, line:a.line, unit:a.unit, weight:a.isLB?a.amt:Math.round(a.amt*(a.packWt||0)), qty:a.isLB?0:a.amt }));
+    const rec={ order, po:g.po||'', truck:trk, loadId, alloc, totalLb:Math.round(tk.lb), date, delivDate:_deliv,
+      dest:g.dest||g.city||'', createdAt:Date.now(), by:(state.user&&state.user.label)||'' };
+    const key=db.ref().push().key; drafts[key]=rec; updates['/catalystDrafts/'+key]=rec;
   });
   db.ref(ROOT).update(updates)
     .then(()=>{ closeModal(); if(state.tab==='cat') renderCatalyst(); })
-    .catch(e=>showAlert('Could not build loads: '+((e&&e.message)||e)));
+    .catch(e=>showAlert('Could not build drafts: '+((e&&e.message)||e)));
+}
+// Second confirmation: operator clicked Build even though a duplicate is already on the calendar.
+let _catBuildPending=null;
+function _catBuildCancel(){ const p=_catBuildPending; _catBuildPending=null; if(p) catAskBuildOrder(p.order, p.target); else closeModal(); }
+function _catBuildConfirmed(){ const p=_catBuildPending; _catBuildPending=null; if(p) catDoBuildOrder(p.order, {target:p.target, date:p.date}); }
+function catAskBuildDup(order){
+  if(!requireAdmin()) return;
+  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const fmt=iso=>{ const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m?(m[2]+'/'+m[3]+'/'+m[1]):(iso||''); };
+  const {g}=catOrderMeta(order);
+  const dups=catOutboundDup(order, g.po);
+  _catBuildPending={ order, target:(document.getElementById('cat-target')||{}).value, date:(document.getElementById('cat-date')||{}).value };
+  const list=dups.slice(0,6).map(o=>'🚚 '+esc(o.orderNum||'')+' &middot; '+esc(fmt((o.reqDate||'').slice(0,10)))+(o.status?(' &middot; '+esc(o.status)):'')).join('<br>')+(dups.length>6?('<br>…and '+(dups.length-6)+' more'):'');
+  document.getElementById('modal-container').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)_catBuildCancel()">
+      <div class="modal" style="max-width:520px">
+        <h2 style="margin:0 0 6px;color:#b91c1c">⚠ Are you sure?</h2>
+        <p style="color:var(--text2);font-size:12.5px;margin:0 0 12px">Order ${esc(order)}${g.po?(' / PO '+esc(g.po)):''} already has ${dups.length} load${dups.length>1?'s':''} on the Outbound calendar. Building will create <b>another</b> load for the same order — a likely duplicate.</p>
+        <div style="font-size:11.5px;color:var(--text);line-height:1.5;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:14px">${list}</div>
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+          <button class="sign-out-btn" onclick="_catBuildCancel()">Go back</button>
+          <button class="sign-out-btn" onclick="_catBuildConfirmed()" style="background:#b91c1c;color:#fff;border-color:#b91c1c">Build anyway</button>
+        </div>
+      </div>
+    </div>`;
+}
+// Post drafts to the Outbound calendar (creates the loads, removes the drafts).
+let _catPostPending=null;
+function _catCancelPost(){ _catPostPending=null; closeModal(); }
+function _catPostConfirmed(){ const e=_catPostPending; _catPostPending=null; closeModal(); if(e) _catPostDrafts(e, true); }
+// Warn (and require confirmation) when a draft's order already has a load on the Outbound calendar.
+function catAskPostDup(warn){
+  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const fmt=iso=>{ const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m?(m[2]+'/'+m[3]+'/'+m[1]):(iso||''); };
+  const rows=warn.map(w=>`<div style="margin-bottom:9px">
+      <div style="font-weight:800;font-size:12.5px;color:#b91c1c">⚠ Order ${esc(w.order)}${w.po?(' / PO '+esc(w.po)):''} — ${w.dups.length} already on the calendar</div>
+      <div style="font-size:11.5px;color:var(--text);margin-top:3px;line-height:1.5">${w.dups.slice(0,6).map(o=>'🚚 '+esc(o.orderNum||'')+' &middot; '+esc(fmt((o.reqDate||'').slice(0,10)))+(o.status?(' &middot; '+esc(o.status)):'')).join('<br>')}${w.dups.length>6?('<br>…and '+(w.dups.length-6)+' more'):''}</div>
+    </div>`).join('');
+  document.getElementById('modal-container').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)_catCancelPost()">
+      <div class="modal" style="max-width:540px">
+        <h2 style="margin:0 0 6px;color:#b91c1c">⚠ Possible duplicate load${warn.length>1?'s':''}</h2>
+        <p style="color:var(--text2);font-size:12.5px;margin:0 0 12px">The following order${warn.length>1?'s':''} already ${warn.length>1?'have':'has'} a load on the Outbound calendar. Posting will add another one. Only continue if that's intentional.</p>
+        <div style="max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:14px">${rows}</div>
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+          <button class="sign-out-btn" onclick="_catCancelPost()">Cancel</button>
+          <button class="sign-out-btn" onclick="_catPostConfirmed()" style="background:#b91c1c;color:#fff;border-color:#b91c1c">Post anyway</button>
+        </div>
+      </div>
+    </div>`;
+}
+function _catPostDrafts(entries, confirmed){
+  if(!requireAdmin() || !entries.length) return;
+  if(!confirmed){                         // block posting a duplicate until the user confirms
+    const seen={}, warn=[];
+    entries.forEach(([id,d])=>{ if(seen[d.order]) return; seen[d.order]=1;
+      const dups=catOutboundDup(d.order, d.po); if(dups.length) warn.push({order:d.order, po:d.po, dups}); });
+    if(warn.length){ _catPostPending=entries; catAskPostDup(warn); return; }
+  }
+  const coll=state.outbound||(state.outbound={}); const updates={};
+  entries.forEach(([id,d])=>{
+    const skusum=(d.alloc||[]).map(a=>a.sku+' '+(_catUpper(a.unit)!=='PAC'?(Math.round(_catNum(a.weight)).toLocaleString()+'LB'):(_catNum(a.qty)+'PAC'))).join(' + ');
+    const _rq=d.delivDate||d.date;          // post on the delivery date (summary still groups by load date)
+    const rec={ orderNum:d.loadId, customer:'CATALYST', destination:d.dest||'', carrier:'',
+      reqDate:_rq, origReqDate:_rq, apptTime:'', door:'', trailer:'', phone:'', notes:skusum,
+      status:'ORDER RECEIVED', source:'catalyst', catOrder:d.order, catPo:d.po||'', catTruck:d.truck,
+      catAlloc:d.alloc, catTotalLb:d.totalLb, createdAt:Date.now(), updatedAt:Date.now() };
+    const key=db.ref().push().key; coll[key]=rec; updates['/outbound/'+key]=rec;
+    updates['/catalystDrafts/'+id]=null; if(state.catDrafts) delete state.catDrafts[id];
+  });
+  db.ref(ROOT).update(updates)
+    .then(()=>{ showAlert('Posted '+entries.length+' load(s) to the calendar.'); if(state.tab==='cat') renderCatalyst(); })
+    .catch(e=>showAlert('Post failed: '+((e&&e.message)||e)));
+}
+function catPostOrder(order){ _catPostDrafts(Object.entries(state.catDrafts||{}).filter(([,d])=>d.order===order)); }
+function catPostAll(){ _catPostDrafts(Object.entries(state.catDrafts||{})); }
+// Post just ONE draft load to the calendar.
+function catPostDraft(id){ const d=(state.catDrafts||{})[id]; if(d) _catPostDrafts([[id,d]]); }
+// Change the load date on a single DRAFT load.
+function catSetDraftDate(id,val){
+  if(!requireAdmin()) return;
+  const d=(state.catDrafts||{})[id]; if(!d) return; d.date=(val||d.date);
+  db.ref(ROOT+'/catalystDrafts/'+id).update({date:d.date}).catch(()=>{});
+  if(state.tab==='cat') renderCatalyst();
+}
+// Change the load date (reqDate) on a single POSTED (on-calendar) load.
+function catSetPostedDate(id,val){
+  if(!requireAdmin()) return;
+  const o=(state.outbound||{})[id]; if(!o) return; o.reqDate=(val||o.reqDate); o.updatedAt=Date.now();
+  db.ref(ROOT+'/outbound/'+id).update({reqDate:o.reqDate,updatedAt:o.updatedAt}).catch(()=>{});
+  if(state.tab==='cat') renderCatalyst();
+}
+function catDiscardDraft(id){
+  if(!requireAdmin()) return;
+  if(state.catDrafts) delete state.catDrafts[id];
+  db.ref(ROOT+'/catalystDrafts/'+id).remove().catch(()=>{});
+  if(state.tab==='cat') renderCatalyst();
 }
 
 
@@ -2519,9 +2824,17 @@ function renderCatalyst(){
   const all=catOrderRows();
   const com=catCommitted();
   const filt=state.catFilter||'OKAY';
-  const okCount=all.filter(r=>catShipBucket(r)==='OKAY').length;
+  // Effective bucket: a line held by its DP notes counts as On Hold even if SAP says Okay to Ship.
+  const _bkt=r=>catNoteHold(r)?'HOLD':catShipBucket(r);
+  const okCount=all.filter(r=>_bkt(r)==='OKAY').length;
   const holdCount=all.length-okCount;
-  const recs=(filt==='ALL')?all:all.filter(r=>catShipBucket(r)===filt);
+  // baseRecs = the current status segment (+ date range), ALL customers — drives the customer cards
+  // so each card reflects that customer's total WITHIN the selected segment. recs adds the customer
+  // filter and drives the table + summary.
+  let baseRecs=(filt==='ALL')?all.slice():all.filter(r=>_bkt(r)===filt);
+  if(state.catFrom) baseRecs=baseRecs.filter(r=>(r.loadDate||'')>=state.catFrom);
+  if(state.catTo)   baseRecs=baseRecs.filter(r=>(r.loadDate||'')<=state.catTo);
+  let recs=state.catCust?baseRecs.filter(r=>(r.shipToName||r.soldTo||'(unknown)')===state.catCust):baseRecs.slice();
   const NCOLS=12;
 
   // Hierarchy: Load Date  ->  Customer  ->  Order / PO  ->  line details (+ built trucks)
@@ -2531,27 +2844,88 @@ function renderCatalyst(){
   dateKeys.sort((a,b)=> ((a===''?1:0)-(b===''?1:0)) || String(a).localeCompare(String(b)) );
 
   const invReady=!!(state.catInv && Object.keys(catInvSkus()).length);
-  let totalRemLb=0, builtLoads=0;
-  Object.values(state.outbound||{}).forEach(o=>{ if(o.source==='catalyst' && !o.catArchived && _catUpper(o.status)!=='CANCELLED') builtLoads++; });
+  let totalRemLb=0, postedCount=0;
+  Object.values(state.outbound||{}).forEach(o=>{ if(o.source==='catalyst' && !o.catArchived && _catUpper(o.status)!=='CANCELLED') postedCount++; });
+  const draftCount=Object.keys(state.catDrafts||{}).length;
+  recs.forEach(r=>{ if(r.unit!=='PAC') totalRemLb += catRemaining(r,com); });
+  const planByOrder={}; const _plan=o=>planByOrder[o]||(planByOrder[o]=catBuildPlan(o, CAT_TRUCK_LB, com));
+  // Loads already on the Outbound calendar for each order. _outCnt = all matching loads (used to net
+  // the demand-based "potential"); _extCnt = only the EXTERNAL (non-Catalyst) ones (used to net the
+  // build plan, which already excludes Catalyst-built loads). Truck numbering also starts after these.
+  const _orderPo={}; baseRecs.forEach(r=>{ if(_orderPo[r.order]==null) _orderPo[r.order]=r.po||''; });
+  const _outCnt={}, _extCnt={};
+  Object.keys(_orderPo).forEach(o=>{ const d=catOutboundDup(o,_orderPo[o]); _outCnt[o]=d.length; _extCnt[o]=d.filter(x=>_catUpper(x.source||'')!=='CATALYST').length; });
+  const _netBuild=o=>Math.max(0, (_plan(o).N||0) - (_extCnt[o]||0));   // trucks still to build after external loads
+  // "Total loads" = built (draft+posted) + the truck loads still needed across every shown order.
+  let loadsToBuild=0;
+  [...new Set(recs.map(r=>r.order))].forEach(o=>{ loadsToBuild += _netBuild(o); });
+  const builtLoads=draftCount+postedCount;
+  const totalLoads=builtLoads+loadsToBuild;
+  // "Potential loads" = trucks the FULL ordered quantity would fill if inventory were unlimited —
+  // demand only, ignoring on-hand stock and holds — LESS any loads already scheduled on Outbound.
+  // Average pack weight across all imported inventory is a fallback for PAC SKUs not in the snapshot.
+  let _invLb=0, _invRoll=0; Object.values(catInvSkus()).forEach(x=>{ _invLb+=(x.lbs||0); _invRoll+=(x.rolls||0); });
+  const _avgPackWt=_invRoll>0?(_invLb/_invRoll):0;
+  const _potByOrd={};
+  baseRecs.forEach(r=>{ const dem=(r.demand!=null?r.demand:(r.qty||0)); if(dem<=0) return;
+    const isLB=r.unit!=='PAC'; const pw=_catPackWt(r.sku)||_avgPackWt; const w=isLB?dem:dem*pw;
+    if(w>0) _potByOrd[r.order]=(_potByOrd[r.order]||0)+w; });
+  const _potOrd=o=>_potByOrd[o]?Math.ceil(_potByOrd[o]/CAT_TRUCK_LB):0;
+  // Orders fully held by DP notes aren't built, so they keep their GROSS potential (never netted
+  // away by scheduled Outbound loads) — the flag still shows. Everything else nets the scheduled out.
+  const _heldOrders=new Set(); { const _bo={}; baseRecs.forEach(r=>{ (_bo[r.order]=_bo[r.order]||[]).push(r); });
+    Object.keys(_bo).forEach(o=>{ const ls=_bo[o]; if(ls.some(r=>catNoteHold(r)) && ls.every(r=>catNoteHold(r))) _heldOrders.add(o); }); }
+  const _potOrdEff=o=> _heldOrders.has(o) ? _potOrd(o) : Math.max(0, _potOrd(o) - (_outCnt[o]||0));
+  const _isInProg=o=> !_heldOrders.has(o) && (_outCnt[o]||0)>0 && _potOrdEff(o)>0;   // some loads already scheduled
+  // Summary "Potential loads" respects the current customer filter (recs), not the whole segment.
+  let potentialLoads=0;
+  [...new Set(recs.map(r=>r.order))].forEach(o=>{ potentialLoads += _potOrdEff(o); });
+  // Per-date split so a collapsed LOAD DATE shows both a NEW total (purple) and a REMAINING total
+  // (amber) when it has a mix of fresh orders and in-progress orders.
+  const _potDateNew={}, _potDateRem={};
+  Object.keys(byDate).forEach(dk=>{ const seen={}; let nNew=0, nRem=0;
+    Object.keys(byDate[dk]).forEach(cust=>byDate[dk][cust].forEach(r=>{ if(seen[r.order]) return; seen[r.order]=1;
+      const p=_potOrdEff(r.order); if(p>0){ if(_isInProg(r.order)) nRem+=p; else nNew+=p; } }));
+    _potDateNew[dk]=nNew; _potDateRem[dk]=nRem; });
 
+  const _comp=(allocs)=>allocs.map(a=>{ const isLB=_catUpper(a.unit)!=='PAC'; return esc(a.sku)+' '+(isLB?(Math.round(_catNum(a.weight)).toLocaleString()+'lb'):(_catNum(a.qty)+'pk')); }).join(' + ');
   const truckRows=(ordNo)=>{
-    const trucks=Object.entries(state.outbound||{})
-      .filter(([,o])=>o.source==='catalyst' && o.catOrder===ordNo)
-      .sort((a,b)=>(a[1].catTruck||0)-(b[1].catTruck||0));
-    if(!trucks.length){
+    const drafts=Object.entries(state.catDrafts||{}).filter(([,d])=>d.order===ordNo);
+    const posted=Object.entries(state.outbound||{}).filter(([,o])=>o.source==='catalyst' && o.catOrder===ordNo);
+    if(!drafts.length && !posted.length){
       return `<tr><td></td><td colspan="${NCOLS-1}" style="padding:5px 14px 5px 48px;font-size:10.5px;color:var(--text2);font-style:italic">No loads built yet for this order.</td></tr>`;
     }
-    return trucks.map(([id,o])=>{
-      const canc=_catUpper(o.status)==='CANCELLED';
+    // Normalize drafts + posted into one uniform shape, then render every load the same way.
+    const items=[];
+    drafts.forEach(([id,d])=>items.push({ kind:'draft', key:id, bg:'rgba(217,119,6,.06)', canc:false, truck:d.truck||0,
+      id:d.loadId||'', lb:Math.round(d.totalLb||0), comp:_comp(d.alloc||[]), iso:(d.date||'').slice(0,10),
+      bBg:'rgba(217,119,6,.16)', bCol:'#b45309', bTxt:'DRAFT · not on calendar' }));
+    posted.forEach(([id,o])=>{ const canc=_catUpper(o.status)==='CANCELLED';
       const allocs=Array.isArray(o.catAlloc)?o.catAlloc:(o.catSku?[{sku:o.catSku,unit:o.catUnit,weight:o.catWeight,qty:o.catQty}]:[]);
-      const comp=allocs.map(a=>{ const isLB=_catUpper(a.unit)!=='PAC'; return esc(a.sku)+' '+(isLB?(Math.round(_catNum(a.weight)).toLocaleString()+'lb'):(_catNum(a.qty)+'pk')); }).join(' + ');
       const lb=o.catTotalLb || allocs.reduce((s,a)=>s+_catNum(a.weight),0);
-      return `<tr style="background:rgba(190,18,60,.045)">
+      items.push({ kind:'posted', key:id, bg:'rgba(6,95,70,.04)', canc, truck:o.catTruck||0,
+        id:o.orderNum||'', lb:Math.round(lb), comp:allocs.length?_comp(allocs):'', iso:(o.reqDate||'').slice(0,10),
+        bBg:canc?'rgba(120,120,120,.15)':'rgba(6,95,70,.12)', bCol:canc?'var(--text2)':'#065f46',
+        bTxt:canc?(o.status||''):('ON CALENDAR · '+(o.status||'')) }); });
+    items.sort((a,b)=>(a.truck-b.truck) || (a.kind<b.kind?-1:1));
+    return items.map(it=>{
+      const setFn=it.kind==='draft'?'catSetDraftDate':'catSetPostedDate';
+      const dateCtl=(admin && !it.canc)
+        ? `<span style="font-size:10px;color:var(--text2)">Load date</span> <input type="date" value="${esc(it.iso)}" onchange="${setFn}('${esc(it.key)}',this.value)" title="Change this load's date" style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:6px">`
+        : `<span style="color:var(--text2);white-space:nowrap">📅 ${esc(fmt(it.iso))}</span>`;
+      const postBtn=(it.kind==='draft' && admin)
+        ? `<button class="btn" style="font-size:10px;padding:3px 10px;background:#166534;color:#fff;border-color:#166534;white-space:nowrap" onclick="catPostDraft('${esc(it.key)}')" title="Post just this load to the calendar">📅 Post</button>` : '';
+      const delBtn=(it.kind==='draft' && admin)
+        ? `<button class="btn" style="font-size:11px;padding:2px 8px;color:var(--danger)" title="Discard this draft" onclick="catDiscardDraft('${esc(it.key)}')">✕</button>` : '';
+      return `<tr style="background:${it.bg}">
         <td></td>
-        <td colspan="${NCOLS-1}" style="padding:5px 14px 5px 48px;font-size:11px;color:${canc?'var(--text2)':'var(--text)'}">
-          🚚 <b style="${canc?'text-decoration:line-through':''}">${esc(o.orderNum||'')}</b>
-          <span style="color:var(--text2)"> &middot; ${Math.round(lb).toLocaleString()} lb${comp?(' &middot; '+comp):''} &middot; ${fmt((o.reqDate||'').slice(0,10))}</span>
-          <span style="font-size:9px;font-weight:800;letter-spacing:.3px;margin-left:6px;padding:1px 7px;border-radius:999px;background:${canc?'rgba(120,120,120,.15)':'rgba(6,95,70,.12)'};color:${canc?'var(--text2)':'#065f46'}">${esc(o.status||'')}</span>
+        <td colspan="${NCOLS-1}" style="padding:6px 14px 6px 48px;font-size:11px;color:${it.canc?'var(--text2)':'var(--text)'}">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="white-space:nowrap">🚚 <b style="${it.canc?'text-decoration:line-through':''}">${esc(it.id)}</b></span>
+            <span style="color:var(--text2)">&middot; ${it.lb.toLocaleString()} lb${it.comp?(' &middot; '+it.comp):''}</span>
+            <span style="font-size:9px;font-weight:800;letter-spacing:.3px;padding:1px 7px;border-radius:999px;background:${it.bBg};color:${it.bCol};white-space:nowrap">${esc(it.bTxt)}</span>
+            <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">${dateCtl}${postBtn}${delBtn}</span>
+          </div>
         </td></tr>`;
     }).join('');
   };
@@ -2562,54 +2936,114 @@ function renderCatalyst(){
   } else {
     const shownTrucks={};
     dateKeys.forEach(dk=>{
-      body+=`<tr><td colspan="${NCOLS}" style="background:#be123c;color:#fff;padding:9px 14px;font-size:12px;font-weight:800;letter-spacing:.5px">📅 LOAD DATE &middot; ${dk?esc(fmt(dk)):'No load date'}</td></tr>`;
+      const _dc=!!(state.catCol||{})['D:'+dk];
+      const _dNew=_potDateNew[dk]||0, _dRem=_potDateRem[dk]||0;
+      const _remB=_dRem>0?`<span style="float:right;margin-left:6px;font-size:11px;font-weight:800;letter-spacing:.3px;color:#b45309;background:rgba(180,83,9,.14);padding:1px 10px;border-radius:999px" title="Loads still to build on this date after those already scheduled on Outbound">~${_dRem} POTENTIAL LOAD${_dRem>1?'S':''} REMAINING</span>`:'';
+      const _newB=_dNew>0?`<span style="float:right;margin-left:6px;font-size:11px;font-weight:800;letter-spacing:.3px;color:#7c3aed;background:rgba(124,58,237,.14);padding:1px 10px;border-radius:999px" title="Potential loads from the full ordered quantity on this date (ignores on-hand inventory)">~${_dNew} POTENTIAL LOAD${_dNew>1?'S':''}</span>`:'';
+      body+=`<tr><td colspan="${NCOLS}" onclick="catToggleCol('D:${dk}')" style="cursor:pointer;background:#e5e7eb;color:#111827;padding:9px 14px;font-size:12px;font-weight:800;letter-spacing:.5px;border-bottom:1px solid #d1d5db">${_dc?'▸':'▾'} 📅 LOAD DATE &middot; ${dk?esc(fmt(dk)):'No load date'}${_remB}${_newB}</td></tr>`;
+      if(_dc) return;
       const custs=Object.keys(byDate[dk]).sort();
       custs.forEach(cust=>{
-        body+=`<tr><td colspan="${NCOLS}" style="background:var(--surface2);color:var(--text);padding:7px 14px 7px 26px;font-size:11.5px;font-weight:800;letter-spacing:.3px">${esc(cust)}</td></tr>`;
+        const _cf=state.catCust===cust;
+        body+=`<tr><td colspan="${NCOLS}" style="background:var(--surface2);color:var(--text);padding:7px 14px 7px 26px;font-size:11.5px;font-weight:800;letter-spacing:.3px">${esc(cust)} <span onclick="catSetCust('${esc(cust).replace(/'/g,"\\'")}')" title="${_cf?'Clear filter':'Filter to this customer'}" style="cursor:pointer;font-weight:700;font-size:10px;margin-left:6px;color:${_cf?'#be123c':'var(--text2)'}">${_cf?'✕ clear':'🔎 filter'}</span></td></tr>`;
         const ord={}; const ordKeys=[];
         byDate[dk][cust].forEach(r=>{ if(!ord[r.order]){ ord[r.order]=[]; ordKeys.push(r.order); } ord[r.order].push(r); });
         ordKeys.sort();
         ordKeys.forEach(ordNo=>{
           const lines=ord[ordNo]; const g=lines[0];
-          const plan=catBuildPlan(ordNo, CAT_TRUCK_LB, com);
-          const buildBtn = (admin && plan.N>0)
-            ? `<button class="btn" style="font-size:10px;padding:3px 10px;margin-left:10px" onclick="catAskBuildOrder('${esc(ordNo)}')">⚙ Build ${plan.N} Load${plan.N>1?'s':''}</button>`
-            : (admin && !plan.N ? '<span style="font-size:10px;color:var(--text2);margin-left:10px">nothing to build</span>' : '');
-          body+=`<tr><td colspan="${NCOLS}" style="background:rgba(0,0,0,.02);color:var(--text2);padding:6px 14px 6px 38px;font-size:11px;font-weight:700">
-            ${esc(ordNo)}${g.po?('<span style="font-weight:600"> &middot; PO '+esc(g.po)+'</span>'):''}
-            <span style="font-weight:600"> &middot; ${esc(g.dest||'')} &middot; ${lines.length} line${lines.length>1?'s':''}</span>
-            ${plan.N?('<span style="font-weight:600"> &middot; '+Math.round(plan.totalLb).toLocaleString()+' lb to ship</span>'):''}${buildBtn}</td></tr>`;
+          const plan=_plan(ordNo);
+          // Distinct statuses of any load already on the Outbound calendar for this order.
+          const _outDup=catOutboundDup(ordNo, g.po);
+          const _outStatuses=[...new Set(_outDup.map(o=>String(o.status||'').trim().toUpperCase()).filter(Boolean))];
+          const _hasOut=_outStatuses.length>0;
+          const outBadge=_outStatuses.map(s=>`<span title="This order has a load on the Outbound calendar" style="font-size:8.5px;font-weight:800;color:#1a3a6b;background:rgba(26,58,107,.12);padding:1px 6px;border-radius:4px;white-space:nowrap;margin-left:5px">📅 ${esc(s)}</span>`).join('');
+          const draftN = Object.values(state.catDrafts||{}).filter(d=>d.order===ordNo).length;
+          const noteHeld = lines.every(r=>catNoteHold(r)) && lines.some(r=>catNoteHold(r));
+          const _ext=_extCnt[ordNo]||0;                 // external (non-Catalyst) loads already scheduled
+          const netBuild=_netBuild(ordNo);              // trucks still to build after those
+          const ordPot = _potOrdEff(ordNo);
+          const _inProg = _isInProg(ordNo);             // some loads already scheduled (held orders excluded)
+          const potBadge = ordPot>0 ? `<span title="${_inProg?'Loads still to build after those already scheduled on Outbound':'Loads the full ordered quantity would fill (ignores on-hand inventory)'}" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:13px;font-weight:800;letter-spacing:.3px;padding:3px 13px;border-radius:999px;background:${_inProg?'rgba(180,83,9,.14)':'rgba(124,58,237,.14)'};color:${_inProg?'#b45309':'#7c3aed'};white-space:nowrap">~${ordPot} POTENTIAL LOAD${ordPot>1?'S':''}${_inProg?' REMAINING':''}</span>` : '';
+          const _oc=!!(state.catCol||{})['O:'+ordNo];
+          // Manual release: an admin can override a source block/hold so the order can build.
+          const _rawHeld=catHasRawHold(lines); const _released=catReleased(ordNo);
+          const _relBy=(state.catReleased&&state.catReleased[_relKey(ordNo)]&&state.catReleased[_relKey(ordNo)].by)||'';
+          const relBtn=(admin && _rawHeld && !_released)?` <button class="btn" style="font-size:10px;padding:3px 10px;margin-left:10px;background:#166534;color:#fff;border-color:#166534" title="Release this block/hold so the order can build" onclick="catReleaseOrder('${esc(ordNo)}')">🔓 Release Hold</button>`:'';
+          const relTag=_released?` <span style="font-weight:800;color:#166534;font-size:10px;margin-left:8px" title="Manually released${_relBy?(' by '+esc(_relBy)):''}">🔓 RELEASED</span>${admin?` <button class="btn" style="font-size:9px;padding:2px 8px;margin-left:2px;color:var(--danger)" title="Re-apply the hold" onclick="catUnreleaseOrder('${esc(ordNo)}')">↩ Re-hold</button>`:''}`:'';
+          let statusHtml='';
+          if(noteHeld){
+            statusHtml = `<span style="font-weight:800;color:#b91c1c;margin-left:10px">⛔ ON HOLD per notes — not building</span>`+relBtn;
+          } else if(plan.blocked){
+            const sh=(plan.short||[]).map(x=>esc(x.sku)+' '+x.short.toLocaleString()+(x.isLB?' lb':' pk')).join(', ');
+            statusHtml = `<span style="font-weight:800;color:#b45309;margin-left:10px">⚠ SHORT ${sh} — waiting on inventory</span>`;
+          } else if(netBuild>0){
+            statusHtml = `<span style="font-weight:600"> &middot; ${Math.round(plan.totalLb).toLocaleString()} lb to ship</span>`
+              + (_ext>0?` <span style="font-weight:700;color:#166534;font-size:10px">(${_ext} already on Outbound)</span>`:'')
+              + (admin?` <button class="btn" style="font-size:10px;padding:3px 10px;margin-left:10px" onclick="catAskBuildOrder('${esc(ordNo)}')">⚙ Build ${netBuild} Draft${netBuild>1?'s':''}</button>`:'');
+          } else if((_outCnt[ordNo]||0)>0){
+            statusHtml = `<span style="font-weight:800;color:#166534;margin-left:10px" title="Loads for this order are already on the Outbound calendar">✓ Scheduled on Outbound — no build needed</span>`;
+          } else if(_rawHeld && !_released){
+            statusHtml = `<span style="font-weight:800;color:#b91c1c;margin-left:10px">⛔ BLOCKED — not building</span>`+relBtn;
+          }
+          statusHtml += relTag;
+          const postBtn = (admin && draftN>0)
+            ? `<button class="btn" style="font-size:10px;padding:3px 10px;margin-left:8px;background:#166534;color:#fff;border-color:#166534" onclick="catPostOrder('${esc(ordNo)}')">📅 Post ${draftN} to Calendar</button>`
+            : '';
+          body+=`<tr><td colspan="${NCOLS}" style="position:relative;background:rgba(0,0,0,.02);color:#111827;padding:7px 14px 7px 38px;font-size:13px;font-weight:800">
+            <span onclick="catToggleCol('O:${esc(ordNo)}')" style="cursor:pointer;user-select:none">${_oc?'▸':'▾'}</span> ${esc(ordNo)}${g.po?('<span style="font-weight:800"> &middot; PO '+esc(g.po)+'</span>'):''}
+            <span style="font-weight:800"> &middot; ${esc(g.dest||'')} &middot; ${lines.length} line${lines.length>1?'s':''}</span>
+            ${statusHtml}${postBtn}${potBadge}</td></tr>`;
+          if(!_oc){
           lines.forEach(r=>{
             const rem=catRemaining(r, com); const built=(com.byLid[r._lid]||0);
             const av=catAvail(r.sku, com);
             const isLB=r.unit!=='PAC';
-            if(isLB){ totalRemLb+=rem; }
+            // For LB lines, show the equivalent pack count (from pack weight) under the lb figures.
+            const _pw=isLB?(_catPackWt(r.sku)||_avgPackWt):0;
+            const _qtyPk=(isLB && _pw>0)?Math.round((r.qty||0)/_pw):0;
+            const _remPk=(isLB && _pw>0)?Math.round(rem/_pw):0;
             const bucket=catShipBucket(r);
             const gmCol=bucket==='OKAY'?'#065f46':'#b45309', gmBg=bucket==='OKAY'?'rgba(6,95,70,.12)':'rgba(180,83,9,.12)';
-            const blocked = _catUpper(r.blockSta)==='BLOCKED' || (r.delivBlock||'') || (r.creditSta && _catUpper(r.creditSta)!=='RELEASED');
+            const blocked = catBlocked(r);   // respects manual release
             const availCell = av
-              ? ((av.lbs>0||av.rolls>0) ? Math.round(av.lbs).toLocaleString()+' lb<br><span style="color:var(--text2);font-size:10px">'+av.rolls+' pk'+(av.rawLbs!==av.lbs?(' · of '+Math.round(av.rawLbs).toLocaleString()+' lb / '+av.rawRolls+' pk'):'')+'</span>'
-                                         : '<span style="color:var(--danger)">0 available</span>')
+              ? ((av.lbs>0||av.rolls>0)
+                  ? (isLB
+                      ? Math.round(av.lbs).toLocaleString()+' lb<br><span style="color:var(--text2);font-size:10px">'+av.rolls+' pk'+(av.rawLbs!==av.lbs?(' · of '+Math.round(av.rawLbs).toLocaleString()+' lb'):'')+'</span>'
+                      : '<b>'+av.rolls+' pk</b><br><span style="color:var(--text2);font-size:10px">'+Math.round(av.lbs).toLocaleString()+' lb'+(av.rawRolls!==av.rolls?(' · of '+av.rawRolls+' pk on file'):'')+'</span>')
+                  : '<span style="color:var(--danger)">0 available</span>')
               : '<span style="color:var(--text2)">—</span>';
-            const action = rem<=0
-              ? '<span style="font-size:10px;font-weight:800;color:#065f46;background:rgba(6,95,70,.12);padding:3px 9px;border-radius:999px;white-space:nowrap">✓ LOADED</span>'
-              : '<span style="color:var(--text2);font-size:11px">—</span>';
+            const _remI=isLB?Math.round(rem):Math.floor(rem); const _avI=av?(isLB?Math.floor(av.lbs):Math.floor(av.rolls)):0;
+            const shortNote=(!catNoteHold(r) && _remI-_avI>0)?('<br><span style="color:#b45309;font-size:9px;font-weight:800;letter-spacing:.3px">SHORT '+(_remI-_avI).toLocaleString()+' '+(isLB?'lb':'pk')+'</span>'):'';
+            // rem<=0 can mean two different things — distinguish them so the badge isn't misleading:
+            //  • built here into a Catalyst load        → ✓ LOADED (green)
+            //  • already delivered per S/T (no pending)  → ✓ DELIVERED (blue) — nothing to build
+            const _delivered = (r.pending!=null ? r.pending<=0 : false) && (r.delivered||0)>0;
+            const action = rem>0
+              ? '<span style="color:var(--text2);font-size:11px">—</span>'
+              : (built>0
+                  ? '<span title="Built into a Catalyst load" style="font-size:10px;font-weight:800;color:#065f46;background:rgba(6,95,70,.12);padding:3px 9px;border-radius:999px;white-space:nowrap">✓ LOADED</span>'
+                  : (_delivered
+                      ? '<span title="Already delivered per columns S/T — nothing left to load" style="font-size:10px;font-weight:800;color:#1a3a6b;background:rgba(26,58,107,.12);padding:3px 9px;border-radius:999px;white-space:nowrap">✓ DELIVERED</span>'
+                      : '<span title="No remaining quantity to load" style="font-size:10px;font-weight:800;color:#065f46;background:rgba(6,95,70,.12);padding:3px 9px;border-radius:999px;white-space:nowrap">✓ DONE</span>'));
             body+=`<tr>
-              <td><span class="sd-gm" style="color:${gmCol};background:${gmBg}">${esc(r.shipStatus||'—')}</span>${blocked?'<br><span style="font-size:8.5px;font-weight:800;color:#b91c1c;background:rgba(185,28,28,.1);padding:1px 6px;border-radius:4px">BLOCKED</span>':''}</td>
+              <td><span style="display:inline-flex;align-items:center;flex-wrap:wrap;gap:2px">${_hasOut
+                  ? `<span class="sd-gm" onclick="catGoToOutbound('${esc(ordNo).replace(/'/g,"\\'")}')" title="Open this load on the Outbound tab" style="color:#fde047;background:#be123c;font-weight:800;cursor:pointer">SCHEDULED ↗</span>`
+                  : '<span class="sd-gm" style="color:'+gmCol+';background:'+gmBg+'">'+esc(r.shipStatus||'—')+'</span>'}${outBadge}</span>${blocked?'<br><span style="font-size:8.5px;font-weight:800;color:#b91c1c;background:rgba(185,28,28,.1);padding:1px 6px;border-radius:4px">BLOCKED</span>':''}${catNoteHold(r)?'<br><span style="font-size:8.5px;font-weight:800;color:#b91c1c;background:rgba(185,28,28,.1);padding:1px 6px;border-radius:4px" title="Held by DP note">⛔ NOTE HOLD</span>':''}</td>
               <td style="white-space:nowrap">${esc(fmt(r.delivDate))}</td>
               <td class="sd-c">${esc(r.line)}</td>
               <td class="sd-ship" style="white-space:nowrap">${esc(r.sku)}${(r.material&&r.material!==r.sku)?('<br><span style="color:var(--text2);font-size:10px">'+esc(r.material)+'</span>'):''}</td>
               <td class="sd-num">${r.width?r.width:''}</td>
               <td class="sd-c">${esc(r.unit)}</td>
-              <td class="sd-num">${(r.qty||0).toLocaleString()}</td>
-              <td class="sd-num">${availCell}</td>
+              <td class="sd-num" style="font-weight:800">${(r.qty||0).toLocaleString()}${isLB?' lb':''}${(isLB&&_qtyPk>0)?('<br><span style="color:var(--text);font-size:10px;font-weight:800">≈ '+_qtyPk.toLocaleString()+' pk</span>'):''}<br><span style="color:var(--text);font-size:9.5px;font-weight:800">del ${Math.round(r.delivered||0).toLocaleString()} &middot; pend ${Math.round(r.pending!=null?r.pending:(r.qty||0)).toLocaleString()}</span></td>
+              <td class="sd-num">${availCell}${shortNote}</td>
               <td class="sd-num">${built?built.toLocaleString():'<span style=\"color:var(--text2)\">0</span>'}</td>
-              <td class="sd-num" style="font-weight:700;color:${rem>0?'var(--text)':'#065f46'}">${rem.toLocaleString()}</td>
+              <td class="sd-num" style="font-weight:700;color:${rem>0?'var(--text)':'#065f46'}">${rem.toLocaleString()}${isLB?' lb':''}${(isLB&&_remPk>0)?('<br><span style="color:var(--text2);font-size:10px;font-weight:400">≈ '+_remPk.toLocaleString()+' pk</span>'):''}</td>
               <td style="white-space:nowrap">${action}</td>
               <td style="white-space:nowrap;color:var(--text2);font-size:11px">${esc((r.notes||'').slice(0,40))}</td>
             </tr>`;
           });
           if(!shownTrucks[ordNo]){ shownTrucks[ordNo]=true; body+=truckRows(ordNo); }
+          }
         });
       });
     });
@@ -2623,27 +3057,53 @@ function renderCatalyst(){
     : 'No inventory imported';
   const invAvailLbs = invReady ? Object.keys(catInvSkus()).reduce((s,sku)=>{ const a=catAvail(sku,com); return s+(a?a.lbs:0); },0) : 0;
   const pill=(label,val,key,col)=>`<button class="sign-out-btn" onclick="setCatFilter('${key}')" style="background:${filt===key?col:'transparent'};color:${filt===key?'#fff':'var(--text)'};border-color:${col};font-size:12px">${label} (${val})</button>`;
+  // Customer cards = POTENTIAL LOAD totals per customer WITHIN the current status segment (baseRecs),
+  // net of loads already scheduled on Outbound — so they add up to the segment total, like the pills.
+  // Every customer stays listed (from all orders) so the chip row is stable across segment toggles.
+  const _custAll={}; all.forEach(r=>{ _custAll[r.shipToName||r.soldTo||'(unknown)']=true; });
+  const _custSegOrders={};
+  baseRecs.forEach(r=>{ const c=r.shipToName||r.soldTo||'(unknown)'; (_custSegOrders[c]=_custSegOrders[c]||new Set()).add(r.order); });
+  const custCounts={}; Object.keys(_custAll).forEach(c=>{ let n=0; (_custSegOrders[c]||new Set()).forEach(o=>n+=_potOrdEff(o)); custCounts[c]=n; });
+  const custList=Object.keys(custCounts).sort();
+  const allOrderCount=Object.keys(custCounts).reduce((s,c)=>s+custCounts[c],0);
 
   view.innerHTML=`
   <div class="date-nav" style="justify-content:flex-start;gap:10px;flex-wrap:wrap">
     <h2 style="margin:0;font-size:19px">Catalyst &middot; Delivery &amp; Load Builder</h2>
     ${admin?'<button class="sign-out-btn" onclick="showCatOrderImport()" style="background:#be123c;color:#fff;border-color:#be123c">⤓ Import Orders</button>':''}
     ${admin?'<button class="sign-out-btn" onclick="showCatInvImport()" style="background:#166534;color:#fff;border-color:#166534">⤓ Import Inventory</button>':''}
+    ${(admin && draftCount>0)?('<button class="sign-out-btn" onclick="catPostAll()" style="background:#166534;color:#fff;border-color:#166534">📅 Post All Drafts ('+draftCount+')</button>'):''}
     ${admin?'<button class="sign-out-btn" onclick="catAskClear()" style="background:transparent;color:#b91c1c;border-color:#b91c1c">🗑 Clear Loads</button>':''}
     <button class="sign-out-btn" onclick="renderCatalyst()" style="background:transparent">↻ Refresh</button>
-    <span style="font-size:11px;color:var(--text2)">${oInfo} &middot; ${iInfo}</span>
+    <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)">Load date <input type="date" value="${esc(state.catFrom||'')}" onchange="catSetRange('from',this.value)" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:6px"> to <input type="date" value="${esc(state.catTo||'')}" onchange="catSetRange('to',this.value)" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:6px">${(state.catFrom||state.catTo)?' <a onclick=\'catClearRange()\' style="cursor:pointer;color:var(--accent);text-decoration:underline">clear</a>':''}</span>
+    ${state.catCust?('<span style="font-size:11px;color:#be123c;font-weight:700">Customer: '+esc(state.catCust)+' <a onclick=\'catSetCust(null)\' style="cursor:pointer;color:var(--accent);text-decoration:underline">clear</a></span>'):''}
+    <span style="font-size:11px;color:var(--text2)">${oInfo} &middot; ${iInfo} &middot; <span style="opacity:.75">drag a .csv or .xlsx onto this tab to import instantly</span></span>
   </div>
-  <div class="summary-bar" style="grid-template-columns:repeat(4,1fr);max-width:760px">
-    <div class="scard"><div class="scard-label">Lines shown</div><div class="scard-value">${recs.length}</div></div>
+  <div class="summary-bar" style="grid-template-columns:repeat(5,minmax(0,1fr));max-width:950px">
+    <div class="scard"><div class="scard-label">Potential Loads</div><div class="scard-value" style="color:#7c3aed">${potentialLoads.toLocaleString()}</div><div style="font-size:9px;color:var(--text2);font-weight:700">FROM ORDER QTY</div></div>
+    <div class="scard"><div class="scard-label">Total Loads</div><div class="scard-value">${totalLoads.toLocaleString()}</div><div style="font-size:9px;color:var(--text2);font-weight:700">${loadsToBuild.toLocaleString()} TO BUILD</div></div>
+    <div class="scard"><div class="scard-label">Built Loads</div><div class="scard-value" style="color:#be123c">${builtLoads.toLocaleString()}</div><div style="font-size:9px;color:var(--text2);font-weight:700">${draftCount} DRAFT &middot; ${postedCount} POSTED</div></div>
     <div class="scard"><div class="scard-label">Remaining to load (LB)</div><div class="scard-value" style="color:var(--accent)">${Math.round(totalRemLb).toLocaleString()}</div></div>
     <div class="scard"><div class="scard-label">Inventory avail (LB)</div><div class="scard-value" style="color:#166534">${invReady?Math.round(invAvailLbs).toLocaleString():'—'}</div></div>
-    <div class="scard"><div class="scard-label">Loads built</div><div class="scard-value" style="color:#be123c">${builtLoads}</div></div>
   </div>
   ${invReady?'':'<div style="background:rgba(180,83,9,.1);border:1px solid rgba(180,83,9,.3);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:var(--warning)">No inventory imported yet — import the Warehouse Detail Report to see available stock and build loads against it.</div>'}
+  ${custList.length?`<div class="summary-bar cust-filter-bar" style="grid-template-columns:repeat(${custList.length+1},minmax(0,1fr));gap:6px">
+    <div class="scard ff-cust-card${!state.catCust?' active':''}" onclick="catSetCust(null)" title="Show all customers">
+      <div class="scard-label" style="font-size:11px;letter-spacing:.1px;margin-bottom:3px;line-height:1.15">ALL</div>
+      <div class="scard-value" style="font-size:15px;line-height:1.1;color:${!state.catCust?'#fff':'var(--accent)'}">${allOrderCount}</div>
+    </div>
+    ${custList.map(c=>{ const active=state.catCust===c; const a=esc(c).replace(/'/g,"\\'"); return `<div class="scard ff-cust-card${active?' active':''}" onclick="catSetCust('${a}')" title="Filter to ${esc(c)}">
+      <div class="scard-label" style="font-size:11px;letter-spacing:.1px;margin-bottom:3px;line-height:1.15">${esc(catCustShort(c))}</div>
+      <div class="scard-value" style="font-size:15px;line-height:1.1;color:${active?'#fff':'var(--accent)'}">${custCounts[c]}</div>
+    </div>`; }).join('')}
+  </div>`:''}
   <div class="sd-pills">
+    ${pill('All', all.length, 'ALL', '#1a3a6b')}
     ${pill('Okay to Ship', okCount, 'OKAY', '#065f46')}
     ${pill('On Hold', holdCount, 'HOLD', '#b45309')}
-    ${pill('All', all.length, 'ALL', '#1a3a6b')}
+    <span style="flex:0 0 auto;width:1px;align-self:stretch;background:var(--border);margin:0 6px"></span>
+    <button class="sign-out-btn" onclick="catCollapseAll()" style="background:transparent;color:var(--text);border-color:#64748b;font-size:12px" title="Collapse every load-date and order header">▸ Collapse all</button>
+    <button class="sign-out-btn" onclick="catExpandAll()" style="background:transparent;color:var(--text);border-color:#64748b;font-size:12px" title="Expand every header">▾ Expand all</button>
   </div>
   <div class="sd-wrap">
     <table class="sd-table">
@@ -2655,6 +3115,9 @@ function renderCatalyst(){
       <tbody>${body}</tbody>
     </table>
   </div>`;
+  view.ondragover=function(e){ e.preventDefault(); view.classList.add('cat-dropping'); };
+  view.ondragleave=function(e){ if(e.target===view) view.classList.remove('cat-dropping'); };
+  view.ondrop=function(e){ view.classList.remove('cat-dropping'); catSectionDrop(e); };
 }
 
 // ─── WRK SHIPDUE ─────────────────────────────────────────────────────────────
@@ -3110,7 +3573,10 @@ function exportViewToExcel(viewId, label){
   }catch(e){ showAlert('Export failed: '+((e&&e.message)||e)); }
 }
 
+const _tabScroll={};
+function _viewScroller(tab){ const v=document.getElementById('view-'+tab); if(!v) return null; return v.querySelector('.data-scroll, .sc-wrap, .schedule-wrap, .sd-wrap, .yard-scroll') || v; }
 function switchTab(tab) {
+  const _prev=state.tab, _ps=_viewScroller(_prev); if(_ps) _tabScroll[_prev]=_ps.scrollTop;   // remember where each tab was
   state.tab = tab;
   document.body.setAttribute('data-tab', tab);   // lets the phone card/table toggle show only on ib/ob
   ['ib','ob','yd','sc','sd','cat','ff','pwd','ig','domtar'].forEach(t => {
@@ -3129,6 +3595,8 @@ function switchTab(tab) {
   if(tab==='pwd') renderPWD();
   if(tab==='ig') renderIPG();
   if(tab==='domtar') renderDomtar();
+  // Restore the tab's last scroll position so switching back doesn't jump to the top.
+  try{ const ns=_viewScroller(tab); if(ns && _tabScroll[tab]!=null) ns.scrollTop=_tabScroll[tab]; }catch(e){}
   try{_saveView();}catch(e){}
 }
 
@@ -3530,7 +3998,7 @@ function renderOutbound() {
           </select>${lsBtn('ob',id,r)}${(r.status==='DEPARTED' && _stCustEnabled(r.customer,'departed'))?('<div style="margin-top:4px">'+_stNotifyBtn('departed',id)+'</div>'):''}
         </td>
         <td style="min-width:155px">${cellSelect('ob',id,'customer',r.customer,refOpts('customerOB'),'150px','font-weight:700')}${obPri?'<span class="pri-badge">★ PRIORITY</span>':''}${isPF?'<span style="font-size:8px;background:rgba(26,58,107,0.12);color:var(--inbound);padding:1px 5px;border-radius:4px;margin-left:4px;font-weight:700">PF</span>':''}${obIsRolled?'<span class="rolled-badge">ROLLED</span>':''}</td>
-        <td style="min-width:165px">${cellInput('ob',id,'orderNum',r.orderNum,'150px','Order #','font-weight:700')}${(obManual && !obIsRolled)?'<span class="notexcel-badge">NEW ORDER</span>':''}${dupBadge('ob', obDups, r.orderNum, id)}${pwBadge(obPW)}${(r.ffStatus==='DEL TO CUSTOMER')?'':nightBadge(obNight)}${deliveredBadge(r)}</td>
+        <td style="min-width:190px">${cellInput('ob',id,'orderNum',r.orderNum,'180px','Order #','font-weight:700;field-sizing:content;min-width:180px;max-width:340px')}${(obManual && !obIsRolled)?'<span class="notexcel-badge">NEW ORDER</span>':''}${dupBadge('ob', obDups, r.orderNum, id)}${pwBadge(obPW)}${(r.ffStatus==='DEL TO CUSTOMER')?'':nightBadge(obNight)}${deliveredBadge(r)}</td>
         <td style="min-width:120px"><input type="date" class="date-input ${obIsRolled?'rolled-date':''}" style="font-size:11px;padding:5px 6px" value="${obOrig}" onchange="saveRowDate('ob','${id}',this.value)" title="Original requested date (does not move when rolled)"></td>
         <td style="min-width:150px">${cellInput('ob',id,'destination',r.destination,'140px','Destination')}</td>
         ${obApptShown()?`
