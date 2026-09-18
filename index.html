@@ -587,8 +587,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-88';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807088;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-91';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807091;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -2218,9 +2218,11 @@ function catParseOrders(text){
   return {rows:out, warnings:[]};
 }
 
-// Inventory workbook -> { skus: { SKU: {sku, rolls, lbs, width, locs} } } aggregated by SKU.
+// Inventory workbook -> { skus: {...aggregated by SKU}, header:[...], rows:[[...]] } — only rows whose
+// Customer is a CATALYST account are kept, and only the accepted rows (available / pending) are retained
+// at the line level so the import can be exported back in the same format.
 function catParseInv(wb){
-  const out={skus:{}, rolls:0, warnings:[]};
+  const out={skus:{}, rolls:0, warnings:[], header:null, rows:[]};
   const names=wb.SheetNames||[];
   for(const name of names){
     const grid=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,raw:true,defval:null,blankrows:false});
@@ -2229,26 +2231,33 @@ function catParseInv(wb){
     if(hr<0) continue;
     const H={}; (grid[hr]||[]).forEach((c,ci)=>{ H[_catUpper(c)]=ci; });
     const cSku=H['SKU'], cW=(H['FULL WEIGHT LBS']!=null?H['FULL WEIGHT LBS']:H['UNIQUE WEIGHT']),
-          cWid=H['WIDTH'], cStat=H['INVENTORY STATUS'], cLoc=H['LOCATION'];
+          cWid=H['WIDTH'], cStat=H['INVENTORY STATUS'], cLoc=H['LOCATION'], cPend=H['PCS PENDING'], cCust=H['CUSTOMER'];
     if(cSku==null) continue;
+    out.header=(grid[hr]||[]).map(c=>c==null?'':c);
     for(let r=hr+1;r<grid.length;r++){
       const row=grid[r]||[]; const skuRaw=row[cSku]; if(skuRaw==null || _catNorm(skuRaw)==='') continue;
-      const stat=_catUpper(cStat!=null?row[cStat]:''); if(stat && stat!=='AVAILABLE') continue;
+      // Only Catalyst / Catalyst Cross Dock accounts — skip any other customer's inventory.
+      const cust=_catUpper(cCust!=null?row[cCust]:''); if(cCust!=null && cust.indexOf('CATALYST')<0) continue;
+      const stat=_catUpper(cStat!=null?row[cStat]:''); const pend=_catNum(cPend!=null?row[cPend]:0);
+      // Count as available when Inventory Status is AVAILABLE, OR when Pcs Pending > 0 (pending stock
+      // still counts toward pending orders).
+      if(stat && stat!=='AVAILABLE' && !(pend>0)) continue;
       const sku=_catSku(skuRaw);
       const rec=out.skus[sku] || (out.skus[sku]={sku, rolls:0, lbs:0, width:_catNum(cWid!=null?row[cWid]:0), locs:{}});
       rec.rolls+=1; out.rolls+=1; rec.lbs+=_catNum(cW!=null?row[cW]:0);
       if(!rec.width) rec.width=_catNum(cWid!=null?row[cWid]:0);
       const loc=_catNorm(cLoc!=null?row[cLoc]:''); if(loc) rec.locs[loc]=(rec.locs[loc]||0)+1;
+      out.rows.push(row.map(c=>c==null?'':c));   // keep the line-level row for export
     }
     return out;
   }
   out.warnings.push('No sheet with an "SKU" header was found.');
   return out;
 }
-// Combine two parsed inventory snapshots into one (sums rolls/lbs per SKU). Used so the Catalyst
-// warehouse file and the Catalyst Pulp & Paper — Cross Dock file are counted together as one pool.
+// Combine two parsed inventory snapshots into one (sums rolls/lbs per SKU, concatenates line rows).
+// Used so the Catalyst warehouse file and the Catalyst Pulp & Paper — Cross Dock file pool together.
 function _catMergeInv(base, add){
-  const out={ skus:{}, rolls:0, warnings:[] };
+  const out={ skus:{}, rolls:0, warnings:[], header:null, rows:[] };
   [base, add].forEach(src=>{ if(!src) return;
     Object.values(src.skus||{}).forEach(x=>{
       const rec=out.skus[x.sku]||(out.skus[x.sku]={sku:x.sku, rolls:0, lbs:0, width:x.width||0, locs:{}});
@@ -2256,6 +2265,8 @@ function _catMergeInv(base, add){
       Object.keys(x.locs||{}).forEach(l=>rec.locs[l]=(rec.locs[l]||0)+x.locs[l]);
     });
     out.rolls += (src.rolls||0);
+    if(!out.header && src.header) out.header=src.header;
+    (src.rows||[]).forEach(rw=>out.rows.push(rw));
     (src.warnings||[]).forEach(w=>out.warnings.push(w));
   });
   return out;
@@ -2420,9 +2431,9 @@ async function catHandleInvFiles(files){
 }
 function commitCatInv(){
   if(!requireAdmin() || !_catPendInv || !Object.keys(_catPendInv.skus).length) return;
-  const payload={ skus:_catPendInv.skus, rolls:_catPendInv.rolls, importedAt:Date.now(), importedBy:(state.user&&state.user.label)||'' };
+  const payload={ skus:_catPendInv.skus, rolls:_catPendInv.rolls, header:_catPendInv.header||null, rows:_catPendInv.rows||[], importedAt:Date.now(), importedBy:(state.user&&state.user.label)||'' };
   state.catInv=payload;
-  db.ref(ROOT+'/catalystInv').set(payload)
+  db.ref(ROOT+'/catalystInv').set(payload)   // .set() fully REPLACES the prior snapshot — a reset every import
     .then(()=>{ const moved=catReconcileShipped(); closeModal(); showAlert('Catalyst inventory imported: '+Object.keys(payload.skus).length+' SKUs'+(moved?(' \u00b7 '+moved+' shipped load(s) moved out'):'')); if(state.tab==='cat') renderCatalyst(); })
     .catch(e=>showAlert('Import failed: '+((e&&e.message)||e)));
   _catPendInv=null;
@@ -2613,7 +2624,10 @@ function catOutboundDup(order, po){
 }
 // Count of EXTERNAL (non-Catalyst-built) Outbound loads already scheduled for this order. The build
 // plan already accounts for Catalyst-built loads, so only these need netting out of a new build.
-function catExtLoadCount(order, po){ return catOutboundDup(order, po).filter(o=>_catUpper(o.source||'')!=='CATALYST').length; }
+// A load is "consumed" once it has shipped/been handled (LOADED/DEPARTED/etc.) — SAP's delivered/pending
+// already reflects it, so it must NOT be netted out again against the pending-based plan/potential.
+function _catConsumed(s){ const u=_catUpper(s); return u==='LOADED'||u==='DEPARTED'||u==='COMPLETED'||u==='DELIVERED'; }
+function catExtLoadCount(order, po){ return catOutboundDup(order, po).filter(o=>_catUpper(o.source||'')!=='CATALYST' && !_catConsumed(o.status)).length; }
 
 // ── build modal (order level) ──
 function catReplan(order){ const t=(document.getElementById('cat-target')||{}).value; catAskBuildOrder(order, t); }
@@ -2790,6 +2804,29 @@ function _catPostDrafts(entries, confirmed){
     .then(()=>{ showAlert('Posted '+entries.length+' load(s) to the calendar.'); if(state.tab==='cat') renderCatalyst(); })
     .catch(e=>showAlert('Post failed: '+((e&&e.message)||e)));
 }
+// Export the imported Catalyst inventory back to an .xlsx at the line level, in the same layout it was
+// imported (same header + rows). Falls back to a per-SKU summary for snapshots imported before line
+// rows were retained.
+function catExportInv(){
+  if(typeof XLSX==='undefined'){ showAlert('Excel library not loaded.'); return; }
+  const inv=state.catInv||{};
+  const rows=Array.isArray(inv.rows)?inv.rows:(inv.rows?Object.values(inv.rows):[]);
+  let aoa;
+  if(rows && rows.length){
+    const header=Array.isArray(inv.header)?inv.header:(inv.header?Object.values(inv.header):null);
+    aoa=(header?[header]:[]).concat(rows.map(r=>Array.isArray(r)?r:Object.values(r||{})));
+  } else {
+    const skus=catInvSkus(); const keys=Object.keys(skus);
+    if(!keys.length){ showAlert('No Catalyst inventory imported yet.'); return; }
+    aoa=[['SKU','Width','Packs (on hand)','Weight Lbs (on hand)','Locations']];
+    keys.sort().forEach(sku=>{ const x=skus[sku]; const locs=Object.keys(x.locs||{}).sort().map(l=>l+' ('+x.locs[l]+')').join(', ');
+      aoa.push([sku, x.width||'', x.rolls||0, Math.round(x.lbs||0), locs]); });
+  }
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Catalyst Inventory');
+  const d=new Date(), p=n=>('0'+n).slice(-2);
+  XLSX.writeFile(wb, 'Catalyst_Inventory_'+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes())+'.xlsx');
+}
 function catPostOrder(order){ _catPostDrafts(Object.entries(state.catDrafts||{}).filter(([,d])=>d.order===order)); }
 function catPostAll(){ _catPostDrafts(Object.entries(state.catDrafts||{})); }
 // Post just ONE draft load to the calendar.
@@ -2849,13 +2886,14 @@ function renderCatalyst(){
   const draftCount=Object.keys(state.catDrafts||{}).length;
   recs.forEach(r=>{ if(r.unit!=='PAC') totalRemLb += catRemaining(r,com); });
   const planByOrder={}; const _plan=o=>planByOrder[o]||(planByOrder[o]=catBuildPlan(o, CAT_TRUCK_LB, com));
-  // Loads already on the Outbound calendar for each order. _outCnt = all matching loads (used to net
-  // the demand-based "potential"); _extCnt = only the EXTERNAL (non-Catalyst) ones (used to net the
-  // build plan, which already excludes Catalyst-built loads). Truck numbering also starts after these.
   const _orderPo={}; baseRecs.forEach(r=>{ if(_orderPo[r.order]==null) _orderPo[r.order]=r.po||''; });
-  const _outCnt={}, _extCnt={};
-  Object.keys(_orderPo).forEach(o=>{ const d=catOutboundDup(o,_orderPo[o]); _outCnt[o]=d.length; _extCnt[o]=d.filter(x=>_catUpper(x.source||'')!=='CATALYST').length; });
-  const _netBuild=o=>Math.max(0, (_plan(o).N||0) - (_extCnt[o]||0));   // trucks still to build after external loads
+  // _outAny/_extAny = every matching load (for "in progress" + SCHEDULED flag). _outNet/_extNet drop
+  // the already-shipped (consumed) loads, since SAP pending already excludes those — netting them again
+  // would double-count. Netting the potential/build uses the *Net counts.
+  const _outAny={}, _outNet={}, _extNet={};
+  Object.keys(_orderPo).forEach(o=>{ const d=catOutboundDup(o,_orderPo[o]); _outAny[o]=d.length;
+    const nd=d.filter(x=>!_catConsumed(x.status)); _outNet[o]=nd.length; _extNet[o]=nd.filter(x=>_catUpper(x.source||'')!=='CATALYST').length; });
+  const _netBuild=o=>Math.max(0, (_plan(o).N||0) - (_extNet[o]||0));   // trucks still to build after unshipped external loads
   // "Total loads" = built (draft+posted) + the truck loads still needed across every shown order.
   let loadsToBuild=0;
   [...new Set(recs.map(r=>r.order))].forEach(o=>{ loadsToBuild += _netBuild(o); });
@@ -2875,8 +2913,8 @@ function renderCatalyst(){
   // away by scheduled Outbound loads) — the flag still shows. Everything else nets the scheduled out.
   const _heldOrders=new Set(); { const _bo={}; baseRecs.forEach(r=>{ (_bo[r.order]=_bo[r.order]||[]).push(r); });
     Object.keys(_bo).forEach(o=>{ const ls=_bo[o]; if(ls.some(r=>catNoteHold(r)) && ls.every(r=>catNoteHold(r))) _heldOrders.add(o); }); }
-  const _potOrdEff=o=> _heldOrders.has(o) ? _potOrd(o) : Math.max(0, _potOrd(o) - (_outCnt[o]||0));
-  const _isInProg=o=> !_heldOrders.has(o) && (_outCnt[o]||0)>0 && _potOrdEff(o)>0;   // some loads already scheduled
+  const _potOrdEff=o=> _heldOrders.has(o) ? _potOrd(o) : Math.max(0, _potOrd(o) - (_outNet[o]||0));
+  const _isInProg=o=> !_heldOrders.has(o) && (_outAny[o]||0)>0 && _potOrdEff(o)>0;   // has any scheduled load (shipped or not)
   // Summary "Potential loads" respects the current customer filter (recs), not the whole segment.
   let potentialLoads=0;
   [...new Set(recs.map(r=>r.order))].forEach(o=>{ potentialLoads += _potOrdEff(o); });
@@ -2959,7 +2997,7 @@ function renderCatalyst(){
           const outBadge=_outStatuses.map(s=>`<span title="This order has a load on the Outbound calendar" style="font-size:8.5px;font-weight:800;color:#1a3a6b;background:rgba(26,58,107,.12);padding:1px 6px;border-radius:4px;white-space:nowrap;margin-left:5px">📅 ${esc(s)}</span>`).join('');
           const draftN = Object.values(state.catDrafts||{}).filter(d=>d.order===ordNo).length;
           const noteHeld = lines.every(r=>catNoteHold(r)) && lines.some(r=>catNoteHold(r));
-          const _ext=_extCnt[ordNo]||0;                 // external (non-Catalyst) loads already scheduled
+          const _ext=_extNet[ordNo]||0;                 // unshipped external (non-Catalyst) loads still to net
           const netBuild=_netBuild(ordNo);              // trucks still to build after those
           const ordPot = _potOrdEff(ordNo);
           const _inProg = _isInProg(ordNo);             // some loads already scheduled (held orders excluded)
@@ -2980,7 +3018,7 @@ function renderCatalyst(){
             statusHtml = `<span style="font-weight:600"> &middot; ${Math.round(plan.totalLb).toLocaleString()} lb to ship</span>`
               + (_ext>0?` <span style="font-weight:700;color:#166534;font-size:10px">(${_ext} already on Outbound)</span>`:'')
               + (admin?` <button class="btn" style="font-size:10px;padding:3px 10px;margin-left:10px" onclick="catAskBuildOrder('${esc(ordNo)}')">⚙ Build ${netBuild} Draft${netBuild>1?'s':''}</button>`:'');
-          } else if((_outCnt[ordNo]||0)>0){
+          } else if((_outAny[ordNo]||0)>0){
             statusHtml = `<span style="font-weight:800;color:#166534;margin-left:10px" title="Loads for this order are already on the Outbound calendar">✓ Scheduled on Outbound — no build needed</span>`;
           } else if(_rawHeld && !_released){
             statusHtml = `<span style="font-weight:800;color:#b91c1c;margin-left:10px">⛔ BLOCKED — not building</span>`+relBtn;
@@ -3072,6 +3110,7 @@ function renderCatalyst(){
     <h2 style="margin:0;font-size:19px">Catalyst &middot; Delivery &amp; Load Builder</h2>
     ${admin?'<button class="sign-out-btn" onclick="showCatOrderImport()" style="background:#be123c;color:#fff;border-color:#be123c">⤓ Import Orders</button>':''}
     ${admin?'<button class="sign-out-btn" onclick="showCatInvImport()" style="background:#166534;color:#fff;border-color:#166534">⤓ Import Inventory</button>':''}
+    ${invReady?'<button class="sign-out-btn" onclick="catExportInv()" style="background:transparent;color:#166534;border-color:#166534" title="Download the imported Catalyst inventory to Excel">⤒ Export Inventory</button>':''}
     ${(admin && draftCount>0)?('<button class="sign-out-btn" onclick="catPostAll()" style="background:#166534;color:#fff;border-color:#166534">📅 Post All Drafts ('+draftCount+')</button>'):''}
     ${admin?'<button class="sign-out-btn" onclick="catAskClear()" style="background:transparent;color:#b91c1c;border-color:#b91c1c">🗑 Clear Loads</button>':''}
     <button class="sign-out-btn" onclick="renderCatalyst()" style="background:transparent">↻ Refresh</button>
