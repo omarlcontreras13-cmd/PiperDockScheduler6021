@@ -587,8 +587,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-91';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807091;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-93';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807093;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -864,8 +864,8 @@ function tryRestoreSession(){
   if (!user) return;
   const _al = userAccessList(user);
   loginGroup(accessPrimary(_al), !!user.isAdmin);
-  state.user.access = _al; state.user.label = user.name || user.email;
-  applyMultiAccess(_al);
+  state.user.access = _al; state.user.label = user.name || user.email; state.user.sdImport = !!(user && user.sdImport);
+  applyMultiAccess(_al); _applySdImportTab();
   try{ document.getElementById('main-app').classList.toggle('yard-view-only', yardReadOnlyNow()); }catch(e){}
   _forceSession(sessionKey(email), user.email);
 }
@@ -891,7 +891,7 @@ function submitLogin() {
     err.textContent = 'Incorrect password'; err.style.display = 'block'; pwEl.value = ''; pwEl.focus(); return;
   }
   acquireSession(sessionKey(email), email,
-    () => { persistAuth({email:user.email}); var _al=userAccessList(user); loginGroup(accessPrimary(_al), !!user.isAdmin); state.user.access=_al; state.user.label = user.name || user.email; applyMultiAccess(_al); try{document.getElementById('main-app').classList.toggle('yard-view-only', yardReadOnlyNow());}catch(e){} },
+    () => { persistAuth({email:user.email}); var _al=userAccessList(user); loginGroup(accessPrimary(_al), !!user.isAdmin); state.user.access=_al; state.user.label = user.name || user.email; state.user.sdImport = !!(user && user.sdImport); applyMultiAccess(_al); _applySdImportTab(); try{document.getElementById('main-app').classList.toggle('yard-view-only', yardReadOnlyNow());}catch(e){} },
     () => { err.textContent = 'This email is already signed in elsewhere'; err.style.display = 'block'; }
   );
 }
@@ -1626,6 +1626,11 @@ function renderUsersTable() {
 }
 
 function requireAdmin() { if (!state.user || state.user.role !== 'admin') { showAlert('Admin only','warning'); return false; } return true; }
+// A user may be granted the WRK ShipDue import without being a full admin.
+function canSdImport(){ return !!(state.user && (state.user.role==='admin' || state.user.sdImport)); }
+function requireSdImport(){ if(!canSdImport()){ showAlert('Not permitted','warning'); return false; } return true; }
+// Reveal the WRK ShipDue tab for a user who has been granted its import (access groups may hide it).
+function _applySdImportTab(){ try{ if(state.user && state.user.sdImport){ const t=document.getElementById('tab-sd'); if(t) t.style.display=''; } }catch(e){} }
 
 function addAuthUser() {
   if (!requireAdmin()) return;
@@ -1807,8 +1812,11 @@ function showEditUserModal(id) {
         <div id="edit-access" style="border:1px solid var(--border);border-radius:7px;padding:8px 11px;margin-bottom:14px">
           ${accessChecksHtml(userAccessList(u))}
         </div>
-        <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;cursor:pointer">
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:14px;cursor:pointer">
           <input type="checkbox" id="edit-admin" ${u.isAdmin?'checked':''} style="width:16px;height:16px"> Admin (can manage users, import, tables)
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;cursor:pointer">
+          <input type="checkbox" id="edit-sdimport" ${u.sdImport?'checked':''} style="width:16px;height:16px"> Allow WRK ShipDue import (shows the tab + Import button)
         </label>
         <label style="${labelCss}">Password <span style="text-transform:none;font-weight:400">(leave blank to use the group default)</span></label>
         <input type="text" id="edit-pw" value="${esc(u.password)}" placeholder="group default" style="${fieldCss};text-transform:none">
@@ -1832,19 +1840,20 @@ function saveEditUser(id) {
   if (!access.length) { showAlert('Select at least one Access option','warning'); return; }
   const group = accessPrimary(access);
   const isAdmin = document.getElementById('edit-admin').checked;
+  const _sdEl = document.getElementById('edit-sdimport'); const sdImport = !!(_sdEl && _sdEl.checked);
   const pw    = (gv('edit-pw')||'').trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showAlert('Enter a valid email address','warning'); return; }
   const dup = Object.entries(state.authUsers||{}).some(([k,x]) => k!==id && (x.email||'').toLowerCase()===email);
   if (dup) { showAlert('Another user already has that email','warning'); return; }
   if (isNew) {
-    const rec = { email, group, access, isAdmin, addedAt: Date.now() };
+    const rec = { email, group, access, isAdmin, sdImport, addedAt: Date.now() };
     if (name) rec.name = name;
     if (pw) rec.password = pw;
     db.ref(ROOT+'/authUsers').push(rec)
       .then(()=>{ showAlert('User added','success'); showUsersModal(); })
       .catch(e=>showAlert('Could not add user: '+e.message,'danger'));
   } else {
-    const rec = { email, group, access, isAdmin, name: name || null, password: pw || null };
+    const rec = { email, group, access, isAdmin, sdImport, name: name || null, password: pw || null };
     db.ref(ROOT+'/authUsers/'+id).update(rec)
       .then(()=>{ showAlert('User updated','success'); showUsersModal(); })
       .catch(e=>showAlert('Could not update user: '+e.message,'danger'));
@@ -3001,7 +3010,7 @@ function renderCatalyst(){
           const netBuild=_netBuild(ordNo);              // trucks still to build after those
           const ordPot = _potOrdEff(ordNo);
           const _inProg = _isInProg(ordNo);             // some loads already scheduled (held orders excluded)
-          const potBadge = ordPot>0 ? `<span title="${_inProg?'Loads still to build after those already scheduled on Outbound':'Loads the full ordered quantity would fill (ignores on-hand inventory)'}" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:13px;font-weight:800;letter-spacing:.3px;padding:3px 13px;border-radius:999px;background:${_inProg?'rgba(180,83,9,.14)':'rgba(124,58,237,.14)'};color:${_inProg?'#b45309':'#7c3aed'};white-space:nowrap">~${ordPot} POTENTIAL LOAD${ordPot>1?'S':''}${_inProg?' REMAINING':''}</span>` : '';
+          const potBadge = ordPot>0 ? `<span title="${_inProg?'Loads still to build after those already scheduled on Outbound':'Loads the full ordered quantity would fill (ignores on-hand inventory)'}" style="float:right;margin-left:10px;font-size:13px;font-weight:800;letter-spacing:.3px;padding:3px 13px;border-radius:999px;background:${_inProg?'rgba(180,83,9,.14)':'rgba(124,58,237,.14)'};color:${_inProg?'#b45309':'#7c3aed'};white-space:nowrap">~${ordPot} POTENTIAL LOAD${ordPot>1?'S':''}${_inProg?' REMAINING':''}</span>` : '';
           const _oc=!!(state.catCol||{})['O:'+ordNo];
           // Manual release: an admin can override a source block/hold so the order can build.
           const _rawHeld=catHasRawHold(lines); const _released=catReleased(ordNo);
@@ -3027,10 +3036,10 @@ function renderCatalyst(){
           const postBtn = (admin && draftN>0)
             ? `<button class="btn" style="font-size:10px;padding:3px 10px;margin-left:8px;background:#166534;color:#fff;border-color:#166534" onclick="catPostOrder('${esc(ordNo)}')">📅 Post ${draftN} to Calendar</button>`
             : '';
-          body+=`<tr><td colspan="${NCOLS}" style="position:relative;background:rgba(0,0,0,.02);color:#111827;padding:7px 14px 7px 38px;font-size:13px;font-weight:800">
+          body+=`<tr><td colspan="${NCOLS}" style="background:rgba(0,0,0,.02);color:#111827;padding:7px 14px 7px 38px;font-size:13px;font-weight:800;line-height:1.7">${potBadge}
             <span onclick="catToggleCol('O:${esc(ordNo)}')" style="cursor:pointer;user-select:none">${_oc?'▸':'▾'}</span> ${esc(ordNo)}${g.po?('<span style="font-weight:800"> &middot; PO '+esc(g.po)+'</span>'):''}
             <span style="font-weight:800"> &middot; ${esc(g.dest||'')} &middot; ${lines.length} line${lines.length>1?'s':''}</span>
-            ${statusHtml}${postBtn}${potBadge}</td></tr>`;
+            ${statusHtml}${postBtn}</td></tr>`;
           if(!_oc){
           lines.forEach(r=>{
             const rem=catRemaining(r, com); const built=(com.byLid[r._lid]||0);
@@ -3251,7 +3260,7 @@ function sdIsScheduled(sid){
 // ── import (admin) ──
 let _pendingShipDue = null;
 function showShipDueImport(){
-  if (!requireAdmin()) return;
+  if (!requireSdImport()) return;
   document.getElementById('modal-container').innerHTML = `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal" style="max-width:560px">
@@ -3292,7 +3301,7 @@ async function previewShipDueImport(ev){
   }
 }
 function commitShipDueImport(){
-  if (!requireAdmin() || !_pendingShipDue || !_pendingShipDue.rows.length) return;
+  if (!requireSdImport() || !_pendingShipDue || !_pendingShipDue.rows.length) return;
   const prevAdded = (state.shipdue && state.shipdue.added) || {};   // preserve "added" marks by shipment #
   const payload = { rows:_pendingShipDue.rows, added:prevAdded, importedAt:Date.now(),
                     importedBy:(state.user && state.user.label) || '' };
@@ -3387,7 +3396,7 @@ function renderShipDue(){
   view.innerHTML = `
   <div class="date-nav" style="justify-content:flex-start;gap:10px;flex-wrap:wrap">
     <h2 style="margin:0;font-size:19px">WRK ShipDue</h2>
-    ${admin ? '<button class="sign-out-btn" onclick="showShipDueImport()" style="background:#166534;color:#fff;border-color:#166534">⤓ Import ShipDue</button>' : ''}
+    ${(admin || (state.user && state.user.sdImport)) ? '<button class="sign-out-btn" onclick="showShipDueImport()" style="background:#166534;color:#fff;border-color:#166534">⤓ Import ShipDue</button>' : ''}
     <span style="font-size:11px;color:var(--text2)">${importedInfo}</span>
   </div>
   <div class="summary-bar" style="grid-template-columns:repeat(3,1fr);max-width:560px">
