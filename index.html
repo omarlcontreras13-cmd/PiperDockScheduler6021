@@ -587,8 +587,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-96';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807096;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-97';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807097;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -1816,7 +1816,7 @@ function showEditUserModal(id) {
           <input type="checkbox" id="edit-admin" ${u.isAdmin?'checked':''} style="width:16px;height:16px"> Admin (can manage users, import, tables)
         </label>
         <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;cursor:pointer">
-          <input type="checkbox" id="edit-sdimport" ${u.sdImport?'checked':''} style="width:16px;height:16px"> Allow WRK ShipDue import (shows the tab + Import button)
+          <input type="checkbox" id="edit-sdimport" ${u.sdImport?'checked':''} style="width:16px;height:16px"> Allow WRK ShipDue import + Add to Schedule (shows the tab, Import &amp; Add buttons)
         </label>
         <label style="${labelCss}">Password <span style="text-transform:none;font-weight:400">(leave blank to use the group default)</span></label>
         <input type="text" id="edit-pw" value="${esc(u.password)}" placeholder="group default" style="${fieldCss};text-transform:none">
@@ -3372,7 +3372,7 @@ function renderShipDue(){
     const actionCell = np
       ? (scheduled
           ? '<span style="font-size:10px;font-weight:800;color:#065f46;background:rgba(6,95,70,.12);padding:3px 9px;border-radius:999px;white-space:nowrap">✓ SCHEDULED</span>'
-          : (admin ? `<button class="btn" style="font-size:10px;padding:4px 10px" onclick="sdAskAddToSchedule('${esc(r._sid)}')">Add to Schedule</button>` : '<span style="color:var(--text2);font-size:11px">—</span>'))
+          : ((admin || (state.user && state.user.sdImport)) ? `<button class="btn" style="font-size:10px;padding:4px 10px" onclick="sdAskAddToSchedule('${esc(r._sid)}')">Add to Schedule</button>` : '<span style="color:var(--text2);font-size:11px">—</span>'))
       : '<span style="color:var(--text2);font-size:11px">—</span>';
     const gmBg = np ? 'rgba(180,83,9,.12)' : 'rgba(6,95,70,.12)';
     const gmCol = np ? '#b45309' : '#065f46';
@@ -3477,7 +3477,7 @@ function sdSchedBasis(r){
     : { date:(String((r&&r.pickDate) ||'')).slice(0,10), field:'Picking Date',  label:'Picking Date — pickup day' };
 }
 function sdAskAddToSchedule(sid){
-  if (!requireAdmin()) return;
+  if (!requireSdImport()) return;
   const r = sdRowBySid(sid);
   if (!r){ showAlert('Row not found','warning'); return; }
   const _basis = sdSchedBasis(r);
@@ -3533,7 +3533,7 @@ function sdAskAddToSchedule(sid){
     </div>`;
 }
 function sdDoAddToSchedule(sid, replace){
-  if (!requireAdmin()) return;
+  if (!requireSdImport()) return;
   const r = sdRowBySid(sid);
   if (!r){ closeModal(); return; }
   const _today = todayStr();
