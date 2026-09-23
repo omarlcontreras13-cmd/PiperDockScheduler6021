@@ -587,8 +587,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-93';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807093;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-96';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807096;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -4312,9 +4312,9 @@ const DEFAULT_ICON_IB = {
 const ICON_SHORT = { 'COVINGTON XDK':'COV XDK', 'NORCROSS XDK':'NOR XDK', 'LITHIA SPRINGS':'LITHIA', 'IPG - ITAPE':'IPG', 'TWIN RIVERS':'TWIN RIV' };
 const DEFAULT_ICON_OB = {
   'ALL SOUTH':'OTHER','ATL UPM':'ATL UPM','ATLANTIC CONV':'OTHER','CATALYST':'CATALYST','CARDINAL HEALTH':'DOMTAR','CONWAY':'OTHER',
-  'COVINGTON XDK':'COVINGTON XDK','HBH':'HBH','HOOD':'HOOD','IP':'OTHER','IPG - ITAPE':'IPG - ITAPE',
-  'LANET - VALLEY':'OTHER','LITHIA SPRINGS':'LITHIA SPRINGS','MAXXON':'OTHER','MONTGOMEREY XDK':'OTHER',
-  'MPS':'HBH','NORCROSS XDK':'NORCROSS XDK','PREGIS':'PREGIS','SCI GAMES':'SCI GAMES',
+  'COVINGTON XDK':'COVINGTON XDK','HBH':'HBH','HOOD':'CBM','IP':'OTHER','IPG - ITAPE':'IPG - ITAPE',
+  'LANET - VALLEY':'OTHER','LITHIA SPRINGS':'CBM','MAXXON':'OTHER','MONTGOMEREY XDK':'OTHER',
+  'MPS':'HBH','NORCROSS XDK':'NORCROSS XDK','OREN INTL':'CBM','OREN INTERNATIONAL':'CBM','PREGIS':'CBM','SCI GAMES':'SCI GAMES',
   'SOUTHERN STATES PKG':'OTHER','TWIN RIVERS':'TWIN RIVERS','WRK ATL SHEET':'OTHER',
   'WRK CONWAY':'OTHER','WRK HEBRON':'OTHER','WRK RECLAMATION':'OTHER'
 };
@@ -7267,6 +7267,7 @@ const SC_GROUPS_WRK = [
   {key:'HBH',    label:'HBH'},
   {key:'CON',    label:'CONWAY'},
   {key:'LAN',    label:'LANET'},
+  {key:'OREN',   label:'OREN INTL'},        // Oren International gets its own column
   {key:'OTHER',  label:'OTHER'}             // every other Smurfit booking
 ];
 const SC_TONS_WRK = [
@@ -7281,7 +7282,7 @@ const SC_WRK_MEMBERS = ['COVINGTON XDK','COV XDK','HBH','HOOD','LITHIA SPRINGS',
 function scoreGroup(customer){
   const c = (customer||'').toUpperCase().trim();
   if (!c) return null;
-  if (c.indexOf('WRK')>-1 || SC_WRK_MEMBERS.indexOf(c)>-1) return 'WRK';
+  if (c.indexOf('WRK')>-1) return 'WRK';                         // explicit WRK bookings are always Smurfit
   if (c.indexOf('CATALYST')>-1) return 'CAT';
   if (c.indexOf('DOMTAR')>-1 || iconForCustomer('ob', c)==='DOMTAR')   return 'DOM';
   if (c.indexOf('MAXXON')>-1)   return 'MAX';
@@ -7289,6 +7290,10 @@ function scoreGroup(customer){
   if (c.indexOf('IPG')>-1)      return 'IPG';   // check IPG before IP (IPG contains "IP")
   if (c.indexOf('UPM')>-1)      return 'UPM';
   if (c==='IP' || c.indexOf('INTERNATIONAL PAPER')>-1) return 'IP';
+  // The 6021 "SMURFIT WESTROCK" rollup mirrors the Smurfit WRK board exactly: any customer the WRK
+  // board would count (named accounts, Oren, and its OTHER catch-all) rolls into WRK here too, so a
+  // change on the WRK board (like adding Oren) automatically updates this section.
+  if (wrkGroup(c)) return 'WRK';
   return null;
 }
 
@@ -7307,17 +7312,24 @@ function isWrkCustomer(c){
 // of the named accounts (CBM loads, ATL Sheet, Hebron, Reclamation, All South …) lands in OTHER.
 function wrkGroup(customer){
   const c = (customer||'').toUpperCase().trim();
-  if (!isWrkCustomer(c)) return null;
-  if (c.indexOf('NORCROSS')>-1  || c==='NOR XDK') return 'NOR';
-  if (c.indexOf('COVINGTON')>-1 || c==='COV XDK') return 'COV';
-  if (c.indexOf('LITHIA')>-1)    return 'PP';
-  if (c.indexOf('HOOD')>-1)      return 'HOOD';
-  if (c.indexOf('PREGIS')>-1)    return 'PREGIS';
-  if (c.indexOf('SCI GAMES')>-1) return 'SG';
-  if (c.indexOf('HBH')>-1)       return 'HBH';
-  if (c.indexOf('CONWAY')>-1)    return 'CON';
-  if (c.indexOf('LANET')>-1)     return 'LAN';
-  return 'OTHER';
+  if (!c) return null;
+  if (c.indexOf('OREN')>-1) return 'OREN';   // Oren International → its own column
+  if (isWrkCustomer(c)){
+    if (c.indexOf('NORCROSS')>-1  || c==='NOR XDK') return 'NOR';
+    if (c.indexOf('COVINGTON')>-1 || c==='COV XDK') return 'COV';
+    if (c.indexOf('LITHIA')>-1)    return 'PP';
+    if (c.indexOf('HOOD')>-1)      return 'HOOD';
+    if (c.indexOf('PREGIS')>-1)    return 'PREGIS';
+    if (c.indexOf('SCI GAMES')>-1) return 'SG';
+    if (c.indexOf('HBH')>-1)       return 'HBH';
+    if (c.indexOf('CONWAY')>-1)    return 'CON';
+    if (c.indexOf('LANET')>-1)     return 'LAN';
+    return 'OTHER';
+  }
+  // Not a named Smurfit account — but an UNCLASSIFIED booking (its Outbound icon is OTHER, i.e. it
+  // doesn't belong to Catalyst/Domtar/IPG/etc.) still rolls into the Smurfit board's OTHER column.
+  try{ if (iconForCustomer('ob', c)===ICON_OTHER) return 'OTHER'; }catch(e){}
+  return null;
 }
 
 const SC_BOARDS = {
