@@ -587,8 +587,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-97';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807097;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-98';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807098;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -3256,6 +3256,12 @@ function sdIsScheduled(sid){
   // shipment comes back on a later report the row re-opens the "Add to Schedule" button.
   return Object.values(state.outbound||{}).some(o=>String(o.orderNum||'').toUpperCase()===key && (o.status||'').toUpperCase()!=='CANCELLED');
 }
+// True when the matching Outbound load (Order # === Shipment #) has already DEPARTED — used to flag a
+// still-"Not Processed" ShipDue row that needs a Post Goods Issue (PGI) in SAP.
+function sdDepartedLoad(sid){
+  const key = String(sid==null?'':sid).toUpperCase();
+  return Object.values(state.outbound||{}).some(o=>String(o.orderNum||'').toUpperCase()===key && (o.status||'').toUpperCase()==='DEPARTED');
+}
 
 // ── import (admin) ──
 let _pendingShipDue = null;
@@ -3369,6 +3375,7 @@ function renderShipDue(){
   const rowsHtml = recs.length ? recs.slice().sort((a,b)=>String(a.pickDate).localeCompare(String(b.pickDate))||String(a.shipment).localeCompare(String(b.shipment))).map(r=>{
     const np = r.gmStatus === 'Not Processed';
     const scheduled = np && sdIsScheduled(r._sid);
+    const departed = np && sdDepartedLoad(r._sid);   // load shipped on Outbound but still Not Processed → needs PGI
     const actionCell = np
       ? (scheduled
           ? '<span style="font-size:10px;font-weight:800;color:#065f46;background:rgba(6,95,70,.12);padding:3px 9px;border-radius:999px;white-space:nowrap">✓ SCHEDULED</span>'
@@ -3376,8 +3383,8 @@ function renderShipDue(){
       : '<span style="color:var(--text2);font-size:11px">—</span>';
     const gmBg = np ? 'rgba(180,83,9,.12)' : 'rgba(6,95,70,.12)';
     const gmCol = np ? '#b45309' : '#065f46';
-    return `<tr${scheduled?' style="background:rgba(6,95,70,.05)"':''}>
-      <td><span class="sd-gm" style="color:${gmCol};background:${gmBg}">${esc(r.gmStatus||'')}</span></td>
+    return `<tr${departed?' style="background:rgba(185,28,28,.06)"':(scheduled?' style="background:rgba(6,95,70,.05)"':'')}>
+      <td><span class="sd-gm" style="color:${gmCol};background:${gmBg}">${esc(r.gmStatus||'')}</span>${departed?'<br><span style="display:inline-block;margin-top:4px;font-size:9px;font-weight:800;letter-spacing:.2px;color:#b91c1c;background:rgba(185,28,28,.12);padding:2px 7px;border-radius:6px;white-space:nowrap" title="This shipment shows DEPARTED on the Outbound calendar but is still Not Processed — Post Goods Issue (PGI) it in SAP">⚑ LOAD DEPARTED — PLEASE PGI IN SAP</span>':''}</td>
       <td style="white-space:nowrap">${esc(r.pickDate||'')}</td>
       <td style="white-space:nowrap">${esc(r.delivDate||'')}</td>
       <td class="sd-ship" style="white-space:nowrap">${esc(r.shipment||'')}</td>
