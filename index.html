@@ -587,8 +587,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-101';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807101;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-102';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807102;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -2646,9 +2646,21 @@ function catOutboundDup(order, po){
 // already reflects it, so it must NOT be netted out again against the pending-based plan/potential.
 function _catConsumed(s){ const u=_catUpper(s); return u==='LOADED'||u==='DEPARTED'||u==='COMPLETED'||u==='DELIVERED'; }
 function catExtLoadCount(order, po){ return catOutboundDup(order, po).filter(o=>_catUpper(o.source||'')!=='CATALYST' && !_catConsumed(o.status)).length; }
+// Average pack weight across imported inventory (fallback when a SKU has no pack weight of its own).
+function _catAvgPackWt(){ let lb=0,r=0; Object.values(catInvSkus()).forEach(x=>{ lb+=(x.lbs||0); r+=(x.rolls||0); }); return r>0?lb/r:0; }
+// Pack qty for a build-plan truck alloc (LB → lbs ÷ pack weight; PAC → qty).
+function _catTruckPk(alloc){ const avg=_catAvgPackWt(); return (alloc||[]).reduce((s,a)=>{ if(a.isLB){ const pw=_catPackWt(a.sku)||avg; return s+(pw>0?Math.round((a.amt||0)/pw):0); } return s+(a.amt||0); },0); }
+// Pack qty for a stored draft/posted alloc (uses weight/qty fields).
+function _catAllocPk(allocs){ const avg=_catAvgPackWt(); return (allocs||[]).reduce((s,a)=>{ const isLB=_catUpper(a.unit)!=='PAC'; if(isLB){ const pw=_catPackWt(a.sku)||avg; return s+(pw>0?Math.round(_catNum(a.weight)/pw):0); } return s+_catNum(a.qty); },0); }
 
 // ── build modal (order level) ──
 function catReplan(order){ const t=(document.getElementById('cat-target')||{}).value; catAskBuildOrder(order, t); }
+// Live-update the Build button label as the operator changes how many of the available loads to build.
+function catBuildCountChange(maxN){
+  const el=document.getElementById('cat-count'); const btn=document.getElementById('cat-build-btn'); if(!el||!btn) return;
+  let n=Math.round(Number(el.value)||0); if(n<1)n=1; if(n>maxN)n=maxN; el.value=n;
+  btn.textContent='Build '+n+' Load'+(n===1?'':'s')+(n<maxN?(' of '+maxN):'');
+}
 function catAskBuildOrder(order, target){
   if(!requireAdmin()) return;
   const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
@@ -2673,12 +2685,13 @@ function catAskBuildOrder(order, target){
   const buildTrucks=plan.trucks.slice(ext);
   const netN=buildTrucks.length;
   const buildLb=buildTrucks.reduce((s,t)=>s+t.lb,0);
+  const buildPk=buildTrucks.reduce((s,t)=>s+_catTruckPk(t.alloc),0);
   const single=(netN===1 && base===1);
   const schedNote = ext>0 ? `<div style="background:rgba(22,101,52,.08);border:1px solid rgba(22,101,52,.3);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:#166534"><b>${ext} load${ext>1?'s':''} already scheduled on Outbound.</b> Building the remaining <b>${netN}</b>, numbered from TRK ${base}.</div>` : '';
   const MAXSHOW=14;
   const truckList = buildTrucks.slice(0,MAXSHOW).map((tk,i)=>`<tr>
       <td style="padding:4px 8px;font-weight:700;white-space:nowrap">${single?'Load':('TRK '+(base+i))}</td>
-      <td style="padding:4px 8px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">${Math.round(tk.lb).toLocaleString()} lb</td>
+      <td style="padding:4px 8px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">${_catTruckPk(tk.alloc).toLocaleString()} pk &middot; ${Math.round(tk.lb).toLocaleString()} lb</td>
       <td style="padding:4px 8px;font-size:11px;color:var(--text2)">${tk.alloc.map(a=>esc(a.sku)+' '+packLbl(a)).join(' + ')}</td>
     </tr>`).join('') + (netN>MAXSHOW?`<tr><td colspan="3" style="padding:4px 8px;color:var(--text2);font-style:italic">…and ${netN-MAXSHOW} more truck(s)</td></tr>`:'');
   document.getElementById('modal-container').innerHTML = `
@@ -2694,7 +2707,10 @@ function catAskBuildOrder(order, target){
           <label style="font-size:12px;font-weight:700">Apply date (all trucks)
             <input id="cat-date" type="date" value="${basis}" style="display:block;margin-top:4px;padding:7px 8px;font-size:13px;border:1px solid var(--border);border-radius:7px">
           </label>
-          <div style="font-size:12px"><div style="color:var(--text2)">Plan</div><b>${netN} load${netN===1?'':'s'} &middot; ${Math.round(buildLb).toLocaleString()} lb total</b></div>
+          ${netN>1?`<label style="font-size:12px;font-weight:700">Loads to build
+            <input id="cat-count" type="number" min="1" max="${netN}" step="1" value="${netN}" oninput="catBuildCountChange(${netN})" title="How many of the ${netN} available loads to build" style="display:block;margin-top:4px;width:90px;padding:7px 8px;font-size:14px;border:1px solid var(--border);border-radius:7px">
+          </label>`:''}
+          <div style="font-size:12px"><div style="color:var(--text2)">Plan</div><b>${netN} load${netN===1?'':'s'} &middot; ${buildPk.toLocaleString()} pk &middot; ${Math.round(buildLb).toLocaleString()} lb total</b></div>
         </div>
         <div style="margin-bottom:10px">${lineSummary}</div>
         ${netN?`<div style="max-height:230px;overflow:auto;border:1px solid var(--border);border-radius:8px">
@@ -2704,7 +2720,7 @@ function catAskBuildOrder(order, target){
           </table></div>`:'<div style="font-size:12px;color:#166534;font-weight:700">Everything is already scheduled on Outbound — nothing to build.</div>'}
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
           <button class="sign-out-btn" onclick="closeModal()">Cancel</button>
-          <button class="sign-out-btn" ${netN?'':'disabled'} onclick="${dups.length?`catAskBuildDup('${esc(order)}')`:`catDoBuildOrder('${esc(order)}')`}" style="background:#be123c;color:#fff;border-color:#be123c;${netN?'':'opacity:.5'}">Build ${netN||''} Load${netN===1?'':'s'}</button>
+          <button id="cat-build-btn" class="sign-out-btn" ${netN?'':'disabled'} onclick="${dups.length?`catAskBuildDup('${esc(order)}')`:`catDoBuildOrder('${esc(order)}')`}" style="background:#be123c;color:#fff;border-color:#be123c;${netN?'':'opacity:.5'}">Build ${netN||''} Load${netN===1?'':'s'}</button>
         </div>
       </div>
     </div>`;
@@ -2731,11 +2747,15 @@ function catDoBuildOrder(order, opts){
   if(!plan.N){ showAlert('Nothing available to load for this order.'); return; }
   // Net out loads already scheduled on Outbound: skip that many trucks and number after them.
   const ext=catExtLoadCount(order, g.po);
-  const buildTrucks=plan.trucks.slice(ext);
-  if(!buildTrucks.length){ showAlert('This order is already fully scheduled on the Outbound calendar.'); return; }
+  const avail=plan.trucks.slice(ext);
+  if(!avail.length){ showAlert('This order is already fully scheduled on the Outbound calendar.'); return; }
+  // Operator may choose to build only some of the available loads (default: all).
+  let count=Math.round(Number(opts.count!=null?opts.count:(document.getElementById('cat-count')||{}).value)||avail.length);
+  if(count<1) count=1; if(count>avail.length) count=avail.length;
+  const buildTrucks=avail.slice(0,count);
   const drafts=state.catDrafts||(state.catDrafts={});
   let base=catNextTruck(order)+ext;
-  const single=(buildTrucks.length===1 && base===1);   // lone first load — no "TRK 1" suffix
+  const single=(avail.length===1 && count===1 && base===1);   // lone first load — no "TRK 1" suffix
   const updates={};
   buildTrucks.forEach((tk,i)=>{
     const trk=base+i;
@@ -2752,14 +2772,14 @@ function catDoBuildOrder(order, opts){
 // Second confirmation: operator clicked Build even though a duplicate is already on the calendar.
 let _catBuildPending=null;
 function _catBuildCancel(){ const p=_catBuildPending; _catBuildPending=null; if(p) catAskBuildOrder(p.order, p.target); else closeModal(); }
-function _catBuildConfirmed(){ const p=_catBuildPending; _catBuildPending=null; if(p) catDoBuildOrder(p.order, {target:p.target, date:p.date}); }
+function _catBuildConfirmed(){ const p=_catBuildPending; _catBuildPending=null; if(p) catDoBuildOrder(p.order, {target:p.target, date:p.date, count:p.count}); }
 function catAskBuildDup(order){
   if(!requireAdmin()) return;
   const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
   const fmt=iso=>{ const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m?(m[2]+'/'+m[3]+'/'+m[1]):(iso||''); };
   const {g}=catOrderMeta(order);
   const dups=catOutboundDup(order, g.po);
-  _catBuildPending={ order, target:(document.getElementById('cat-target')||{}).value, date:(document.getElementById('cat-date')||{}).value };
+  _catBuildPending={ order, target:(document.getElementById('cat-target')||{}).value, date:(document.getElementById('cat-date')||{}).value, count:(document.getElementById('cat-count')||{}).value };
   const list=dups.slice(0,6).map(o=>'🚚 '+esc(o.orderNum||'')+' &middot; '+esc(fmt((o.reqDate||'').slice(0,10)))+(o.status?(' &middot; '+esc(o.status)):'')).join('<br>')+(dups.length>6?('<br>…and '+(dups.length-6)+' more'):'');
   document.getElementById('modal-container').innerHTML = `
     <div class="modal-overlay" onclick="if(event.target===this)_catBuildCancel()">
@@ -2954,13 +2974,13 @@ function renderCatalyst(){
     // Normalize drafts + posted into one uniform shape, then render every load the same way.
     const items=[];
     drafts.forEach(([id,d])=>items.push({ kind:'draft', key:id, bg:'rgba(217,119,6,.06)', canc:false, truck:d.truck||0,
-      id:d.loadId||'', lb:Math.round(d.totalLb||0), comp:_comp(d.alloc||[]), iso:(d.date||'').slice(0,10),
+      id:d.loadId||'', lb:Math.round(d.totalLb||0), pk:_catAllocPk(d.alloc||[]), comp:_comp(d.alloc||[]), iso:(d.date||'').slice(0,10),
       bBg:'rgba(217,119,6,.16)', bCol:'#b45309', bTxt:'DRAFT · not on calendar' }));
     posted.forEach(([id,o])=>{ const canc=_catUpper(o.status)==='CANCELLED';
       const allocs=Array.isArray(o.catAlloc)?o.catAlloc:(o.catSku?[{sku:o.catSku,unit:o.catUnit,weight:o.catWeight,qty:o.catQty}]:[]);
       const lb=o.catTotalLb || allocs.reduce((s,a)=>s+_catNum(a.weight),0);
       items.push({ kind:'posted', key:id, bg:'rgba(6,95,70,.04)', canc, truck:o.catTruck||0,
-        id:o.orderNum||'', lb:Math.round(lb), comp:allocs.length?_comp(allocs):'', iso:(o.reqDate||'').slice(0,10),
+        id:o.orderNum||'', lb:Math.round(lb), pk:_catAllocPk(allocs), comp:allocs.length?_comp(allocs):'', iso:(o.reqDate||'').slice(0,10),
         bBg:canc?'rgba(120,120,120,.15)':'rgba(6,95,70,.12)', bCol:canc?'var(--text2)':'#065f46',
         bTxt:canc?(o.status||''):('ON CALENDAR · '+(o.status||'')) }); });
     items.sort((a,b)=>(a.truck-b.truck) || (a.kind<b.kind?-1:1));
@@ -2978,7 +2998,7 @@ function renderCatalyst(){
         <td colspan="${NCOLS-1}" style="padding:6px 14px 6px 48px;font-size:11px;color:${it.canc?'var(--text2)':'var(--text)'}">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <span style="white-space:nowrap">🚚 <b style="${it.canc?'text-decoration:line-through':''}">${esc(it.id)}</b></span>
-            <span style="color:var(--text2)">&middot; ${it.lb.toLocaleString()} lb${it.comp?(' &middot; '+it.comp):''}</span>
+            <span style="color:var(--text2)">&middot; ${(it.pk||0).toLocaleString()} pk &middot; ${it.lb.toLocaleString()} lb${it.comp?(' &middot; '+it.comp):''}</span>
             <span style="font-size:9px;font-weight:800;letter-spacing:.3px;padding:1px 7px;border-radius:999px;background:${it.bBg};color:${it.bCol};white-space:nowrap">${esc(it.bTxt)}</span>
             <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">${dateCtl}${postBtn}${delBtn}</span>
           </div>
