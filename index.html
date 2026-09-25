@@ -587,8 +587,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-100';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807100;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-101';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807101;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -864,8 +864,8 @@ function tryRestoreSession(){
   if (!user) return;
   const _al = userAccessList(user);
   loginGroup(accessPrimary(_al), !!user.isAdmin);
-  state.user.access = _al; state.user.label = user.name || user.email; state.user.sdImport = !!(user && user.sdImport);
-  applyMultiAccess(_al); _applySdImportTab();
+  state.user.access = _al; state.user.label = user.name || user.email; state.user.sdImport = !!(user && user.sdImport); state.user.catImport = !!(user && user.catImport);
+  applyMultiAccess(_al); _applySdImportTab(); _applyCatImportTab();
   try{ document.getElementById('main-app').classList.toggle('yard-view-only', yardReadOnlyNow()); }catch(e){}
   _forceSession(sessionKey(email), user.email);
 }
@@ -891,7 +891,7 @@ function submitLogin() {
     err.textContent = 'Incorrect password'; err.style.display = 'block'; pwEl.value = ''; pwEl.focus(); return;
   }
   acquireSession(sessionKey(email), email,
-    () => { persistAuth({email:user.email}); var _al=userAccessList(user); loginGroup(accessPrimary(_al), !!user.isAdmin); state.user.access=_al; state.user.label = user.name || user.email; state.user.sdImport = !!(user && user.sdImport); applyMultiAccess(_al); _applySdImportTab(); try{document.getElementById('main-app').classList.toggle('yard-view-only', yardReadOnlyNow());}catch(e){} },
+    () => { persistAuth({email:user.email}); var _al=userAccessList(user); loginGroup(accessPrimary(_al), !!user.isAdmin); state.user.access=_al; state.user.label = user.name || user.email; state.user.sdImport = !!(user && user.sdImport); state.user.catImport = !!(user && user.catImport); applyMultiAccess(_al); _applySdImportTab(); _applyCatImportTab(); try{document.getElementById('main-app').classList.toggle('yard-view-only', yardReadOnlyNow());}catch(e){} },
     () => { err.textContent = 'This email is already signed in elsewhere'; err.style.display = 'block'; }
   );
 }
@@ -1631,6 +1631,11 @@ function canSdImport(){ return !!(state.user && (state.user.role==='admin' || st
 function requireSdImport(){ if(!canSdImport()){ showAlert('Not permitted','warning'); return false; } return true; }
 // Reveal the WRK ShipDue tab for a user who has been granted its import (access groups may hide it).
 function _applySdImportTab(){ try{ if(state.user && state.user.sdImport){ const t=document.getElementById('tab-sd'); if(t) t.style.display=''; } }catch(e){} }
+// A user may be granted the Catalyst import (Orders + Inventory) without being a full admin.
+function canCatImport(){ return !!(state.user && (state.user.role==='admin' || state.user.catImport)); }
+function requireCatImport(){ if(!canCatImport()){ showAlert('Not permitted','warning'); return false; } return true; }
+// Reveal the Catalyst tab for a user granted its import (access groups may otherwise hide it).
+function _applyCatImportTab(){ try{ if(state.user && state.user.catImport){ const t=document.getElementById('tab-cat'); if(t) t.style.display=''; } }catch(e){} }
 
 function addAuthUser() {
   if (!requireAdmin()) return;
@@ -1815,8 +1820,11 @@ function showEditUserModal(id) {
         <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:14px;cursor:pointer">
           <input type="checkbox" id="edit-admin" ${u.isAdmin?'checked':''} style="width:16px;height:16px"> Admin (can manage users, import, tables)
         </label>
-        <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;cursor:pointer">
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:14px;cursor:pointer">
           <input type="checkbox" id="edit-sdimport" ${u.sdImport?'checked':''} style="width:16px;height:16px"> Allow WRK ShipDue import + Add to Schedule (shows the tab, Import &amp; Add buttons)
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;cursor:pointer">
+          <input type="checkbox" id="edit-catimport" ${u.catImport?'checked':''} style="width:16px;height:16px"> Allow Catalyst import (shows the tab + Import Orders / Import Inventory)
         </label>
         <label style="${labelCss}">Password <span style="text-transform:none;font-weight:400">(leave blank to use the group default)</span></label>
         <input type="text" id="edit-pw" value="${esc(u.password)}" placeholder="group default" style="${fieldCss};text-transform:none">
@@ -1841,19 +1849,20 @@ function saveEditUser(id) {
   const group = accessPrimary(access);
   const isAdmin = document.getElementById('edit-admin').checked;
   const _sdEl = document.getElementById('edit-sdimport'); const sdImport = !!(_sdEl && _sdEl.checked);
+  const _catEl = document.getElementById('edit-catimport'); const catImport = !!(_catEl && _catEl.checked);
   const pw    = (gv('edit-pw')||'').trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showAlert('Enter a valid email address','warning'); return; }
   const dup = Object.entries(state.authUsers||{}).some(([k,x]) => k!==id && (x.email||'').toLowerCase()===email);
   if (dup) { showAlert('Another user already has that email','warning'); return; }
   if (isNew) {
-    const rec = { email, group, access, isAdmin, sdImport, addedAt: Date.now() };
+    const rec = { email, group, access, isAdmin, sdImport, catImport, addedAt: Date.now() };
     if (name) rec.name = name;
     if (pw) rec.password = pw;
     db.ref(ROOT+'/authUsers').push(rec)
       .then(()=>{ showAlert('User added','success'); showUsersModal(); })
       .catch(e=>showAlert('Could not add user: '+e.message,'danger'));
   } else {
-    const rec = { email, group, access, isAdmin, sdImport, name: name || null, password: pw || null };
+    const rec = { email, group, access, isAdmin, sdImport, catImport, name: name || null, password: pw || null };
     db.ref(ROOT+'/authUsers/'+id).update(rec)
       .then(()=>{ showAlert('User updated','success'); showUsersModal(); })
       .catch(e=>showAlert('Could not update user: '+e.message,'danger'));
@@ -2323,7 +2332,7 @@ function catAvail(sku, com){
 // ── imports (admin) ──
 let _catPendOrders=null, _catPendInv=null;
 function showCatOrderImport(){
-  if(!requireAdmin()) return;
+  if(!requireCatImport()) return;
   document.getElementById('modal-container').innerHTML = `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal" style="max-width:560px">
@@ -2353,7 +2362,7 @@ function catDrop(ev, which){
 // Drop file(s) anywhere on the Catalyst tab — routes by type to the matching import (previewed, ready to confirm).
 function catSectionDrop(ev){
   ev.preventDefault(); ev.stopPropagation();
-  if(!(state.user && state.user.role==='admin')){ showAlert('Admin only.'); return; }
+  if(!canCatImport()){ showAlert('Not permitted'); return; }
   const fs=ev.dataTransfer && ev.dataTransfer.files ? [...ev.dataTransfer.files] : []; if(!fs.length) return;
   const isXls=f=>{ const n=(f.name||'').toLowerCase(); return n.endsWith('.xlsx')||n.endsWith('.xlsm'); };
   const isCsv=f=>{ const n=(f.name||'').toLowerCase(); return n.endsWith('.csv')||n.endsWith('.txt'); };
@@ -2394,7 +2403,7 @@ async function catHandleOrdersFile(file){
   }catch(e){ box.innerHTML='<span style="color:var(--danger)">Could not read file: '+((e&&e.message)||e)+'</span>'; go.disabled=true; go.style.opacity=.5; }
 }
 function commitCatOrders(){
-  if(!requireAdmin() || !_catPendOrders || !_catPendOrders.rows.length) return;
+  if(!requireCatImport() || !_catPendOrders || !_catPendOrders.rows.length) return;
   const payload={ rows:_catPendOrders.rows, importedAt:Date.now(), importedBy:(state.user&&state.user.label)||'' };
   state.catOrders=payload;
   db.ref(ROOT+'/catalystOrders').set(payload)
@@ -2403,7 +2412,7 @@ function commitCatOrders(){
   _catPendOrders=null;
 }
 function showCatInvImport(){
-  if(!requireAdmin()) return;
+  if(!requireCatImport()) return;
   document.getElementById('modal-container').innerHTML = `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
       <div class="modal" style="max-width:560px">
@@ -2439,7 +2448,7 @@ async function catHandleInvFiles(files){
   }catch(e){ box.innerHTML='<span style="color:var(--danger)">Could not read file(s): '+((e&&e.message)||e)+'</span>'; go.disabled=true; go.style.opacity=.5; }
 }
 function commitCatInv(){
-  if(!requireAdmin() || !_catPendInv || !Object.keys(_catPendInv.skus).length) return;
+  if(!requireCatImport() || !_catPendInv || !Object.keys(_catPendInv.skus).length) return;
   const payload={ skus:_catPendInv.skus, rolls:_catPendInv.rolls, header:_catPendInv.header||null, rows:_catPendInv.rows||[], importedAt:Date.now(), importedBy:(state.user&&state.user.label)||'' };
   state.catInv=payload;
   db.ref(ROOT+'/catalystInv').set(payload)   // .set() fully REPLACES the prior snapshot — a reset every import
@@ -3117,8 +3126,8 @@ function renderCatalyst(){
   view.innerHTML=`
   <div class="date-nav" style="justify-content:flex-start;gap:10px;flex-wrap:wrap">
     <h2 style="margin:0;font-size:19px">Catalyst &middot; Delivery &amp; Load Builder</h2>
-    ${admin?'<button class="sign-out-btn" onclick="showCatOrderImport()" style="background:#be123c;color:#fff;border-color:#be123c">⤓ Import Orders</button>':''}
-    ${admin?'<button class="sign-out-btn" onclick="showCatInvImport()" style="background:#166534;color:#fff;border-color:#166534">⤓ Import Inventory</button>':''}
+    ${(admin||canCatImport())?'<button class="sign-out-btn" onclick="showCatOrderImport()" style="background:#be123c;color:#fff;border-color:#be123c">⤓ Import Orders</button>':''}
+    ${(admin||canCatImport())?'<button class="sign-out-btn" onclick="showCatInvImport()" style="background:#166534;color:#fff;border-color:#166534">⤓ Import Inventory</button>':''}
     ${invReady?'<button class="sign-out-btn" onclick="catExportInv()" style="background:transparent;color:#166534;border-color:#166534" title="Download the imported Catalyst inventory to Excel">⤒ Export Inventory</button>':''}
     ${(admin && draftCount>0)?('<button class="sign-out-btn" onclick="catPostAll()" style="background:#166534;color:#fff;border-color:#166534">📅 Post All Drafts ('+draftCount+')</button>'):''}
     ${admin?'<button class="sign-out-btn" onclick="catAskClear()" style="background:transparent;color:#b91c1c;border-color:#b91c1c">🗑 Clear Loads</button>':''}
