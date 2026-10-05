@@ -587,8 +587,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-102';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807102;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-104';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807104;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -2042,6 +2042,7 @@ function startListeners() {
     state.inbound = snap.val()||{};
     if (state.tab==='ib') renderInbound();
     if (state.tab==='yd') renderYard();
+    if (state.tab==='sc') scDeferRender();   // Tot Trk Recv / Tot Loads derive from COMPLETED inbound loads — keep the open scorecard live
     updateBadges();
   });
   db.ref(ROOT+'/outbound').on('value', snap => {
@@ -2113,6 +2114,7 @@ function startListeners() {
     state.refTable = snap.val()||{};
     if (state.tab==='ib') renderInbound();
     else if (state.tab==='ob') renderOutbound();
+    else if (state.tab==='sc') scDeferRender();   // customer→group mapping decides which loads roll into the scorecard groups
   });
   db.ref(ROOT+'/fftiCustomers').on('value', snap => {
     state.fftiCustomers = snap.val()||[];
@@ -2550,8 +2552,12 @@ function catOrderShippable(order, com){
   return catOrderRows().filter(r=>r.order===order && (_rel||catShipBucket(r)==='OKAY') && !catBlocked(r) && !catNoteHold(r)).map(r=>{
     const isLB=r.unit!=='PAC'; const rem=catRemaining(r,com); const av=catAvail(r.sku,com);
     const availNative = av ? (isLB?av.lbs:av.rolls) : 0;
-    const ship = Math.max(0, Math.min(rem, availNative));
-    const shipInt = isLB ? Math.round(ship) : Math.floor(ship);   // packs are whole
+    // Pack orders are whole. The source "pending" can carry rounding dust (e.g. 14.98 pk, shown as 15),
+    // so round PAC demand to whole packs BEFORE capping by on-hand inventory — otherwise flooring drops
+    // a near-whole pack and leaves on-hand inventory unplanned.
+    const demandNative = isLB ? rem : Math.round(rem);
+    const ship = Math.max(0, Math.min(demandNative, availNative));
+    const shipInt = Math.round(ship);   // whole units (avail is already whole for packs)
     const packWt = isLB ? 1 : _catPackWt(r.sku);
     return { line:r.line, lid:r._lid, sku:r.sku, unit:r.unit, isLB, rem, ship:shipInt, packWt,
              shipLb: isLB?shipInt:Math.round(shipInt*packWt), availNative, cap: shipInt<rem };
@@ -2606,6 +2612,10 @@ function catBuildPlan(order, target, com){
   const addFiller=(acc,l,capLb,truckCap,w)=>{ if(l.isLB) return addLB(acc,l,Math.min(capLb,truckCap-w)); let a=0; while(l.left>0 && a<capLb && (w+a+l.packWt)<=truckCap+1e-6){ acc[l.lid]=(acc[l.lid]||0)+1; l.left--; a+=l.packWt; } return a; };
   const finalize=(acc)=>{ const alloc=Object.keys(acc).map(lid=>{ const l=rec[lid]; return { lid, sku:l.sku, line:l.line, unit:l.unit, isLB:l.isLB, packWt:l.packWt, amt:acc[lid] }; });
     const lb=alloc.reduce((s,a)=>s+(a.isLB?a.amt:Math.round(a.amt*a.packWt)),0); if(alloc.length) trucks.push({ alloc, lb }); };
+  // Add `amt` units of line L onto an existing truck (merging into its alloc) and recompute its weight.
+  const _truckAdd=(t,L,amt)=>{ let e=t.alloc.find(a=>a.lid===L.lid);
+    if(!e){ e={ lid:L.lid, sku:L.sku, line:L.line, unit:L.unit, isLB:L.isLB, packWt:L.packWt, amt:0 }; t.alloc.push(e); }
+    e.amt+=amt; t.lb=t.alloc.reduce((s,a)=>s+(a.isLB?a.amt:Math.round(a.amt*a.packWt)),0); };
 
   let guard=0;
   primaries.forEach(P=>{
@@ -2617,11 +2627,25 @@ function catBuildPlan(order, target, com){
       finalize(acc);
     }
   });
-  while(filler && filler.left>0 && guard++<20000){       // leftover filler ships on its own
-    const acc={}; (filler.isLB?addLB:addPacks)(acc, filler, target);
-    if(!Object.keys(acc).length && filler.left>0){ acc[filler.lid]=1; filler.left--; }
-    finalize(acc);
+  // No inventory left unplanned. Top up the LIGHTEST existing trucks first with any leftover (filler
+  // that exceeded its ~10% reserve, or a primary remainder) as long as it fits under the target — so a
+  // lone extra pack rides a light truck instead of spawning a near-empty one.
+  const leftovers=[filler].concat(primaries).filter(x=>x && x.left>0);
+  if(leftovers.length && trucks.length){
+    const byLight=trucks.map((t,i)=>i).sort((a,b)=>trucks[a].lb-trucks[b].lb);
+    leftovers.forEach(L=>{
+      for(const ti of byLight){ if(L.left<=0) break; const t=trucks[ti];
+        if(L.isLB){ const add=Math.min(L.left, Math.floor(target-t.lb)); if(add>0){ _truckAdd(t,L,add); L.left-=add; } }
+        else { while(L.left>0 && (t.lb+L.packWt)<=target+1e-6){ _truckAdd(t,L,1); L.left--; } }
+      }
+    });
   }
+  // Anything still left (every existing truck full) rides its own fresh truck.
+  leftovers.forEach(L=>{ while(L && L.left>0 && guard++<20000){
+    const acc={}; (L.isLB?addLB:addPacks)(acc, L, target);
+    if(!Object.keys(acc).length && L.left>0){ acc[L.lid]=1; L.left--; }
+    finalize(acc);
+  }});
   return { lines, totalLb, N:trucks.length, target, trucks, capped, order:primaries.map(p=>p.sku), filler:filler?filler.sku:null, blocked:false, covered:true, short:[] };
 }
 function catOrderMeta(order){ const ls=catOrderRows().filter(r=>r.order===order); const g=ls[0]||{}; return {g, ls}; }
@@ -7503,7 +7527,10 @@ function scComputeMonth(month){
 
 function saveScore(date, path, value){
   const v = (value===''||value===null||value===undefined) ? null : scNum(value);
-  db.ref(ROOT+scBoard().path+'/'+date+'/'+path).set(v).catch(e=>console.warn('scorecard save',e));
+  // Write to the SHARED board (Firebase) so every user sees it live. Surface a failure instead of
+  // swallowing it — a silent write failure is what makes an entry look like it "didn't stick".
+  db.ref(ROOT+scBoard().path+'/'+date+'/'+path).set(v)
+    .catch(e=>{ console.warn('scorecard save',e); showAlert('Could not save scorecard entry — check your connection and re-enter.', 'danger'); });
 }
 
 // True while the user is typing in a scorecard cell — used to defer re-renders so the
