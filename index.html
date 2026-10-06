@@ -587,8 +587,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-104';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807104;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-105';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807105;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -3166,6 +3166,8 @@ function renderCatalyst(){
   const custCounts={}; Object.keys(_custAll).forEach(c=>{ let n=0; (_custSegOrders[c]||new Set()).forEach(o=>n+=_potOrdEff(o)); custCounts[c]=n; });
   const custList=Object.keys(custCounts).sort();
   const allOrderCount=Object.keys(custCounts).reduce((s,c)=>s+custCounts[c],0);
+  // City, State per customer (first non-empty destination across its orders) — shown on the filter cards.
+  const custDest={}; all.forEach(r=>{ const c=r.shipToName||r.soldTo||'(unknown)'; if(!custDest[c]){ const d=(r.dest||r.city||'').trim(); if(d) custDest[c]=d; } });
 
   view.innerHTML=`
   <div class="date-nav" style="justify-content:flex-start;gap:10px;flex-wrap:wrap">
@@ -3193,8 +3195,9 @@ function renderCatalyst(){
       <div class="scard-label" style="font-size:11px;letter-spacing:.1px;margin-bottom:3px;line-height:1.15">ALL</div>
       <div class="scard-value" style="font-size:15px;line-height:1.1;color:${!state.catCust?'#fff':'var(--accent)'}">${allOrderCount}</div>
     </div>
-    ${custList.map(c=>{ const active=state.catCust===c; const a=esc(c).replace(/'/g,"\\'"); return `<div class="scard ff-cust-card${active?' active':''}" onclick="catSetCust('${a}')" title="Filter to ${esc(c)}">
-      <div class="scard-label" style="font-size:11px;letter-spacing:.1px;margin-bottom:3px;line-height:1.15">${esc(catCustShort(c))}</div>
+    ${custList.map(c=>{ const active=state.catCust===c; const a=esc(c).replace(/'/g,"\\'"); const loc=custDest[c]||''; return `<div class="scard ff-cust-card${active?' active':''}" onclick="catSetCust('${a}')" title="Filter to ${esc(c)}${loc?(' — '+esc(loc)):''}">
+      <div class="scard-label" style="font-size:11px;letter-spacing:.1px;margin-bottom:2px;line-height:1.15">${esc(catCustShort(c))}</div>
+      ${loc?`<div style="font-size:8.5px;font-weight:700;letter-spacing:.2px;line-height:1.1;margin-bottom:2px;color:${active?'rgba(255,255,255,0.85)':'var(--text2)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(loc)}</div>`:''}
       <div class="scard-value" style="font-size:15px;line-height:1.1;color:${active?'#fff':'var(--accent)'}">${custCounts[c]}</div>
     </div>`; }).join('')}
   </div>`:''}
