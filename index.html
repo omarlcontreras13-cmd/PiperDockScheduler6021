@@ -183,7 +183,10 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 #view-sd .sd-pills { display:flex;gap:8px;margin:0 0 14px;flex-wrap:wrap; }
 #view-sd .summary-bar { margin-bottom:16px; }
 #view-cat .sd-wrap { background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:auto;flex:1 1 0;min-height:0; }
-#view-cat .sd-table { width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px; }
+#view-cat .sd-table { width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px;table-layout:fixed; }
+/* Fixed layout → column widths come from the colgroup (below), not the content, so the view
+   stays identical no matter which customer card / filter is selected. Group/truck rows use
+   colspan and wrap freely; per-line cells keep their widths. */
 #view-cat .sd-table thead th { position:sticky;top:0;z-index:5;background:var(--surface2);padding:10px 12px;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--text2);font-weight:800;border-bottom:2px solid var(--border);white-space:nowrap;text-align:left; }
 #view-cat .sd-table tbody td { padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:middle;color:var(--text); }
 #view-cat .sd-table tbody tr:last-child td { border-bottom:none; }
@@ -587,8 +590,8 @@ const ROOT = 'dockSchedule/6021';
 // Build stamp — BUMP THIS STRING ON EVERY DEPLOY (e.g. add -2, -3, or a new date). It shows in the
 // header and is readable in the console as APP_VERSION, so you can tell at a glance which build any
 // device is running. An old build won't have the header chip at all, which itself flags a stale tab.
-const APP_VERSION = 'v2026.08.07-105';   // human-readable; shown in the header chip
-const APP_BUILD   = 20260807105;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
+const APP_VERSION = 'v2026.08.07-123';   // human-readable; shown in the header chip
+const APP_BUILD   = 20260807123;       // MONOTONIC build number — MUST strictly increase every deploy; drives the auto-update
 
 // ─── STATE ─────────────────────────────────────────────────────────────
 const state = {
@@ -2096,6 +2099,14 @@ function startListeners() {
     state.catReleased = snap.val()||{};
     if (state.tab==='cat') renderCatalyst();
   });
+  db.ref(ROOT+'/catalystShortOverrides').on('value', snap => {
+    state.catShortOvr = snap.val()||{};
+    if (state.tab==='cat') renderCatalyst();
+  });
+  db.ref(ROOT+'/catalystCompleted').on('value', snap => {
+    state.catCompleted = snap.val()||{};
+    if (state.tab==='cat') renderCatalyst();
+  });
   db.ref(ROOT+'/scorecardWrk').on('value', snap => {
     state.scorecardWrk = snap.val()||{};
     if (state.tab==='sc' && scBoard().store==='scorecardWrk') scDeferRender();
@@ -2543,6 +2554,24 @@ function catReleaseOrder(order){ if(!requireAdmin()) return; const k=_relKey(ord
   db.ref(ROOT+'/catalystReleases/'+k).set(state.catReleased[k]).catch(()=>{}); if(state.tab==='cat') renderCatalyst(); }
 function catUnreleaseOrder(order){ if(!requireAdmin()) return; const k=_relKey(order); if(state.catReleased) delete state.catReleased[k];
   db.ref(ROOT+'/catalystReleases/'+k).remove().catch(()=>{}); if(state.tab==='cat') renderCatalyst(); }
+// Short override — admin elects to build with existing on-hand inventory even though demand rounds up
+// to one more whole roll than is available (the shortfall is a partial roll that can't ship anyway).
+function catShortOverridden(order){ return !!(state.catShortOvr && state.catShortOvr[_relKey(order)]); }
+function catOverrideShort(order){ if(!requireAdmin()) return; const k=_relKey(order); state.catShortOvr=state.catShortOvr||{};
+  state.catShortOvr[k]={ at:Date.now(), by:(state.user&&state.user.label)||'', order:String(order==null?'':order) };
+  db.ref(ROOT+'/catalystShortOverrides/'+k).set(state.catShortOvr[k]).catch(()=>{}); if(state.tab==='cat') renderCatalyst(); }
+function catUnoverrideShort(order){ if(!requireAdmin()) return; const k=_relKey(order); if(state.catShortOvr) delete state.catShortOvr[k];
+  db.ref(ROOT+'/catalystShortOverrides/'+k).remove().catch(()=>{}); if(state.tab==='cat') renderCatalyst(); }
+// Complete order — admin closes the order and writes off any remaining balance (e.g. a sub-roll
+// remainder that can never ship). Stops further build prompts / potential loads for the order.
+function catCompleted(order){ return !!(state.catCompleted && state.catCompleted[_relKey(order)]); }
+function catCompleteOrder(order){ if(!requireAdmin()) return;
+  if(!window.confirm('Mark order '+order+' complete and zero out the remaining balance? No further loads will be expected. You can undo this later.')) return;
+  const k=_relKey(order); state.catCompleted=state.catCompleted||{};
+  state.catCompleted[k]={ at:Date.now(), by:(state.user&&state.user.label)||'', order:String(order==null?'':order) };
+  db.ref(ROOT+'/catalystCompleted/'+k).set(state.catCompleted[k]).catch(()=>{}); if(state.tab==='cat') renderCatalyst(); }
+function catUncompleteOrder(order){ if(!requireAdmin()) return; const k=_relKey(order); if(state.catCompleted) delete state.catCompleted[k];
+  db.ref(ROOT+'/catalystCompleted/'+k).remove().catch(()=>{}); if(state.tab==='cat') renderCatalyst(); }
 // The order's lines that still have qty to load AND inventory to cover it. Only Okay-to-Ship,
 // unblocked lines are eligible. Weight is the common currency for truck sizing: LB lines ship
 // pounds, PAC lines convert packs → pounds via _catPackWt.
@@ -2567,13 +2596,21 @@ function catOrderShippable(order, com){
 // (or lbs), the order is blocked from building until inventory catches up.
 function catOrderCoverage(order, com){
   com=com||catCommitted();
+  if(catCompleted(order)) return { lines:[], short:[], hasWork:false, covered:false };   // closed out — no further work
   const _rel=catReleased(order);
   const lines=catOrderRows().filter(r=>r.order===order && (_rel||catShipBucket(r)==='OKAY') && !catBlocked(r) && !catNoteHold(r)).map(r=>{
     const isLB=r.unit!=='PAC'; const rem=catRemaining(r,com); const av=catAvail(r.sku,com);
     const remI=isLB?Math.round(rem):Math.floor(rem);
     const avI =av?(isLB?Math.floor(av.lbs):Math.floor(av.rolls)):0;
-    return { sku:r.sku, unit:r.unit, isLB, rem:remI, avail:avI, short:Math.max(0, remI-avI) };
+    // LB lines ship in whole rolls — judge coverage by whole rolls so a sub-roll pound shortfall
+    // (e.g. 265 lb when a roll is ~3,200 lb) doesn't hold the order "short / waiting on inventory".
+    const _pw=isLB?_catPackWt(r.sku):0;
+    let short=Math.max(0, remI-avI);
+    if(isLB && _pw>0){ const remRolls=Math.round(rem/_pw), avRolls=av?Math.floor(av.lbs/_pw):0; if(remRolls<=avRolls) short=0; }
+    return { sku:r.sku, unit:r.unit, isLB, rem:remI, avail:avI, short };
   }).filter(x=>x.rem>0);
+  // Admin override: build with whatever's on hand even though demand is nominally short a partial roll.
+  if(catShortOverridden(order)) lines.forEach(l=>{ l.short=0; });
   const short=lines.filter(l=>l.short>0);
   return { lines, short, hasWork:lines.length>0, covered:(lines.length>0 && short.length===0) };
 }
@@ -2654,11 +2691,12 @@ function catOrderMeta(order){ const ls=catOrderRows().filter(r=>r.order===order)
 // Used to warn before building so the same order isn't loaded onto the calendar twice.
 function catOutboundDup(order, po){
   const norm=s=>_catUpper(s).replace(/[^A-Z0-9]/g,'');   // ignore spaces/dashes: "406077-278454W" == "406077 278454W"
-  const nO=norm(order), nP=norm(po||'');
+  const stripPO=s=>String(s==null?'':s).replace(/^PO/,'');   // "PO24495" and "24495" are the same PO
+  const nO=norm(order), nP=stripPO(norm(po||''));
   if(!nO) return [];
   return Object.values(state.outbound||{}).filter(o=>{
     if(_catUpper(o.status)==='CANCELLED') return false;
-    const hayId=norm(o.orderNum), hayCO=norm(o.catOrder), hayCP=norm(o.catPo), hayN=norm(o.notes);
+    const hayId=stripPO(norm(o.orderNum)), hayCO=norm(o.catOrder), hayCP=stripPO(norm(o.catPo)), hayN=stripPO(norm(o.notes));
     const orderHit=(hayCO===nO) || hayId.indexOf(nO)>-1 || hayN.indexOf(nO)>-1;
     if(!orderHit) return false;
     return nP ? ((hayCP===nP) || hayId.indexOf(nP)>-1 || hayN.indexOf(nP)>-1) : true;
@@ -2705,7 +2743,7 @@ function catAskBuildOrder(order, target){
       Review before building so you don't load it twice.</div>` : '';
   // Net out loads already scheduled on Outbound: build only the balance, numbered after them.
   const ext=catExtLoadCount(order, g.po);
-  const base=catNextTruck(order)+ext;
+  const base=catNextTruck(order);   // continue numbering from the highest TRK/TRUCK already on the calendar
   const buildTrucks=plan.trucks.slice(ext);
   const netN=buildTrucks.length;
   const buildLb=buildTrucks.reduce((s,t)=>s+t.lb,0);
@@ -2752,8 +2790,20 @@ function catAskBuildOrder(order, target){
 // Next truck number for an order across existing drafts AND posted loads (so numbering never collides).
 function catNextTruck(order){
   let mx=0;
-  Object.values(state.catDrafts||{}).forEach(d=>{ if(d.order===order && (d.truck||0)>mx) mx=d.truck; });
-  Object.values(state.outbound||{}).forEach(o=>{ if(o.source==='catalyst' && o.catOrder===order && _catUpper(o.status)!=='CANCELLED' && (o.catTruck||0)>mx) mx=o.catTruck; });
+  // Parse a trailing truck number from a load name, e.g. "405346 24495 TRUCK 7" or "... TRK 12" -> 7/12.
+  const _tn = s => { const m=String(s==null?'':s).toUpperCase().match(/(?:TRK|TRUCK)\s*#?\s*(\d+)/); return m?parseInt(m[1],10):0; };
+  const nOrder = _catUpper(order).replace(/[^A-Z0-9]/g,'');
+  Object.values(state.catDrafts||{}).forEach(d=>{ if(d.order===order){ const n=Math.max(d.truck||0, _tn(d.loadId)); if(n>mx) mx=n; } });
+  // Scan EVERY active Outbound load tied to this order number (built here or added elsewhere, any PO
+  // format) and continue numbering from the highest TRUCK/TRK number already on the calendar.
+  Object.values(state.outbound||{}).forEach(o=>{
+    if(_catUpper(o.status)==='CANCELLED') return;
+    const hay=_catUpper(o.orderNum).replace(/[^A-Z0-9]/g,''), hayCO=_catUpper(o.catOrder).replace(/[^A-Z0-9]/g,''), hayN=_catUpper(o.notes).replace(/[^A-Z0-9]/g,'');
+    const match = nOrder && (hayCO===nOrder || hay.indexOf(nOrder)===0 || hayN.indexOf(nOrder)>-1);
+    if(!match) return;
+    const n=Math.max(o.catTruck||0, _tn(o.orderNum));
+    if(n>mx) mx=n;
+  });
   return mx+1;
 }
 // Build DRAFT loads — held in the Catalyst summary (reserving inventory) but NOT on the Outbound calendar
@@ -2778,7 +2828,7 @@ function catDoBuildOrder(order, opts){
   if(count<1) count=1; if(count>avail.length) count=avail.length;
   const buildTrucks=avail.slice(0,count);
   const drafts=state.catDrafts||(state.catDrafts={});
-  let base=catNextTruck(order)+ext;
+  let base=catNextTruck(order);   // continue numbering from the highest TRK/TRUCK already on the calendar
   const single=(avail.length===1 && count===1 && base===1);   // lone first load — no "TRK 1" suffix
   const updates={};
   buildTrucks.forEach((tk,i)=>{
@@ -2922,6 +2972,29 @@ function renderCatalyst(){
   const admin=!!(state.user && state.user.role==='admin');
   const all=catOrderRows();
   const com=catCommitted();
+  // catOutboundDup scans + re-normalizes the whole Outbound board on every call, and it's needed many
+  // times per order (precompute, header, reservation, truck rows). Normalize the board ONCE per render,
+  // then match against that snapshot and memoize per (order,po). This is what keeps the view responsive
+  // on a big Outbound board — each load is normalized once instead of ~5× per order.
+  const _dnNorm=s=>_catUpper(s).replace(/[^A-Z0-9]/g,'');
+  const _dnStripPO=s=>String(s==null?'':s).replace(/^PO/,'');
+  const _obNorm=Object.values(state.outbound||{})
+    .filter(o=>_catUpper(o.status)!=='CANCELLED')
+    .map(o=>({ o, id:_dnStripPO(_dnNorm(o.orderNum)), co:_dnNorm(o.catOrder), cp:_dnStripPO(_dnNorm(o.catPo)), n:_dnStripPO(_dnNorm(o.notes)) }));
+  const _dupCache={};
+  const _dupOf=(order,po)=>{
+    const k=String(order)+'|'+String(po==null?'':po);
+    if(_dupCache[k]) return _dupCache[k];
+    const nO=_dnNorm(order), nP=_dnStripPO(_dnNorm(po||''));
+    if(!nO) return (_dupCache[k]=[]);
+    const out=[];
+    for(const e of _obNorm){
+      const orderHit=(e.co===nO) || e.id.indexOf(nO)>-1 || e.n.indexOf(nO)>-1;
+      if(!orderHit) continue;
+      if(!nP || e.cp===nP || e.id.indexOf(nP)>-1 || e.n.indexOf(nP)>-1) out.push(e.o);
+    }
+    return (_dupCache[k]=out);
+  };
   const filt=state.catFilter||'OKAY';
   // Effective bucket: a line held by its DP notes counts as On Hold even if SAP says Okay to Ship.
   const _bkt=r=>catNoteHold(r)?'HOLD':catShipBucket(r);
@@ -2934,7 +3007,7 @@ function renderCatalyst(){
   if(state.catFrom) baseRecs=baseRecs.filter(r=>(r.loadDate||'')>=state.catFrom);
   if(state.catTo)   baseRecs=baseRecs.filter(r=>(r.loadDate||'')<=state.catTo);
   let recs=state.catCust?baseRecs.filter(r=>(r.shipToName||r.soldTo||'(unknown)')===state.catCust):baseRecs.slice();
-  const NCOLS=12;
+  const NCOLS=13;
 
   // Hierarchy: Load Date  ->  Customer  ->  Order / PO  ->  line details (+ built trucks)
   const byDate={}; const dateKeys=[];
@@ -2953,9 +3026,40 @@ function renderCatalyst(){
   // the already-shipped (consumed) loads, since SAP pending already excludes those — netting them again
   // would double-count. Netting the potential/build uses the *Net counts.
   const _outAny={}, _outNet={}, _extNet={};
-  Object.keys(_orderPo).forEach(o=>{ const d=catOutboundDup(o,_orderPo[o]); _outAny[o]=d.length;
+  Object.keys(_orderPo).forEach(o=>{ const d=_dupOf(o,_orderPo[o]); _outAny[o]=d.length;
     const nd=d.filter(x=>!_catConsumed(x.status)); _outNet[o]=nd.length; _extNet[o]=nd.filter(x=>_catUpper(x.source||'')!=='CATALYST').length; });
   const _netBuild=o=>Math.max(0, (_plan(o).N||0) - (_extNet[o]||0));   // trucks still to build after unshipped external loads
+  // ── Inventory reservation / allocation ──────────────────────────────────────
+  // Available on-hand inventory must reconcile end-to-end: every pack is either
+  //   • already gone  → on loads that DEPARTED/LOADED (not in the on-hand count), or
+  //   • RESERVED       → set aside for an "Order Received" load already on the calendar, or
+  //   • FREE           → available to plan onto the final load(s) still to build.
+  // We divide the plan's trucks (which partition all buildable inventory) across the
+  // Order-Received calendar loads in truck-number order; whatever's left is FREE.
+  //   reserved(sku) + free(sku) = available(sku)   and   reservedLoads + finalLoads = plan.N
+  const _resvCache={};
+  const _resv=(o)=>{
+    if(_resvCache[o]) return _resvCache[o];
+    const po=_orderPo[o]!=null?_orderPo[o]:((catOrderRows().find(r=>r.order===o)||{}).po||'');
+    const dupSet=new Set(_dupOf(o,po));
+    // Reservable = external (added-on-Outbound) calendar loads not yet pulled (Order Received):
+    // not cancelled, not consumed, and carrying no per-SKU detail of their own.
+    const resv=Object.entries(state.outbound||{})
+      .filter(([,x])=> dupSet.has(x) && _catUpper(x.source||'')!=='CATALYST'
+          && _catUpper(x.status)!=='CANCELLED' && !_catConsumed(x.status)
+          && !(Array.isArray(x.catAlloc)&&x.catAlloc.length))
+      .map(([id,x])=>{ const m=String(x.orderNum||'').toUpperCase().match(/(?:TRK|TRUCK)\s*#?\s*(\d+)/);
+          return { id, trk:(m?parseInt(m[1],10):(x.catTruck||0)) }; })
+      .sort((a,b)=>(a.trk-b.trk)||(a.id<b.id?-1:1));
+    const trucks=_plan(o).trucks||[];
+    const byLoad={}, reservedPk={}, reservedLb={};
+    resv.forEach((L,i)=>{ const t=trucks[i];
+      if(!t){ byLoad[L.id]={over:true}; return; }
+      byLoad[L.id]={ alloc:t.alloc, lb:t.lb };
+      t.alloc.forEach(a=>{ if(a.isLB) reservedLb[a.sku]=(reservedLb[a.sku]||0)+a.amt;
+                           else reservedPk[a.sku]=(reservedPk[a.sku]||0)+a.amt; }); });
+    return _resvCache[o]={ n:resv.length, byLoad, reservedPk, reservedLb, finalTrucks:trucks.slice(resv.length) };
+  };
   // "Total loads" = built (draft+posted) + the truck loads still needed across every shown order.
   let loadsToBuild=0;
   [...new Set(recs.map(r=>r.order))].forEach(o=>{ loadsToBuild += _netBuild(o); });
@@ -2971,11 +3075,18 @@ function renderCatalyst(){
     const isLB=r.unit!=='PAC'; const pw=_catPackWt(r.sku)||_avgPackWt; const w=isLB?dem:dem*pw;
     if(w>0) _potByOrd[r.order]=(_potByOrd[r.order]||0)+w; });
   const _potOrd=o=>_potByOrd[o]?Math.ceil(_potByOrd[o]/CAT_TRUCK_LB):0;
+  // Expected TOTAL loads for the FULL ordered quantity (not just pending) — context for how many the
+  // whole order needs vs the remaining balance still to build.
+  const _totByOrd={};
+  baseRecs.forEach(r=>{ const full=(r.qty||0); if(full<=0) return;
+    const isLB=r.unit!=='PAC'; const pw=_catPackWt(r.sku)||_avgPackWt; const w=isLB?full:full*pw;
+    if(w>0) _totByOrd[r.order]=(_totByOrd[r.order]||0)+w; });
+  const _totOrd=o=>_totByOrd[o]?Math.ceil(_totByOrd[o]/CAT_TRUCK_LB):0;
   // Orders fully held by DP notes aren't built, so they keep their GROSS potential (never netted
   // away by scheduled Outbound loads) — the flag still shows. Everything else nets the scheduled out.
   const _heldOrders=new Set(); { const _bo={}; baseRecs.forEach(r=>{ (_bo[r.order]=_bo[r.order]||[]).push(r); });
     Object.keys(_bo).forEach(o=>{ const ls=_bo[o]; if(ls.some(r=>catNoteHold(r)) && ls.every(r=>catNoteHold(r))) _heldOrders.add(o); }); }
-  const _potOrdEff=o=> _heldOrders.has(o) ? _potOrd(o) : Math.max(0, _potOrd(o) - (_outNet[o]||0));
+  const _potOrdEff=o=> catCompleted(o) ? 0 : (_heldOrders.has(o) ? _potOrd(o) : Math.max(0, _potOrd(o) - (_outNet[o]||0)));
   const _isInProg=o=> !_heldOrders.has(o) && (_outAny[o]||0)>0 && _potOrdEff(o)>0;   // has any scheduled load (shipped or not)
   // Summary "Potential loads" respects the current customer filter (recs), not the whole segment.
   let potentialLoads=0;
@@ -2989,17 +3100,34 @@ function renderCatalyst(){
     _potDateNew[dk]=nNew; _potDateRem[dk]=nRem; });
 
   const _comp=(allocs)=>allocs.map(a=>{ const isLB=_catUpper(a.unit)!=='PAC'; return esc(a.sku)+' '+(isLB?(Math.round(_catNum(a.weight)).toLocaleString()+'lb'):(_catNum(a.qty)+'pk')); }).join(' + ');
+  // Index drafts, catalyst-posted loads, and an object→id map ONCE per render. truckRows then does
+  // cheap lookups instead of re-scanning the whole Outbound board twice per order (the ALL view has
+  // dozens of orders — those repeated scans are what made clicking a filter feel frozen).
+  const _draftsByOrd={}; Object.entries(state.catDrafts||{}).forEach(e=>{ const o=e[1].order; (_draftsByOrd[o]=_draftsByOrd[o]||[]).push(e); });
+  const _postedByOrd={}; const _obId=new Map();
+  Object.entries(state.outbound||{}).forEach(e=>{ const id=e[0], o=e[1]; _obId.set(o,id);
+    if(o.source==='catalyst' && o.catOrder!=null){ (_postedByOrd[o.catOrder]=_postedByOrd[o.catOrder]||[]).push(e); } });
   const truckRows=(ordNo)=>{
-    const drafts=Object.entries(state.catDrafts||{}).filter(([,d])=>d.order===ordNo);
-    const posted=Object.entries(state.outbound||{}).filter(([,o])=>o.source==='catalyst' && o.catOrder===ordNo);
-    if(!drafts.length && !posted.length){
+    const drafts=_draftsByOrd[ordNo]||[];
+    const posted=_postedByOrd[ordNo]||[];
+    // Loads on the calendar for this Order/PO that Catalyst did NOT build (added on Outbound) — show them too.
+    const _po=(_orderPo[ordNo]!=null?_orderPo[ordNo]:'');
+    const _catIds=new Set(posted.map(([id])=>id));
+    // _dupOf already returns just this order's matched loads (memoized) — filter those instead of the whole board.
+    const external=_dupOf(ordNo,_po).filter(o=> _catUpper(o.source||'')!=='CATALYST' && !_catIds.has(_obId.get(o))).map(o=>[_obId.get(o), o]);
+    if(!drafts.length && !posted.length && !external.length){
       return `<tr><td></td><td colspan="${NCOLS-1}" style="padding:5px 14px 5px 48px;font-size:10.5px;color:var(--text2);font-style:italic">No loads built yet for this order.</td></tr>`;
     }
+    // Truck-level duplicate check — match on the numeric order + TRK/TRUCK number, ignoring the "PO"
+    // prefix (so "405346 PO24495 TRK 1" and "405346 24495 TRUCK 1" are the same truck).
+    const _tnOf=s=>{ const m=String(s||'').toUpperCase().match(/(?:TRK|TRUCK)\s*#?\s*(\d+)/); return m?parseInt(m[1],10):0; };
+    const _occupiedTrk=new Set();
+    posted.concat(external).forEach(([,o])=>{ if(_catUpper(o.status)==='CANCELLED') return; const t=_tnOf(o.orderNum)||o.catTruck||0; if(t) _occupiedTrk.add(t); });
     // Normalize drafts + posted into one uniform shape, then render every load the same way.
     const items=[];
-    drafts.forEach(([id,d])=>items.push({ kind:'draft', key:id, bg:'rgba(217,119,6,.06)', canc:false, truck:d.truck||0,
+    drafts.forEach(([id,d])=>{ const _dup=_occupiedTrk.has(d.truck||0); items.push({ kind:'draft', key:id, dup:_dup, bg:_dup?'rgba(185,28,28,.07)':'rgba(217,119,6,.06)', canc:false, truck:d.truck||0,
       id:d.loadId||'', lb:Math.round(d.totalLb||0), pk:_catAllocPk(d.alloc||[]), comp:_comp(d.alloc||[]), iso:(d.date||'').slice(0,10),
-      bBg:'rgba(217,119,6,.16)', bCol:'#b45309', bTxt:'DRAFT · not on calendar' }));
+      bBg:_dup?'rgba(185,28,28,.16)':'rgba(217,119,6,.16)', bCol:_dup?'#b91c1c':'#b45309', bTxt:_dup?('⚠ DUPLICATE · TRUCK '+(d.truck||0)+' already on calendar'):'DRAFT · not on calendar' }); });
     posted.forEach(([id,o])=>{ const canc=_catUpper(o.status)==='CANCELLED';
       const allocs=Array.isArray(o.catAlloc)?o.catAlloc:(o.catSku?[{sku:o.catSku,unit:o.catUnit,weight:o.catWeight,qty:o.catQty}]:[]);
       const lb=o.catTotalLb || allocs.reduce((s,a)=>s+_catNum(a.weight),0);
@@ -3007,25 +3135,49 @@ function renderCatalyst(){
         id:o.orderNum||'', lb:Math.round(lb), pk:_catAllocPk(allocs), comp:allocs.length?_comp(allocs):'', iso:(o.reqDate||'').slice(0,10),
         bBg:canc?'rgba(120,120,120,.15)':'rgba(6,95,70,.12)', bCol:canc?'var(--text2)':'#065f46',
         bTxt:canc?(o.status||''):('ON CALENDAR · '+(o.status||'')) }); });
+    const _rsvMap=_resv(ordNo).byLoad;
+    external.forEach(([id,o])=>{ const canc=_catUpper(o.status)==='CANCELLED';
+      const allocs=Array.isArray(o.catAlloc)?o.catAlloc:[];
+      const lb=o.catTotalLb || (allocs.length?allocs.reduce((s,a)=>s+_catNum(a.weight),0):0);
+      const _m=String(o.orderNum||'').toUpperCase().match(/(?:TRK|TRUCK)\s*#?\s*(\d+)/);
+      // Estimated inventory reserved to this Order-Received load (set aside from available on-hand).
+      const R=_rsvMap[id]; let rsvPk=0,rsvLb=0,rsvComp='',rsvOver=false;
+      if(R && R.alloc){ rsvLb=Math.round(R.lb||0);
+        rsvComp=R.alloc.map(a=>esc(a.sku)+' ×'+(a.isLB?(Math.round(a.amt).toLocaleString()+' lb'):(a.amt+' pk'))).join(' · ');
+        rsvPk=R.alloc.reduce((s,a)=>s+(a.isLB?0:a.amt),0); }
+      else if(R && R.over){ rsvOver=true; }
+      items.push({ kind:'ext', key:id, canc, truck:(_m?parseInt(_m[1],10):(o.catTruck||0)), bg:'rgba(26,58,107,.04)',
+        id:o.orderNum||'', lb:Math.round(lb), pk:allocs.length?_catAllocPk(allocs):0, comp:allocs.length?_comp(allocs):'', iso:(o.reqDate||'').slice(0,10),
+        rsvPk, rsvLb, rsvComp, rsvOver,
+        bBg:canc?'rgba(120,120,120,.15)':'rgba(26,58,107,.12)', bCol:canc?'var(--text2)':'#1a3a6b',
+        bTxt:canc?(o.status||''):('ON CALENDAR · ADDED ON OUTBOUND · '+(o.status||'')) }); });
     items.sort((a,b)=>(a.truck-b.truck) || (a.kind<b.kind?-1:1));
     return items.map(it=>{
       const setFn=it.kind==='draft'?'catSetDraftDate':'catSetPostedDate';
-      const dateCtl=(admin && !it.canc)
+      const dateCtl=(admin && !it.canc && it.kind!=='ext')
         ? `<span style="font-size:10px;color:var(--text2)">Load date</span> <input type="date" value="${esc(it.iso)}" onchange="${setFn}('${esc(it.key)}',this.value)" title="Change this load's date" style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:6px">`
         : `<span style="color:var(--text2);white-space:nowrap">📅 ${esc(fmt(it.iso))}</span>`;
       const postBtn=(it.kind==='draft' && admin)
         ? `<button class="btn" style="font-size:10px;padding:3px 10px;background:#166534;color:#fff;border-color:#166534;white-space:nowrap" onclick="catPostDraft('${esc(it.key)}')" title="Post just this load to the calendar">📅 Post</button>` : '';
       const delBtn=(it.kind==='draft' && admin)
         ? `<button class="btn" style="font-size:11px;padding:2px 8px;color:var(--danger)" title="Discard this draft" onclick="catDiscardDraft('${esc(it.key)}')">✕</button>` : '';
+      const navBtn=(it.kind==='ext')
+        ? `<button class="btn" style="font-size:10px;padding:3px 10px;background:#1a3a6b;color:#fff;border-color:#1a3a6b;white-space:nowrap" title="Open this load on the Outbound tab" onclick="catGoToOutbound('${esc(ordNo).replace(/'/g,"\\'")}')">↗ Outbound</button>` : '';
+      // Reserved-inventory line: estimated on-hand inventory set aside for this Order-Received load.
+      const rsvLine = (it.kind==='ext' && !it.canc && (it.rsvComp || it.rsvOver))
+        ? (it.rsvOver
+            ? `<div style="margin-top:3px;font-size:10px;font-weight:700;color:#b45309">⚠ No on-hand inventory left to reserve — this load is beyond current availability.</div>`
+            : `<div style="margin-top:3px;font-size:10.5px;color:#1a3a6b"><span style="font-weight:800">📦 Reserved inventory ≈ ${it.rsvPk?it.rsvPk.toLocaleString()+' pk · ':''}${it.rsvLb.toLocaleString()} lb</span> <span style="color:var(--text2)">· ${it.rsvComp} <span title="Estimated allocation from available on-hand inventory — these loads were added on Outbound without SKU detail">(est.)</span></span></div>`)
+        : '';
       return `<tr style="background:${it.bg}">
         <td></td>
         <td colspan="${NCOLS-1}" style="padding:6px 14px 6px 48px;font-size:11px;color:${it.canc?'var(--text2)':'var(--text)'}">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <span style="white-space:nowrap">🚚 <b style="${it.canc?'text-decoration:line-through':''}">${esc(it.id)}</b></span>
-            <span style="color:var(--text2)">&middot; ${(it.pk||0).toLocaleString()} pk &middot; ${it.lb.toLocaleString()} lb${it.comp?(' &middot; '+it.comp):''}</span>
+            <span style="color:var(--text2)">${(it.pk||it.lb)?('&middot; '+(it.pk||0).toLocaleString()+' pk &middot; '+it.lb.toLocaleString()+' lb'):''}${it.comp?(' &middot; '+it.comp):''}</span>
             <span style="font-size:9px;font-weight:800;letter-spacing:.3px;padding:1px 7px;border-radius:999px;background:${it.bBg};color:${it.bCol};white-space:nowrap">${esc(it.bTxt)}</span>
-            <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">${dateCtl}${postBtn}${delBtn}</span>
-          </div>
+            <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">${dateCtl}${postBtn}${delBtn}${navBtn}</span>
+          </div>${rsvLine}
         </td></tr>`;
     }).join('');
   };
@@ -3053,15 +3205,18 @@ function renderCatalyst(){
           const lines=ord[ordNo]; const g=lines[0];
           const plan=_plan(ordNo);
           // Distinct statuses of any load already on the Outbound calendar for this order.
-          const _outDup=catOutboundDup(ordNo, g.po);
-          const _outStatuses=[...new Set(_outDup.map(o=>String(o.status||'').trim().toUpperCase()).filter(Boolean))];
+          const _outDup=_dupOf(ordNo, g.po);
+          // Count of calendar loads at each status for this Order/PO (built by the tool or added elsewhere).
+          const _outCounts={}; _outDup.forEach(o=>{ const s=String(o.status||'').trim().toUpperCase(); if(s) _outCounts[s]=(_outCounts[s]||0)+1; });
+          const _outStatuses=Object.keys(_outCounts);
           const _hasOut=_outStatuses.length>0;
-          const outBadge=_outStatuses.map(s=>`<span title="This order has a load on the Outbound calendar" style="font-size:8.5px;font-weight:800;color:#1a3a6b;background:rgba(26,58,107,.12);padding:1px 6px;border-radius:4px;white-space:nowrap;margin-left:5px">📅 ${esc(s)}</span>`).join('');
+          const outBadge=_outStatuses.map(s=>`<span title="${_outCounts[s]} load${_outCounts[s]>1?'s':''} on the Outbound calendar for this order at ${esc(s)}" style="font-size:8.5px;font-weight:800;color:#1a3a6b;background:rgba(26,58,107,.12);padding:1px 6px;border-radius:4px;white-space:nowrap;margin-left:5px">📅 ${esc(s)} <span style="background:rgba(26,58,107,.22);padding:0 4px;border-radius:999px">${_outCounts[s]}</span></span>`).join('');
           const draftN = Object.values(state.catDrafts||{}).filter(d=>d.order===ordNo).length;
           const noteHeld = lines.every(r=>catNoteHold(r)) && lines.some(r=>catNoteHold(r));
           const _ext=_extNet[ordNo]||0;                 // unshipped external (non-Catalyst) loads still to net
           const netBuild=_netBuild(ordNo);              // trucks still to build after those
           const ordPot = _potOrdEff(ordNo);
+          const _totLoads = _totOrd(ordNo);             // expected loads for the FULL ordered quantity
           const _inProg = _isInProg(ordNo);             // some loads already scheduled (held orders excluded)
           const potBadge = ordPot>0 ? `<span title="${_inProg?'Loads still to build after those already scheduled on Outbound':'Loads the full ordered quantity would fill (ignores on-hand inventory)'}" style="float:right;margin-left:10px;font-size:13px;font-weight:800;letter-spacing:.3px;padding:3px 13px;border-radius:999px;background:${_inProg?'rgba(180,83,9,.14)':'rgba(124,58,237,.14)'};color:${_inProg?'#b45309':'#7c3aed'};white-space:nowrap">~${ordPot} POTENTIAL LOAD${ordPot>1?'S':''}${_inProg?' REMAINING':''}</span>` : '';
           const _oc=!!(state.catCol||{})['O:'+ordNo];
@@ -3070,12 +3225,28 @@ function renderCatalyst(){
           const _relBy=(state.catReleased&&state.catReleased[_relKey(ordNo)]&&state.catReleased[_relKey(ordNo)].by)||'';
           const relBtn=(admin && _rawHeld && !_released)?` <button class="btn" style="font-size:10px;padding:3px 10px;margin-left:10px;background:#166534;color:#fff;border-color:#166534" title="Release this block/hold so the order can build" onclick="catReleaseOrder('${esc(ordNo)}')">🔓 Release Hold</button>`:'';
           const relTag=_released?` <span style="font-weight:800;color:#166534;font-size:10px;margin-left:8px" title="Manually released${_relBy?(' by '+esc(_relBy)):''}">🔓 RELEASED</span>${admin?` <button class="btn" style="font-size:9px;padding:2px 8px;margin-left:2px;color:var(--danger)" title="Re-apply the hold" onclick="catUnreleaseOrder('${esc(ordNo)}')">↩ Re-hold</button>`:''}`:'';
+          // Short override — build with on-hand inventory even though demand is nominally short a partial roll.
+          const _shortOvr=catShortOverridden(ordNo);
+          const _ovrBy=(state.catShortOvr&&state.catShortOvr[_relKey(ordNo)]&&state.catShortOvr[_relKey(ordNo)].by)||'';
+          const ovrTag=_shortOvr?` <span style="font-weight:800;color:#166534;font-size:10px;margin-left:8px" title="Short overridden — building with on-hand inventory${_ovrBy?(' · by '+esc(_ovrBy)):''}">⚒ BUILDING WITH AVAILABLE</span>${admin?` <button class="btn" style="font-size:9px;padding:2px 8px;margin-left:2px;color:var(--danger)" title="Restore the short hold" onclick="catUnoverrideShort('${esc(ordNo)}')">↩ Undo</button>`:''}`:'';
+          // Complete order — close it out and write off any remaining balance (e.g. a sub-roll sliver).
+          const _completed=catCompleted(ordNo);
+          const _compBy=(state.catCompleted&&state.catCompleted[_relKey(ordNo)]&&state.catCompleted[_relKey(ordNo)].by)||'';
+          let _ordBalLb=0;
+          if(!_completed){ const _rs2=_resv(ordNo); lines.forEach(r=>{ const _lb=r.unit!=='PAC'; const _pw2=_lb?(_catPackWt(r.sku)||_avgPackWt):0;
+            const rr=catRemaining(r,com); const rx=_lb?(_rs2.reservedLb[r.sku]||0):(_rs2.reservedPk[r.sku]||0);
+            const balNat=Math.max(0, rr-rx); _ordBalLb += _lb?balNat:balNat*(_pw2||_avgPackWt); }); }
+          const compTag=_completed?` <span style="font-weight:800;color:#166534;font-size:10px;margin-left:8px" title="Order closed — remaining balance written off${_compBy?(' · by '+esc(_compBy)):''}">✓ COMPLETE</span>${admin?` <button class="btn" style="font-size:9px;padding:2px 8px;margin-left:2px;color:var(--danger)" title="Reopen this order" onclick="catUncompleteOrder('${esc(ordNo)}')">↩ Reopen</button>`:''}`:'';
           let statusHtml='';
           if(noteHeld){
             statusHtml = `<span style="font-weight:800;color:#b91c1c;margin-left:10px">⛔ ON HOLD per notes — not building</span>`+relBtn;
           } else if(plan.blocked){
             const sh=(plan.short||[]).map(x=>esc(x.sku)+' '+x.short.toLocaleString()+(x.isLB?' lb':' pk')).join(', ');
-            statusHtml = `<span style="font-weight:800;color:#b45309;margin-left:10px">⚠ SHORT ${sh} — waiting on inventory</span>`;
+            // How much CAN build right now from on-hand inventory (ignores the short gate).
+            const _shp=catOrderShippable(ordNo,com); const _shLb=_shp.reduce((s,l)=>s+l.shipLb,0);
+            const _allPartial=(plan.short||[]).every(x=>x.isLB);   // every shortfall is a weight (partial-roll) short
+            statusHtml = `<span style="font-weight:800;color:#b45309;margin-left:10px">⚠ SHORT ${sh} — waiting on inventory</span>`
+              + ((admin && _shLb>0)?` <button class="btn" style="font-size:10px;padding:3px 10px;margin-left:10px;background:#b45309;color:#fff;border-color:#b45309" title="${_allPartial?'The shortfall is a partial roll that cannot ship anyway. ':''}Override the short and build a load with the on-hand inventory (~${Math.round(_shLb).toLocaleString()} lb)." onclick="catOverrideShort('${esc(ordNo)}')">⚒ Build with available (~${Math.round(_shLb).toLocaleString()} lb)</button>`:'');
           } else if(netBuild>0){
             statusHtml = `<span style="font-weight:600"> &middot; ${Math.round(plan.totalLb).toLocaleString()} lb to ship</span>`
               + (_ext>0?` <span style="font-weight:700;color:#166534;font-size:10px">(${_ext} already on Outbound)</span>`:'')
@@ -3085,13 +3256,16 @@ function renderCatalyst(){
           } else if(_rawHeld && !_released){
             statusHtml = `<span style="font-weight:800;color:#b91c1c;margin-left:10px">⛔ BLOCKED — not building</span>`+relBtn;
           }
-          statusHtml += relTag;
+          // Offer "Complete order" when the tool expects no more full loads but a balance lingers (e.g. a sub-roll sliver).
+          const compBtn=(admin && !_completed && _ordBalLb>=1 && !noteHeld && netBuild<=0)
+            ? ` <button class="btn" style="font-size:10px;padding:3px 10px;margin-left:8px;background:#166534;color:#fff;border-color:#166534" title="Close this order and zero the remaining ~${Math.round(_ordBalLb).toLocaleString()} lb balance — no further loads expected" onclick="catCompleteOrder('${esc(ordNo)}')">✓ Complete order</button>` : '';
+          statusHtml += relTag + ovrTag + compTag + compBtn;
           const postBtn = (admin && draftN>0)
             ? `<button class="btn" style="font-size:10px;padding:3px 10px;margin-left:8px;background:#166534;color:#fff;border-color:#166534" onclick="catPostOrder('${esc(ordNo)}')">📅 Post ${draftN} to Calendar</button>`
             : '';
           body+=`<tr><td colspan="${NCOLS}" style="background:rgba(0,0,0,.02);color:#111827;padding:7px 14px 7px 38px;font-size:13px;font-weight:800;line-height:1.7">${potBadge}
             <span onclick="catToggleCol('O:${esc(ordNo)}')" style="cursor:pointer;user-select:none">${_oc?'▸':'▾'}</span> ${esc(ordNo)}${g.po?('<span style="font-weight:800"> &middot; PO '+esc(g.po)+'</span>'):''}
-            <span style="font-weight:800"> &middot; ${esc(g.dest||'')} &middot; ${lines.length} line${lines.length>1?'s':''}</span>
+            <span style="font-weight:800"> &middot; ${esc(g.dest||'')} &middot; ${lines.length} line${lines.length>1?'s':''}</span>${_totLoads>0?`<span style="font-weight:800;color:#1a3a6b;margin-left:4px" title="Expected total loads for the FULL ordered quantity (ignores delivered & on-hand inventory). The POTENTIAL LOADS badge on the right is the remaining balance still to build.">&middot; ~${_totLoads} total load${_totLoads>1?'s':''} for full order</span>`:''}
             ${statusHtml}${postBtn}</td></tr>`;
           if(!_oc){
           lines.forEach(r=>{
@@ -3105,23 +3279,58 @@ function renderCatalyst(){
             const bucket=catShipBucket(r);
             const gmCol=bucket==='OKAY'?'#065f46':'#b45309', gmBg=bucket==='OKAY'?'rgba(6,95,70,.12)':'rgba(180,83,9,.12)';
             const blocked = catBlocked(r);   // respects manual release
-            const availCell = av
-              ? ((av.lbs>0||av.rolls>0)
-                  ? (isLB
-                      ? Math.round(av.lbs).toLocaleString()+' lb<br><span style="color:var(--text2);font-size:10px">'+av.rolls+' pk'+(av.rawLbs!==av.lbs?(' · of '+Math.round(av.rawLbs).toLocaleString()+' lb'):'')+'</span>'
-                      : '<b>'+av.rolls+' pk</b><br><span style="color:var(--text2);font-size:10px">'+Math.round(av.lbs).toLocaleString()+' lb'+(av.rawRolls!==av.rolls?(' · of '+av.rawRolls+' pk on file'):'')+'</span>')
-                  : '<span style="color:var(--danger)">0 available</span>')
-              : '<span style="color:var(--text2)">—</span>';
+            // Judge availability by the line's own unit so a sub-pack weight rounding residual
+            // (e.g. 1 lb left when 0 packs remain) doesn't read as "available" on a PAC line.
+            const _hasAvail = av ? (isLB ? (av.lbs > 0.5) : (av.rolls > 0)) : false;   // av is null when the SKU isn't in the inventory import (e.g. make-and-hold orders) — guard it
+            // Inventory reserved to Order-Received calendar loads already scheduled for this order.
+            const _rsv = _resv(ordNo);
+            const _resPk = isLB ? 0 : (_rsv.reservedPk[r.sku]||0);
+            const _resLb = isLB ? (_rsv.reservedLb[r.sku]||0) : 0;
+            const _hasResv = av && _rsv.n>0 && (isLB ? _resLb>0.5 : _resPk>0);
+            const _freeLb = av ? Math.max(0, av.lbs - _resLb) : 0;
+            const _freePk = av ? Math.max(0, av.rolls - _resPk) : 0;
+            const _schTxt = _rsv.n+' sched load'+(_rsv.n>1?'s':'');
+            const availCell = !av
+              ? '<span style="color:var(--text2)">—</span>'
+              : (_hasResv
+                  // Net the headline down to what's FREE for the final load; show what's reserved + on-hand.
+                  ? ((isLB ? _freeLb>0.5 : _freePk>0)
+                        ? '<b>'+(isLB?(Math.round(_freeLb).toLocaleString()+' lb'):(_freePk+' pk'))+'</b> <span style="color:#065f46;font-size:9px;font-weight:800">FREE</span>'
+                        : '<span style="color:var(--danger);font-weight:800">0 free</span>')
+                    + '<br><span style="color:#1a3a6b;font-size:9px;font-weight:700" title="Inventory set aside for the '+_rsv.n+' Order Received load'+(_rsv.n>1?'s':'')+' already on the calendar">⇢ '+(isLB?(Math.round(_resLb).toLocaleString()+' lb'):(_resPk+' pk'))+' reserved · '+_schTxt+'</span>'
+                    + '<br><span style="color:var(--text2);font-size:9px">'+(isLB?(Math.round(av.lbs).toLocaleString()+' lb'):(av.rolls+' pk'))+' on hand</span>'
+                  : (_hasAvail
+                      ? (isLB
+                          ? Math.round(av.lbs).toLocaleString()+' lb<br><span style="color:var(--text2);font-size:10px">'+av.rolls+' pk'+(av.rawLbs!==av.lbs?(' · of '+Math.round(av.rawLbs).toLocaleString()+' lb'):'')+'</span>'
+                          : '<b>'+av.rolls+' pk</b><br><span style="color:var(--text2);font-size:10px">'+Math.round(av.lbs).toLocaleString()+' lb'+(av.rawRolls!==av.rolls?(' · of '+av.rawRolls+' pk on file'):'')+'</span>')
+                      : ('<span style="color:var(--danger)">0 available</span>'
+                          + ((av.rawRolls>0||av.rawLbs>0)
+                              ? ('<br><span style="color:var(--text2);font-size:10px">of '+(isLB?(Math.round(av.rawLbs).toLocaleString()+' lb'):(av.rawRolls+' pk'))+' on file &middot; fully committed</span>')
+                              : ''))));
             const _remI=isLB?Math.round(rem):Math.floor(rem); const _avI=av?(isLB?Math.floor(av.lbs):Math.floor(av.rolls)):0;
-            const shortNote=(!catNoteHold(r) && _remI-_avI>0)?('<br><span style="color:#b45309;font-size:9px;font-weight:800;letter-spacing:.3px">SHORT '+(_remI-_avI).toLocaleString()+' '+(isLB?'lb':'pk')+'</span>'):'';
+            const shortNote=(!catNoteHold(r) && !_completed && _remI-_avI>0)?('<br><span style="color:#b45309;font-size:9px;font-weight:800;letter-spacing:.3px">SHORT '+(_remI-_avI).toLocaleString()+' '+(isLB?'lb':'pk')+'</span>'):'';
+            // Column math (always ties out):  ORDER QTY = SHIPPED + RESERVED + BALANCE
+            //   SHIPPED   = delivered to date (SAP del)
+            //   RESERVED  = committed to planned loads not yet shipped = built-by-tool + reserved to Order-Received calendar loads
+            //   BALANCE   = still to plan onto the final load = remaining − reserved-to-calendar
+            const _resvNat = isLB ? _resLb : _resPk;             // reserved to external Order-Received loads
+            const _reserved = (built||0) + _resvNat;             // total on planned (not-yet-shipped) loads
+            const _balance = Math.max(0, rem - _resvNat);        // free to plan onto the final load
+            const _u = isLB ? ' lb' : '';
+            const _pkApprox = v => (isLB && _pw>0 && v>0) ? ('<br><span style="color:var(--text2);font-size:10px;font-weight:400">≈ '+Math.round(v/_pw).toLocaleString()+' pk</span>') : '';
+            // Qty Reserved cell — show the built / scheduled split underneath when both are present.
+            const _rsvSplit = (built>0 && _resvNat>0)
+              ? '<br><span style="color:var(--text2);font-size:9px;font-weight:700">'+built.toLocaleString()+' built · '+Math.round(_resvNat).toLocaleString()+' sched</span>'
+              : (_resvNat>0 ? '<br><span style="color:#1a3a6b;font-size:9px;font-weight:700">'+_rsv.n+' sched load'+(_rsv.n>1?'s':'')+'</span>'
+                 : (built>0 ? '<br><span style="color:var(--text2);font-size:9px;font-weight:700">built on tool loads</span>' : ''));
             // rem<=0 can mean two different things — distinguish them so the badge isn't misleading:
-            //  • built here into a Catalyst load        → ✓ LOADED (green)
+            //  • planned here into Catalyst loads        → ✓ COMPLETELY PLANNED (green) — scheduled/built, not physically loaded
             //  • already delivered per S/T (no pending)  → ✓ DELIVERED (blue) — nothing to build
             const _delivered = (r.pending!=null ? r.pending<=0 : false) && (r.delivered||0)>0;
             const action = rem>0
               ? '<span style="color:var(--text2);font-size:11px">—</span>'
               : (built>0
-                  ? '<span title="Built into a Catalyst load" style="font-size:10px;font-weight:800;color:#065f46;background:rgba(6,95,70,.12);padding:3px 9px;border-radius:999px;white-space:nowrap">✓ LOADED</span>'
+                  ? '<span title="All remaining quantity is accounted for on scheduled/built Catalyst loads (planned — not yet physically loaded)" style="font-size:10px;font-weight:800;color:#065f46;background:rgba(6,95,70,.12);padding:3px 9px;border-radius:999px;white-space:nowrap">✓ COMPLETELY PLANNED</span>'
                   : (_delivered
                       ? '<span title="Already delivered per columns S/T — nothing left to load" style="font-size:10px;font-weight:800;color:#1a3a6b;background:rgba(26,58,107,.12);padding:3px 9px;border-radius:999px;white-space:nowrap">✓ DELIVERED</span>'
                       : '<span title="No remaining quantity to load" style="font-size:10px;font-weight:800;color:#065f46;background:rgba(6,95,70,.12);padding:3px 9px;border-radius:999px;white-space:nowrap">✓ DONE</span>'));
@@ -3134,12 +3343,13 @@ function renderCatalyst(){
               <td class="sd-ship" style="white-space:nowrap">${esc(r.sku)}${(r.material&&r.material!==r.sku)?('<br><span style="color:var(--text2);font-size:10px">'+esc(r.material)+'</span>'):''}</td>
               <td class="sd-num">${r.width?r.width:''}</td>
               <td class="sd-c">${esc(r.unit)}</td>
-              <td class="sd-num" style="font-weight:800">${(r.qty||0).toLocaleString()}${isLB?' lb':''}${(isLB&&_qtyPk>0)?('<br><span style="color:var(--text);font-size:10px;font-weight:800">≈ '+_qtyPk.toLocaleString()+' pk</span>'):''}<br><span style="color:var(--text);font-size:9.5px;font-weight:800">del ${Math.round(r.delivered||0).toLocaleString()} &middot; pend ${Math.round(r.pending!=null?r.pending:(r.qty||0)).toLocaleString()}</span></td>
               <td class="sd-num">${availCell}${shortNote}</td>
-              <td class="sd-num">${built?built.toLocaleString():'<span style=\"color:var(--text2)\">0</span>'}</td>
-              <td class="sd-num" style="font-weight:700;color:${rem>0?'var(--text)':'#065f46'}">${rem.toLocaleString()}${isLB?' lb':''}${(isLB&&_remPk>0)?('<br><span style="color:var(--text2);font-size:10px;font-weight:400">≈ '+_remPk.toLocaleString()+' pk</span>'):''}</td>
+              <td class="sd-num" style="font-weight:800">${(r.qty||0).toLocaleString()}${_u}${(isLB&&_qtyPk>0)?('<br><span style="color:var(--text);font-size:10px;font-weight:800">≈ '+_qtyPk.toLocaleString()+' pk</span>'):''}</td>
+              <td class="sd-num" title="Delivered to date (SAP)">${Math.round(r.delivered||0).toLocaleString()}${_u}${_pkApprox(r.delivered||0)}</td>
+              <td class="sd-num" style="font-weight:700;color:#1a3a6b" title="On planned loads not yet shipped — built on tool loads plus inventory reserved to Order-Received calendar loads">${_reserved?Math.round(_reserved).toLocaleString()+_u:'<span style=\"color:var(--text2)\">0</span>'}${_pkApprox(_reserved)}${_rsvSplit}</td>
+              <td class="sd-num" style="font-weight:800;color:${(_completed||_balance<=0)?'#065f46':'var(--text)'}" title="${_completed?('Order closed — '+Math.round(_balance).toLocaleString()+(isLB?' lb':' pk')+' balance written off'):'Still to plan onto the final load (remaining after reserved)'}">${_completed?'✓ Complete':(_balance>0?(Math.round(_balance).toLocaleString()+_u+_pkApprox(_balance)):'<span style="color:#065f46">0</span>')}</td>
               <td style="white-space:nowrap">${action}</td>
-              <td style="white-space:nowrap;color:var(--text2);font-size:11px">${esc((r.notes||'').slice(0,40))}</td>
+              <td style="white-space:normal;overflow-wrap:anywhere;color:var(--text2);font-size:11px;line-height:1.3">${esc((r.notes||'').slice(0,80))}</td>
             </tr>`;
           });
           if(!shownTrucks[ordNo]){ shownTrucks[ordNo]=true; body+=truckRows(ordNo); }
@@ -3211,10 +3421,15 @@ function renderCatalyst(){
   </div>
   <div class="sd-wrap">
     <table class="sd-table">
+      <colgroup>
+        <col style="width:11%"><col style="width:7.5%"><col style="width:3.8%"><col style="width:7%">
+        <col style="width:4.8%"><col style="width:4.2%"><col style="width:9.5%"><col style="width:7.5%">
+        <col style="width:7.5%"><col style="width:9%"><col style="width:7.5%"><col style="width:9.4%"><col style="width:11.8%">
+      </colgroup>
       <thead><tr>
         <th>Ship Status</th><th>Deliv. Date</th><th class="sd-c">Line</th><th>SKU</th>
-        <th class="sd-r">Width</th><th class="sd-c">Unit</th><th class="sd-r">Order Qty</th><th class="sd-r">Inv Avail</th>
-        <th class="sd-r">Loaded</th><th class="sd-r">Remaining</th><th></th><th>Notes</th>
+        <th class="sd-r">Width</th><th class="sd-c">Unit</th><th class="sd-r">Inv Avail</th><th class="sd-r">Order Qty</th>
+        <th class="sd-r">Qty Shipped</th><th class="sd-r">Qty Reserved</th><th class="sd-r">Balance</th><th></th><th>Notes</th>
       </tr></thead>
       <tbody>${body}</tbody>
     </table>
@@ -4888,7 +5103,7 @@ const DOMTAR_STATUSES  = FF_STATUSES.concat(['DEL TO CUSTOMER']);
 function toggleDTCust(full){ state.dtCustFilter = (state.dtCustFilter===full) ? null : full; renderDomtar(); }
 function dtFiltering(){ const f=state.dtColFilter||{}; return Object.keys(f).some(k=>(f[k]||'').trim()); }
 function dtColMatch(r){ return _ffLikeMatch(state.dtColFilter||{}, r); }
-function setDtFilter(field, v){ state.dtColFilter[field]=v; renderDomtar(); refocusFilter('dt-filter-'+field); }
+function setDtFilter(field, v){ state.dtColFilter[field]=v; _debounceBoardFilter('dt','dt-filter-'+field); }
 function dtSorting(){ return !!(state.dtSort && state.dtSort.field); }
 function renderDomtar(){
   const view = document.getElementById('view-domtar');
@@ -5488,25 +5703,33 @@ function clearObSearch() {
 // ─── PER-COLUMN HEADER FILTERS ─────────────────────────────────────────
 function _colHit(val, q){ return !q || String(val||'').toUpperCase().indexOf(String(q).trim().toUpperCase()) > -1; }
 function refocusFilter(id){ const el=document.getElementById(id); if(el){ el.focus(); const L=el.value.length; try{ el.setSelectionRange(L,L); }catch(e){} } }
+// Column-filter typing used to re-render the whole board on every keystroke (fast on paste — one event —
+// but laggy when typing). Debounce so keystrokes coalesce into one render, like the search boxes.
+// State is set instantly so the native input stays responsive and in sync; the render fires after a pause.
+let _colFilterTimer=null;
+function _debounceBoardFilter(board, focusId){
+  clearTimeout(_colFilterTimer);
+  _colFilterTimer=setTimeout(()=>{ _boardRender(board); refocusFilter(focusId); }, 140);
+}
 // Board dispatch so the same header filter / sort widgets work across ib, ob, ff, pwd
 function _boardSortKey(board){ return board==='ib'?'ibSort':board==='ob'?'obSort':board==='ff'?'ffSort':board==='dt'?'dtSort':'pwdSort'; }
 function _boardFilter(board){ return board==='ib'?state.ibColFilter:board==='ob'?state.obColFilter:board==='ff'?state.ffColFilter:board==='dt'?state.dtColFilter:state.pwdColFilter; }
 function _boardRender(board){ if(board==='ib')renderInbound(); else if(board==='ob')renderOutbound(); else if(board==='ff')renderFirstFleet(); else if(board==='dt')renderDomtar(); else renderPWD(); }
 function ibFiltering(){ const f=state.ibColFilter||{}; return !!((f.customer||'').trim() || (f.loadNum||'').trim() || (f.unloader||'').trim()); }
 function ibColMatch(r){ const f=state.ibColFilter||{}; return _colHit(r.customer,f.customer) && _colHit(r.loadNum,f.loadNum) && _colHit(r.unloader,f.unloader); }
-function setIbFilter(field, v){ state.ibColFilter[field]=v; renderInbound(); refocusFilter('ib-filter-'+field); }
+function setIbFilter(field, v){ state.ibColFilter[field]=v; _debounceBoardFilter('ib','ib-filter-'+field); }
 function obFiltering(){ const f=state.obColFilter||{}; return !!((f.customer||'').trim() || (f.orderNum||'').trim() || (f.picker||'').trim() || (f.loader||'').trim() || (f.trailer||'').trim()); }
 function obColMatch(r){ const f=state.obColFilter||{}; return _colHit(r.customer,f.customer) && _colHit(r.orderNum,f.orderNum) && _colHit(r.picker,f.picker) && _colHit(r.loader,f.loader) && _colHit(r.trailer,f.trailer); }
-function setObFilter(field, v){ state.obColFilter[field]=v; renderOutbound(); refocusFilter('ob-filter-'+field); }
+function setObFilter(field, v){ state.obColFilter[field]=v; _debounceBoardFilter('ob','ob-filter-'+field); }
 // FF / PWD share the same columns (status, carrier, customer, orig req date, load id, door, trailer, driver, notes)
 function _ffLikeMatch(f, r){ return _colHit(r.status,f.status) && _colHit(r.carrier,f.carrier) && _colHit(r.customer,f.customer) && _colHit((r.origReqDate||r.reqDate||'').slice(0,10),f.origReqDate) && _colHit(r.loadId,f.loadId) && _colHit(r.destination,f.destination) && _colHit(r.door,f.door) && _colHit(r.trailer,f.trailer) && _colHit(r.driver,f.driver) && _colHit(r.phone,f.phone) && _colHit(r.notes,f.notes); }
 function ffFiltering(){ const f=state.ffColFilter||{}; return Object.keys(f).some(k=>(f[k]||'').trim()); }
 function ffColMatch(r){ return _ffLikeMatch(state.ffColFilter||{}, r); }
-function setFfFilter(field, v){ state.ffColFilter[field]=v; renderFirstFleet(); refocusFilter('ff-filter-'+field); }
+function setFfFilter(field, v){ state.ffColFilter[field]=v; _debounceBoardFilter('ff','ff-filter-'+field); }
 function ffSorting(){ return !!(state.ffSort && state.ffSort.field); }
 function pwdFiltering(){ const f=state.pwdColFilter||{}; return Object.keys(f).some(k=>(f[k]||'').trim()); }
 function pwdColMatch(r){ return _ffLikeMatch(state.pwdColFilter||{}, r); }
-function setPwdFilter(field, v){ state.pwdColFilter[field]=v; renderPWD(); refocusFilter('pwd-filter-'+field); }
+function setPwdFilter(field, v){ state.pwdColFilter[field]=v; _debounceBoardFilter('pwd','pwd-filter-'+field); }
 function pwdSorting(){ return !!(state.pwdSort && state.pwdSort.field); }
 // Header cell with a built-in free-type filter input under the label
 function thFilter(label, board, field, width){
